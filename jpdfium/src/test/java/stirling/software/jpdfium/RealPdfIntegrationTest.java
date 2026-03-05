@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests validating full document processing lifecycle including extraction, search, and redaction.
+ * Integration tests that exercise real PDF behaviour — text extraction, search, redaction round-trip.
  * Runs only when the {@code jpdfium.integration} system property is set to {@code true}.
  *
  * <p>Run with: {@code ./gradlew :jpdfium-document:integrationTest}
@@ -18,11 +18,11 @@ class RealPdfIntegrationTest {
 
     private static Path pdfPath() throws Exception {
         var url = RealPdfIntegrationTest.class.getResource("/pdfs/general/minimal.pdf");
-        assertNotNull(url, "minimal.pdf test resource missing - expected at pdfs/general/minimal.pdf");
+        assertNotNull(url, "minimal.pdf test resource missing");
         return Path.of(url.toURI());
     }
 
-
+    
     @Test
     void renderedPageHasNonWhitePixels() throws Exception {
         try (var doc  = PdfDocument.open(pdfPath());
@@ -45,7 +45,7 @@ class RealPdfIntegrationTest {
         }
     }
 
-
+    
     @Test
     void textExtractionReturnsCharData() throws Exception {
         try (var doc  = PdfDocument.open(pdfPath());
@@ -79,7 +79,7 @@ class RealPdfIntegrationTest {
         }
     }
 
-
+    
     @Test
     void patternRedactRemovesContent() throws Exception {
         byte[] redacted;
@@ -112,7 +112,7 @@ class RealPdfIntegrationTest {
         }
     }
 
-
+    
     @Test
     void saveBytesThenReopenPreservesPageCount() throws Exception {
         try (var doc = PdfDocument.open(pdfPath())) {

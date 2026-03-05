@@ -87,17 +87,16 @@ public final class PdfRedactor {
         for (int i = 0; i < totalPages; i++) {
             int matchesOnPage;
             try (PdfPage page = doc.page(i)) {
+                // Apply Object Fission redaction (character-level precision)
                 matchesOnPage = page.redactWordsEx(words, options.boxColor(), options.padding(),
                         options.wholeWord(), options.useRegex(), options.removeContent(),
                         options.caseSensitive());
 
-                // Flatten bakes any redaction annotation rectangles into the page content
-                // so they cannot be toggled off or removed by a PDF viewer.
+                // Flatten annotations into the content stream
                 page.flatten();
             }
 
-            // Image conversion is the highest-security option: it eliminates all remaining
-            // vector and text content that survived redaction, leaving only raster pixels.
+            // Convert to image if requested (most secure — strips all text)
             if (options.convertToImage()) {
                 doc.convertPageToImage(i, options.imageDpi());
             }

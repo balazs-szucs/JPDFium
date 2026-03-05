@@ -46,7 +46,7 @@ public class S01_Render {
                         PageSize size = page.size();
                         RenderResult result = page.renderAt(DPI);
 
-                        Path png = outDir.resolve("page-" + i + ".png");
+                        Path png = outDir.resolve(SampleBase.stem(input) + "-page-" + i + ".png");
                         ImageIO.write(result.toBufferedImage(), "PNG", png.toFile());
                         produced.add(png);
 

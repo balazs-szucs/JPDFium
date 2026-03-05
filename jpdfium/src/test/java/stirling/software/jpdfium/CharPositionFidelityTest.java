@@ -17,10 +17,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * After redacting all SSN patterns, non-digit text ("Hello World") must remain in
  * exactly the same coordinates as before. Any coordinate shift indicates the algorithm
  * is incorrectly repositioning surviving text fragments.
- *
- * Historically, when Object Fission prefix/suffix fragments were not pinned via
- * FPDFText_GetCharOrigin, the text renderer shifted surviving text to fill the gap
- * left by removed characters. These tests make that regression immediately detectable.
  */
 @EnabledIfSystemProperty(named = "jpdfium.integration", matches = "true")
 class CharPositionFidelityTest {

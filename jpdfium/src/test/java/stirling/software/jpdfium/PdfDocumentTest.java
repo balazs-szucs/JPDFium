@@ -42,7 +42,7 @@ class PdfDocumentTest {
 
     @Test
     void openProtected() throws Exception {
-        // Validate that opening a non-password-protected PDF with an empty password succeeds
+        // Minimal PDF is not password-protected — open with empty password succeeds
         try (var doc = PdfDocument.open(pdfPath(), "")) {
             assertEquals(3, doc.pageCount());
         }
@@ -121,7 +121,7 @@ class PdfDocumentTest {
     void redactWordsEx() throws Exception {
         try (var doc  = PdfDocument.open(pdfPath());
              var page = doc.page(0)) {
-            // Validates the Object Fission extraction API to ensure match count is non-negative
+            // Exercise the Object Fission API — match count should be >= 0
             int matches = page.redactWordsEx(
                     new String[]{"Hello", "World"},
                     0xFF000000, 0.0f,

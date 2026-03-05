@@ -20,16 +20,16 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <h2>Testing strategies</h2>
  * <ol>
- *   <li><strong>Coordinate Tracking</strong> - extracts character positions via
+ *   <li><strong>Coordinate Tracking</strong> — extracts character positions via
  *       {@code FPDFText_GetCharOrigin} before and after redaction, asserts non-redacted
  *       characters keep their absolute position (within 0.5 pt tolerance).</li>
- *   <li><strong>Text Removal</strong> - redacted patterns are completely absent from
+ *   <li><strong>Text Removal</strong> — redacted patterns are completely absent from
  *       extracted text.</li>
- *   <li><strong>Non-redacted Survival</strong> - verifies specific anchor texts remain
+ *   <li><strong>Non-redacted Survival</strong> — verifies specific anchor texts remain
  *       searchable/extractable after redaction.</li>
- *   <li><strong>Visual Regression</strong> - renders pages before/after, asserts &le;5%
+ *   <li><strong>Visual Regression</strong> — renders pages before/after, asserts &le;5%
  *       pixel difference (only the redaction boxes should change).</li>
- *   <li><strong>Structural Assertions</strong> - avoids crashing on edge cases (empty pages,
+ *   <li><strong>Structural Assertions</strong> — no crash on edge cases (empty pages,
  *       single characters, 100-page documents, non-text pages, etc.).</li>
  * </ol>
  *
@@ -54,8 +54,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ObjectFissionCoordinateTest {
 
-    // Constants
-
+        // Constants
+    
     private static final String SSN_PATTERN = "\\d{3}-\\d{2}-\\d{4}";
     private static final String SSN1 = "123-45-6789";
     private static final String SSN2 = "987-65-4321";
@@ -76,8 +76,8 @@ class ObjectFissionCoordinateTest {
             "\"b\":" + NUM + ",\"t\":" + NUM + "\\}"
     );
 
-    // Helper records & methods
-
+        // Helper records & methods
+    
     record CharPos(int index, int unicode, double ox, double oy,
                    double l, double r, double b, double t) {
         String ch() { return Character.toString(unicode); }
@@ -85,7 +85,7 @@ class ObjectFissionCoordinateTest {
 
     private static Path testPdf(String name) throws Exception {
         var url = ObjectFissionCoordinateTest.class.getResource("/pdfs/redact/" + name);
-        assertNotNull(url, name + " not found on classpath - run RedactTestPdfGenerator first");
+        assertNotNull(url, name + " not found on classpath — run RedactTestPdfGenerator first");
         return Path.of(url.toURI());
     }
 
@@ -206,8 +206,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 1. FONT ENCODING - Coordinate Preservation
-
+        // 1. FONT ENCODING — Coordinate Preservation
+    
     @Order(1)
     @ParameterizedTest(name = "[{0}] suffix text does not shift after SSN redaction")
     @CsvSource({
@@ -236,8 +236,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 2. PATTERN POSITION - start / end / entire / cross-object
-
+        // 2. PATTERN POSITION — start / end / entire / cross-object
+    
     @Order(2)
     @Test
     void patternAtStart_suffixPreserved() throws Exception {
@@ -312,8 +312,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 3. MULTI-SSN SAME LINE
-
+        // 3. MULTI-SSN SAME LINE
+    
     @Order(3)
     @Test
     void multiSsnSameLine_intermediateAndSuffixPreserved() throws Exception {
@@ -357,8 +357,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 4. TEXT REMOVAL VERIFICATION
-
+        // 4. TEXT REMOVAL VERIFICATION
+    
     @Order(4)
     @ParameterizedTest(name = "[{0}] SSN patterns completely removed")
     @ValueSource(strings = {
@@ -383,8 +383,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 5. NON-REDACTED TEXT SURVIVAL
-
+        // 5. NON-REDACTED TEXT SURVIVAL
+    
     @Order(5)
     @ParameterizedTest(name = "[{0}] non-redacted text survives")
     @ValueSource(strings = {
@@ -400,8 +400,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 6. TEXT OPERATORS - char/word spacing, h-scaling, text rise, leading
-
+        // 6. TEXT OPERATORS — char/word spacing, h-scaling, text rise, leading
+    
     @Order(6)
     @ParameterizedTest(name = "[{0}] operator: suffix preserved after SSN redaction")
     @CsvSource({
@@ -473,8 +473,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 7. TEXT TRANSFORMS - rotation, scale, skew, mirror, CTM
-
+        // 7. TEXT TRANSFORMS — rotation, scale, skew, mirror, CTM
+    
     @Order(7)
     @ParameterizedTest(name = "[{0}] transformed text: SSN removed")
     @ValueSource(strings = {
@@ -516,8 +516,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 8. PAGE STRUCTURE - rotated pages, mediabox, cropbox, multistream
-
+        // 8. PAGE STRUCTURE — rotated pages, mediabox, cropbox, multistream
+    
     @Order(8)
     @ParameterizedTest(name = "page rotation {0} deg: SSN removed")
     @ValueSource(ints = {0, 90, 180, 270})
@@ -547,8 +547,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 9. FONT SIZES
-
+        // 9. FONT SIZES
+    
     @Order(9)
     @ParameterizedTest(name = "font size {0}pt: SSN removed + suffix preserved")
     @ValueSource(strings = {"4", "6", "8", "10", "12", "24", "48", "72", "144"})
@@ -569,8 +569,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 10. RENDERING MODES (Tr 0–7)
-
+        // 10. RENDERING MODES (Tr 0–7)
+    
     @Order(10)
     @ParameterizedTest(name = "rendering mode Tr{0}: SSN removed")
     @ValueSource(ints = {0, 1, 2, 3, 4, 5, 6, 7})
@@ -583,8 +583,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 11. COLOR PRESERVATION
-
+        // 11. COLOR PRESERVATION
+    
     @Order(11)
     @ParameterizedTest(name = "[{0}] colored text: SSN removed + suffix survives")
     @ValueSource(strings = {
@@ -602,8 +602,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 12. UNICODE / i18n (WinAnsi-encodable)
-
+        // 12. UNICODE / i18n (WinAnsi-encodable)
+    
     @Order(12)
     @ParameterizedTest(name = "[{0}] unicode text: SSN removed + suffix preserved")
     @CsvSource({
@@ -627,8 +627,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 13. MULTI-PATTERN / MULTI-PII
-
+        // 13. MULTI-PATTERN / MULTI-PII
+    
     @Order(13)
     @Test
     void multiPii_ssnRemovedOtherDataIntact() throws Exception {
@@ -646,7 +646,7 @@ class ObjectFissionCoordinateTest {
     @Test
     void overlappingMatch_noCorruption() throws Exception {
         Path path = testPdf("redact-test-overlapping-match.pdf");
-        // "111-22-3333-44-5555" - SSN regex could match at the start
+        // "111-22-3333-44-5555" — SSN regex could match at the start
         byte[] redacted = redactSsnAllPages(path);
         try (var doc = PdfDocument.open(redacted); var page = doc.page(0)) {
             // should not crash; page should still be readable
@@ -655,8 +655,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 14. PATTERN-SPECIFIC: email, phone, CC
-
+        // 14. PATTERN-SPECIFIC: email, phone, CC
+    
     @Order(14)
     @Test
     void emailRedaction() throws Exception {
@@ -695,8 +695,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 15. EDGE CASES - empty page, image-only, single char
-
+        // 15. EDGE CASES — empty page, image-only, single char
+    
     @Order(15)
     @Test
     void emptyPage_noCrash() throws Exception {
@@ -733,8 +733,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 16. COMPLEX STRUCTURES
-
+        // 16. COMPLEX STRUCTURES
+    
     @Order(16)
     @Test
     void nestedGraphicsState_ssnRemoved() throws Exception {
@@ -816,8 +816,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 17. STRESS TESTS
-
+        // 17. STRESS TESTS
+    
     @Order(17)
     @Test
     void stress100Pages_allPagesRedacted() throws Exception {
@@ -859,8 +859,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 18. VISUAL REGRESSION
-
+        // 18. VISUAL REGRESSION
+    
     @Order(18)
     @ParameterizedTest(name = "[{0}] visual regression: <=5% pixel diff")
     @ValueSource(strings = {
@@ -902,12 +902,12 @@ class ObjectFissionCoordinateTest {
                 String.format("%s: %.1f%% pixels differ (max 5%%). Possible text shift.", pdf, pct));
     }
 
-    // 19. OVERLAPPING TEXT OBJECTS
-
+        // 19. OVERLAPPING TEXT OBJECTS
+    
     @Order(19)
     @Test
     void overlappingTextObjects_noCrash() throws Exception {
-        // Verifies two BT/ET blocks at the same Y coordinate parse without structure corruption
+        // Two BT/ET blocks at same Y — should not corrupt
         byte[] redacted = redactSsnAllPages(testPdf("redact-test-overlapping.pdf"));
         try (var doc = PdfDocument.open(redacted); var page = doc.page(0)) {
             // Just verify no crash and some text survives
@@ -926,8 +926,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 20. INLINE IMAGE (text + non-text interleaved)
-
+        // 20. INLINE IMAGE (text + non-text interleaved)
+    
     @Order(20)
     @Test
     void inlineImage_ssnRemovedTextSurvives() throws Exception {
@@ -940,8 +940,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 21. MULTILINE COORDINATE PRESERVATION
-
+        // 21. MULTILINE COORDINATE PRESERVATION
+    
     @Order(21)
     @Test
     void multilineDocument_allLinesPreserved() throws Exception {
@@ -967,8 +967,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 22. MIRRORED TEXT
-
+        // 22. MIRRORED TEXT
+    
     @Order(22)
     @Test
     void mirroredText_ssnRemoved() throws Exception {
@@ -978,8 +978,8 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 23. WIDTH FIDELITY REGRESSION
-
+        // 23. WIDTH FIDELITY REGRESSION
+    
     @Order(23)
     @Test
     void widthFidelity_suffixPreserved() throws Exception {
@@ -996,15 +996,15 @@ class ObjectFissionCoordinateTest {
         }
     }
 
-    // 24. RE-REDACTION IDEMPOTENCY
-
+        // 24. RE-REDACTION IDEMPOTENCY
+    
     @Order(24)
     @Test
     void doubleRedaction_noCrash() throws Exception {
         Path path = testPdf("redact-test-helvetica.pdf");
         // Redact once
         byte[] first = redactSsn(path, 0, 1);
-        // Ensures no exceptions are thrown when attempting redaction on an already-redacted document
+        // Redact again on already-redacted doc — should not crash
         try (var doc = PdfDocument.open(first)) {
             try (var page = doc.page(0)) {
                 int count = page.redactWordsEx(
@@ -1024,7 +1024,6 @@ class ObjectFissionCoordinateTest {
     }
 
     // 25. CASE SENSITIVITY
-
     @Order(25)
     @Test
     void caseSensitiveRedaction() throws Exception {
