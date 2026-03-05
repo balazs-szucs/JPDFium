@@ -37,7 +37,7 @@ class ObjectFissionRedactTest {
         return ObjectFissionRedactTest.class.getResourceAsStream("/pdfs/general/minimal.pdf").readAllBytes();
     }
 
-
+    
     @Test
     void redactWordsExReturnsNonNegativeMatchCount() throws Exception {
         try (var doc  = PdfDocument.open(pdfPath());
@@ -132,7 +132,7 @@ class ObjectFissionRedactTest {
         }
     }
 
-
+    
     @Test
     void pdfRedactorReturnsMatchCounts() throws Exception {
         RedactOptions opts = RedactOptions.builder()
@@ -178,7 +178,7 @@ class ObjectFissionRedactTest {
     @Test
     void pdfRedactorCaseSensitiveOption() throws Exception {
         RedactOptions opts = RedactOptions.builder()
-                .addWord("hello")  // lowercase - won't match "Hello" in case-sensitive mode
+                .addWord("hello")  // lowercase — won't match "Hello" in case-sensitive mode
                 .caseSensitive(true)
                 .build();
 
@@ -208,7 +208,7 @@ class ObjectFissionRedactTest {
         }
     }
 
-
+    
     @Test
     void pageResultRecordFields() {
         var pr = new RedactResult.PageResult(0, 5, 3);

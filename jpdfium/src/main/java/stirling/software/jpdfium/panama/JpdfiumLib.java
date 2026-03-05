@@ -13,8 +13,8 @@ import static java.lang.foreign.ValueLayout.*;
 
 /**
  * Thin Java-friendly wrapper around the jextract-generated {@link JpdfiumH}.
- * Handles NativeLoader bootstrap, Arena lifecycle, String-to-MemorySegment conversion,
- * and result-code-to-exception translation.
+ * Handles: NativeLoader bootstrap, Arena lifecycle, String <-> MemorySegment conversion,
+ * and result-code→exception translation.
  *
  * <p>All public methods are thread-safe with respect to independent documents,
  * but a single document handle must not be accessed concurrently.
@@ -39,10 +39,10 @@ public final class JpdfiumLib {
     static void check(int rc, String ctx) {
         if (rc == OK) return;
         throw switch (rc) {
-            case ERR_PASSWORD -> new PdfPasswordException("Password required/incorrect - " + ctx);
-            case ERR_IO       -> new JPDFiumException("IO error - " + ctx);
-            case ERR_INVALID  -> new PdfCorruptException("Invalid/corrupt PDF - " + ctx);
-            default           -> new JPDFiumException("Native error " + rc + " - " + ctx);
+            case ERR_PASSWORD -> new PdfPasswordException("Password required/incorrect — " + ctx);
+            case ERR_IO       -> new JPDFiumException("IO error — " + ctx);
+            case ERR_INVALID  -> new PdfCorruptException("Invalid/corrupt PDF — " + ctx);
+            default           -> new JPDFiumException("Native error " + rc + " — " + ctx);
         };
     }
 
@@ -57,8 +57,7 @@ public final class JpdfiumLib {
     public static long docOpenBytes(byte[] data) {
         try (Arena a = Arena.ofConfined()) {
             MemorySegment hSeg = a.allocate(JAVA_LONG);
-            // The bridge must copy the data. This Arena is closed on return so the segment
-            // becomes invalid; the C side must not retain a pointer into it.
+            // The bridge MUST copy the data — the arena (and this MemorySegment) is freed on return.
             check(JpdfiumH.jpdfium_doc_open_bytes(a.allocateFrom(JAVA_BYTE, data), (long) data.length, hSeg), "docOpenBytes");
             return hSeg.get(JAVA_LONG, 0);
         }
@@ -139,7 +138,7 @@ public final class JpdfiumLib {
             int w = wSeg.get(JAVA_INT, 0);
             int h = hSeg.get(JAVA_INT, 0);
             MemorySegment nativePtr = ptrSeg.get(ADDRESS, 0);
-            // The C bridge already swapped BGRA to RGBA so Java receives standard RGBA byte order.
+            // Bridge returns RGBA — if real PDFium returns BGRA, the C bridge must swap channels.
             byte[] rgba = nativePtr.reinterpret((long) w * h * 4).toArray(JAVA_BYTE);
             JpdfiumH.jpdfium_free_buffer(nativePtr);
             return new RenderResult(w, h, rgba);
@@ -194,7 +193,7 @@ public final class JpdfiumLib {
                                     boolean wholeWord, boolean useRegex, boolean removeContent) {
         if (words == null || words.length == 0) return;
         try (Arena a = Arena.ofConfined()) {
-            // Build a C-style pointer array so the native side receives a char** words argument.
+            // Allocate a native pointer array for the word strings
             MemorySegment ptrs = a.allocate(ADDRESS, words.length);
             for (int i = 0; i < words.length; i++) {
                 MemorySegment s = a.allocateFrom(words[i]);
@@ -275,7 +274,7 @@ public final class JpdfiumLib {
 
     /**
      * Convert a page to an image-based page, removing all extractable text/vector content.
-     * This ensures visually identical output without allowing programmatic text recovery.
+     * This is the nuclear option for redaction — visually identical but no searchable text.
      * Equivalent to Stirling-PDF's "Convert PDF to PDF-Image" feature.
      *
      * @param doc       native document handle

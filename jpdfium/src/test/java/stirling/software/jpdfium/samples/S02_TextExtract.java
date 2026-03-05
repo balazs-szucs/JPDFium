@@ -35,7 +35,7 @@ public class S02_TextExtract {
             Path input = inputs.get(fi);
             SampleBase.pdfHeader("S02_TextExtract", input, fi + 1, inputs.size());
             Path outDir = SampleBase.out("text-extract", input);
-            Path report = outDir.resolve("report.txt");
+            Path report = outDir.resolve(SampleBase.stem(input) + "-report.txt");
 
             StringBuilder sb = new StringBuilder();
             sb.append("=== JPDFium Text Extraction Report ===\n");

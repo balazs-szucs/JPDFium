@@ -113,7 +113,7 @@ public class S08_FullPipeline {
             try (PdfDocument doc = PdfDocument.open(redactedPdf)) {
                 List<BufferedImage> images = PageOps.renderAll(doc, RENDER_DPI);
                 for (int i = 0; i < images.size(); i++) {
-                    Path png = outDir.resolve("page-" + i + ".png");
+                    Path png = outDir.resolve(SampleBase.stem(input) + "-page-" + i + ".png");
                     ImageIO.write(images.get(i), "PNG", png.toFile());
                     produced.add(png);
                     System.out.printf("  page %d  →  %s (%dx%d px)%n",

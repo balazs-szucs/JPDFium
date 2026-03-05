@@ -27,6 +27,5 @@ public final class TextEditor {
 
     private TextEditor() {}
 
-    // TODO: Implement text editing operations once native bindings for
-    // FPDFText_LoadFont, FPDFText_SetText, FPDFPageObj_CreateTextObj etc. are added.
+    // TODO: Implement text editing operations.
 }

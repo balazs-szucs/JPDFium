@@ -15,7 +15,7 @@ Java 25's Foreign Function & Memory (FFM) API.
 - **Secure PDF-Image** - Convert pages to rasterized images, stripping all selectable text and vector content
 - **Cross-Platform** - Linux x64/arm64, macOS x64/arm64, Windows x64
 - **Zero JNI** - Pure FFM (`java.lang.foreign`), no JNI boilerplate
-- **Apache 2.0** - PDFium is BSD-3-Clause, this project is Apache-2.0
+- **MIT** - PDFium is BSD-3-Clause, this project is MIT
 
 ## Quick Start
 

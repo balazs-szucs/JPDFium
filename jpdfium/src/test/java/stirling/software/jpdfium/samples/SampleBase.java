@@ -99,9 +99,7 @@ final class SampleBase {
      *      {@code {CWD}/samples-output/render/minimal/}
      */
     static Path out(String feature, Path pdf) throws Exception {
-        Path dir = OUT_ROOT.resolve(feature).resolve(stem(pdf));
-        Files.createDirectories(dir);
-        return dir;
+        return out(feature);
     }
 
     /**
