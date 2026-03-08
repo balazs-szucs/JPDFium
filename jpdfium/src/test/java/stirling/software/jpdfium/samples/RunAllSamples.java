@@ -21,13 +21,10 @@ public class RunAllSamples {
         SampleBase.ensureNative();
         Path input = SampleBase.inputPdf(args);
 
-        System.out.println("+==================================================+");
         System.out.println("|            JPDFium - Run All Samples             |");
-        System.out.println("+==================================================+");
         System.out.printf( "|  input:  %-39s|%n", input.getFileName());
         System.out.printf( "|  output: %-39s|%n", "~/" + SampleBase.OUT_ROOT
                 .toString().replaceFirst(System.getProperty("user.home") + "/", ""));
-        System.out.println("+==================================================+");
         System.out.println();
 
         String[] a = args.length > 0 ? args : new String[0];
@@ -36,22 +33,31 @@ public class RunAllSamples {
         passed += run("S01_Render",        () -> S01_Render.main(a));
         passed += run("S02_TextExtract",   () -> S02_TextExtract.main(a));
         passed += run("S03_TextSearch",    () -> S03_TextSearch.main(a));
-        passed += run("S04_RedactRegion",  () -> S04_RedactRegion.main(a));
-        passed += run("S05_RedactPattern", () -> S05_RedactPattern.main(a));
-        passed += run("S06_RedactWords",   () -> S06_RedactWords.main(a));
-        passed += run("S07_SecureRedact",  () -> S07_SecureRedact.main(a));
+        passed += run("S04_Metadata",      () -> S04_Metadata.main(a));
+        passed += run("S05_Bookmarks",     () -> S05_Bookmarks.main(a));
+        passed += run("S06_Redact",        () -> S06_RedactWords.main(a));
+        passed += run("S07_Annotations",   () -> S07_Annotations.main(a));
         passed += run("S08_FullPipeline",  () -> S08_FullPipeline.main(a));
         passed += run("S09_Flatten",       () -> S09_Flatten.main(a));
-        passed += run("S10_PiiRedact",     () -> S10_PiiRedact.main(a));
+        passed += run("S10_Signatures",    () -> S10_Signatures.main(a));
+        passed += run("S11_Attachments",   () -> S11_Attachments.main(a));
+        passed += run("S12_Links",         () -> S12_Links.main(a));
+        passed += run("S13_PageImport",    () -> S13_PageImport.main(a));
+        passed += run("S14_StructureTree", () -> S14_StructureTree.main(a));
+        passed += run("S15_Thumbnails",    () -> S15_Thumbnails.main(a));
+        passed += run("S16_PageEditing",   () -> S16_PageEditing.main(a));
+        passed += run("S17_NUpLayout",     () -> S17_NUpLayout.main(a));
+        passed += run("S18_Repair",        () -> S18_Repair.main(a));
+        passed += run("S19_PdfToImages",   () -> S19_PdfToImages.main(a));
+        passed += run("S20_ImagesToPdf",   () -> S20_ImagesToPdf.main(a));
+        passed += run("S21_Thumbnails",    () -> S21_Thumbnails.main(a));
 
-        System.out.println("\n==================================================");
-        System.out.printf("Results: %d/%d samples passed%n", passed, 10);
+        int total = 21;
+        System.out.printf("Results: %d/%d samples passed%n", passed, total);
         System.out.println("Output:  " + SampleBase.OUT_ROOT.toAbsolutePath());
-        System.out.println("==================================================");
     }
 
     private static int run(String name, ThrowingRunnable sample) {
-        System.out.println("\n-- " + name + " --------------------------------------");
         try {
             sample.run();
             System.out.println("-- " + name + " OK");

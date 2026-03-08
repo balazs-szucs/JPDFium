@@ -13,6 +13,16 @@ Java 25's Foreign Function & Memory (FFM) API.
 - **Text Search** - Literal string search via PDFium's native search engine
 - **True Redaction** - Removes content from the PDF stream (not a cosmetic overlay); region, regex-pattern, and word-list redaction with full Unicode support
 - **PII Redaction Pipeline** - PCRE2 JIT pattern engine, FlashText NER, HarfBuzz glyph-level redaction, font normalization, XMP metadata stripping, semantic coreference expansion - all native via FFM
+- **Document Metadata** - Read title, author, subject, creator, dates, permissions, page labels
+- **Bookmarks** - Full outline/TOC tree traversal with nested bookmarks, destinations, and URI actions
+- **Annotations** - Full CRUD: list, create, modify, delete annotations with type/rect/color/flags/contents
+- **Hyperlinks** - Enumerate and hit-test page links with action type and URI resolution
+- **Digital Signatures** - Read-only inspection of signature metadata (sub-filter, reason, time, contents, DocMDP)
+- **Embedded Attachments** - List, extract, add, and delete embedded file attachments
+- **Page Thumbnails** - Extract pre-rendered decoded/raw thumbnail data from pages
+- **Structure Tree** - Accessibility tagged structure (headings, paragraphs, tables) traversal
+- **Page Import/Export** - Import pages between documents, copy viewer preferences, delete pages
+- **Page Editing** - Create/modify page objects (text, rectangles, paths), set colors/transforms
 - **Secure PDF-Image** - Convert pages to rasterized images, stripping all selectable text and vector content
 - **Cross-Platform** - Linux x64/arm64, macOS x64/arm64, Windows x64
 - **Zero JNI** - Pure FFM (`java.lang.foreign`), no JNI boilerplate
@@ -64,18 +74,76 @@ try (var doc = result.document()) {
 
 JVM flag required: `--enable-native-access=ALL-UNNAMED`
 
+### Document Metadata, Bookmarks, Signatures
+
+```java
+try (var doc = PdfDocument.open(Path.of("input.pdf"))) {
+    // Metadata
+    Map<String, String> meta = doc.metadata();
+    meta.forEach((k, v) -> System.out.printf("%s: %s%n", k, v));
+    System.out.println("Permissions: 0x" + Long.toHexString(doc.permissions()));
+
+    // Bookmarks (table of contents)
+    List<Bookmark> bookmarks = doc.bookmarks();
+    for (Bookmark bm : bookmarks) {
+        System.out.printf("  %s -> page %d%n", bm.title(), bm.pageIndex());
+    }
+
+    // Digital signatures
+    List<Signature> sigs = doc.signatures();
+    for (Signature sig : sigs) {
+        System.out.printf("  Signature: %s at %s%n",
+            sig.subFilter().orElse("unknown"),
+            sig.signingTime().orElse("unknown"));
+    }
+
+    // Attachments
+    List<Attachment> atts = doc.attachments();
+    for (Attachment att : atts) {
+        System.out.printf("  %s (%d bytes)%n", att.name(), att.data().length);
+    }
+}
+```
+
+### Annotations, Links, Structure Tree
+
+```java
+try (var doc = PdfDocument.open(Path.of("input.pdf"));
+     var page = doc.page(0)) {
+    // Annotations
+    List<Annotation> annots = page.annotations();
+    for (Annotation a : annots) {
+        System.out.printf("  %s at (%.0f,%.0f)%n", a.type(), a.rect()[0], a.rect()[1]);
+    }
+
+    // Hyperlinks
+    List<PdfLink> links = page.links();
+    for (PdfLink link : links) {
+        System.out.printf("  %s -> %s%n", link.actionType(),
+            link.uri().orElse("page " + link.pageIndex()));
+    }
+
+    // Tagged structure tree
+    List<StructElement> tree = page.structureTree();
+    for (StructElement e : tree) {
+        System.out.printf("  <%s> %s%n", e.type(), e.altText().orElse(""));
+    }
+}
+```
+
 ## Architecture
 
 | Layer | Components | Description |
 |---|---|---|
 | **User Application** | Your Application (Java 25) | Consuming application code |
-| **High-level Java API** | `PdfDocument`, `PdfPage`, `PdfTextExtractor`, `PdfRedactor`, `PiiRedactor` | Safe, ergonomic abstractions within the `jpdfium` module |
-| **FFM Bindings** | `panama/NativeLoader`, `panama/JpdfiumH` | Auto-generated native interfaces via `java.lang.foreign` |
-| **Native Bridge** | `libjpdfium.so` | C/C++ bridge exposing targeted functions with managed handles |
+| **High-level Java API** | `PdfDocument`, `PdfPage`, `PdfTextExtractor`, `PdfRedactor`, `doc.*` | Safe, ergonomic abstractions within the `jpdfium` module |
+| **Direct FFM Bindings** | `panama/PdfiumBindings`, `panama/FfmHelper` | Hand-crafted MethodHandle bindings directly to PDFium's C API |
+| **Bridge FFM Bindings** | `panama/NativeLoader`, `panama/JpdfiumH` | Auto-generated jextract interfaces to the C++ bridge |
+| **Native Bridge** | `libjpdfium.so` | C/C++ bridge for complex operations (redaction, font normalization) |
 | **Core Engine** | `libpdfium.so` | Google's underlying PDFium engine |
 | **Native Libraries** | PCRE2, FreeType, HarfBuzz, ICU4C, qpdf, pugixml, libunibreak | Native libraries for the PII redaction pipeline |
 
-JPDFium does not bind directly to PDFium's 400+ function C API. A thin C++ bridge (`libjpdfium`) exposes exactly the operations needed, with clean error codes, handle-based lifetime management, and correct memory ownership.
+JPDFium uses a hybrid architecture: a C++ bridge (`libjpdfium`) for complex operations (redaction, font normalization) and direct FFM bindings (`PdfiumBindings`) to PDFium's C API for document inspection features (metadata, bookmarks, annotations, signatures, etc.).
 
 ## Modules
 
@@ -102,6 +170,15 @@ doc.page(int index)                          // returns PdfPage (AutoCloseable)
 doc.save(Path)
 doc.saveBytes()
 doc.convertPageToImage(int pageIndex, int dpi) // rasterize in-place (most secure)
+doc.metadata()                               // -> Map<String,String> all metadata
+doc.metadata(String tag)                     // -> Optional<String> specific tag
+doc.permissions()                            // -> long permission flags
+doc.bookmarks()                              // -> List<Bookmark> outline tree
+doc.findBookmark(String title)               // -> Optional<Bookmark>
+doc.signatures()                             // -> List<Signature> digital signatures
+doc.attachments()                            // -> List<Attachment> embedded files
+doc.addAttachment(String name, byte[] data)  // add embedded file
+doc.deleteAttachment(int index)              // remove embedded file
 ```
 
 ### `PdfPage`
@@ -119,6 +196,10 @@ int matches = page.redactWordsEx(String[] words, int argb, float padding,
                                   boolean wholeWord, boolean useRegex,
                                   boolean removeContent, boolean caseSensitive)
 page.flatten()                               // commit annotations to content stream
+page.annotations()                           // -> List<Annotation>
+page.links()                                 // -> List<PdfLink>
+page.structureTree()                         // -> List<StructElement>
+page.thumbnail()                             // -> Optional<byte[]>
 ```
 
 ### `PdfTextExtractor`
@@ -135,6 +216,65 @@ PdfTextExtractor.extractAll(Path)            // auto-managed document
 PdfTextSearcher.search(doc, query)           // -> List<SearchMatch> across all pages
 PdfTextSearcher.searchPage(doc, i, query)    // -> List<SearchMatch> on one page
 // SearchMatch: pageIndex, startIndex, length
+```
+
+### Document Inspection APIs (`stirling.software.jpdfium.doc`)
+
+Direct FFM bindings to PDFium's C API for document-level features. These APIs accept raw `MemorySegment` handles obtained via `doc.rawHandle()` / `page.rawHandle()`, or use the convenience methods on `PdfDocument` / `PdfPage`.
+
+```java
+// Metadata
+PdfMetadata.all(rawDoc)                      // -> Map<String,String>
+PdfMetadata.get(rawDoc, "Title")             // -> Optional<String>
+PdfMetadata.permissions(rawDoc)              // -> long
+PdfMetadata.pageLabel(rawDoc, 0)             // -> Optional<String>
+
+// Bookmarks
+PdfBookmarks.list(rawDoc)                    // -> List<Bookmark> (recursive tree)
+PdfBookmarks.find(rawDoc, "Chapter 1")       // -> Optional<Bookmark>
+
+// Annotations (full CRUD)
+PdfAnnotations.list(rawPage)                 // -> List<Annotation>
+PdfAnnotations.create(rawPage, type, rect)   // -> Annotation
+PdfAnnotations.setContents(rawPage, idx, text)
+PdfAnnotations.setColor(rawPage, idx, r, g, b, a)
+PdfAnnotations.remove(rawPage, idx)
+
+// Hyperlinks
+PdfLinks.list(rawDoc, rawPage)               // -> List<PdfLink>
+PdfLinks.atPoint(rawDoc, rawPage, x, y)      // -> Optional<PdfLink>
+
+// Digital Signatures (read-only)
+PdfSignatures.list(rawDoc)                   // -> List<Signature>
+PdfSignatures.count(rawDoc)
+
+// Attachments (CRUD)
+PdfAttachments.list(rawDoc)                  // -> List<Attachment>
+PdfAttachments.add(rawDoc, "file.txt", data)
+PdfAttachments.delete(rawDoc, index)
+
+// Thumbnails
+PdfThumbnails.getDecoded(rawPage)            // -> Optional<byte[]>
+PdfThumbnails.getRaw(rawPage)                // -> Optional<byte[]>
+
+// Structure Tree
+PdfStructureTree.get(rawPage)                // -> List<StructElement> (recursive)
+
+// Page Import
+PdfPageImporter.importPages(dest, src, "1-3", insertAt)
+PdfPageImporter.importPagesByIndex(dest, src, indices, insertAt)
+PdfPageImporter.copyViewerPreferences(dest, src)
+PdfPageImporter.deletePage(doc, pageIndex)
+
+// Page Editing
+PdfPageEditor.newPage(doc, index, width, height)
+PdfPageEditor.createTextObject(doc, "Helvetica", 12f)
+PdfPageEditor.setText(textObj, "Hello")
+PdfPageEditor.createRect(x, y, w, h)
+PdfPageEditor.createPath(x, y)
+PdfPageEditor.setFillColor(obj, r, g, b, a)
+PdfPageEditor.insertObject(page, obj)
+PdfPageEditor.generateContent(page)
 ```
 
 ### `PdfRedactor`
@@ -168,7 +308,7 @@ PageOps.renderPage(doc, pageIndex, dpi)      // -> BufferedImage
 PageOps.renderAll(doc, dpi)                  // -> List<BufferedImage>
 ```
 
-### `PiiRedactor`
+### Advanced PII Redaction
 
 The PII redaction pipeline orchestrates 9 stages powered by native libraries via FFM:
 
@@ -182,11 +322,12 @@ The PII redaction pipeline orchestrates 9 stages powered by native libraries via
 8. Metadata Redaction
 9. Flatten/Image
 
+All PII features are accessed through the unified `RedactOptions` builder:
+
 ```java
 import stirling.software.jpdfium.redact.pii.PiiCategory;
-import stirling.software.jpdfium.redact.pii.PiiPatterns;
 
-PiiRedactOptions opts = PiiRedactOptions.builder()
+RedactOptions opts = RedactOptions.builder()
     // Basic word list
     .addWord("Confidential")
     .addWord("\\d{3}-\\d{2}-\\d{4}")
@@ -197,7 +338,7 @@ PiiRedactOptions opts = PiiRedactOptions.builder()
     .luhnValidation(true)             // reject false-positive credit card numbers
 
     // Or select specific categories
-    // .piiPatterns(PiiPatterns.select(PiiCategory.EMAIL, PiiCategory.SSN, PiiCategory.PHONE))
+    // .piiPatterns(PiiCategory.select(PiiCategory.EMAIL, PiiCategory.SSN, PiiCategory.PHONE))
 
     // FlashText NER: O(n) dictionary entity matching
     .addEntity("John Smith", "PERSON")
@@ -228,14 +369,13 @@ PiiRedactOptions opts = PiiRedactOptions.builder()
     .convertToImage(true)
     .build();
 
-PiiRedactResult result = PiiRedactor.redact(Path.of("input.pdf"), opts);
+RedactResult result = PdfRedactor.redact(Path.of("input.pdf"), opts);
 try (var doc = result.document()) {
     doc.save(Path.of("output.pdf"));
 }
 
-System.out.printf("Redacted %d total: %d words, %d patterns, %d entities, %d glyphs, %d metadata%n",
-    result.totalRedactions(), result.totalWordMatches(), result.patternMatches().size(),
-    result.entityMatches().size(), result.glyphRedactMatches(), result.metadataFieldsRedacted());
+System.out.printf("Redacted %d total matches across %d pages%n",
+    result.totalMatches(), result.pagesProcessed());
 ```
 
 #### PII Redaction Components
@@ -243,7 +383,7 @@ System.out.printf("Redacted %d total: %d words, %d patterns, %d entities, %d gly
 | Component | Class | Native Library | Purpose |
 |-----------|-------|----------------|----------|
 | **Pattern Engine** | `PatternEngine` | PCRE2 (JIT) | Lookaheads, `\b`, Unicode `\w`, named groups, Luhn post-validation |
-| **PII Patterns** | `PiiPatterns` | - | Pre-built PCRE2 regexes via `PiiCategory` enum: EMAIL, PHONE, SSN, CREDIT_CARD, IBAN, IP, DATE |
+| **PII Categories** | `PiiCategory` | - | Enum with built-in PCRE2 regexes: EMAIL, PHONE, SSN, CREDIT_CARD, IBAN, IP, DATE |
 | **NER** | `EntityRedactor` | FlashText (C++ trie) | O(n) dictionary entity matching with coreference expansion |
 | **Glyph Redaction** | `GlyphRedactor` | HarfBuzz + ICU4C | Ligature/BiDi/grapheme-safe redaction with cluster mapping |
 | **Font Normalization** | `FontNormalizer` | FreeType + HarfBuzz + qpdf | /ToUnicode CMap repair, /W table fix, re-subsetting, Type1->OTF |
@@ -304,7 +444,7 @@ bash native/build-real.sh
 ./gradlew :jpdfium:integrationTest
 ```
 
-`build-real.sh` uses CMake to compile `jpdfium_document.cpp` + `jpdfium_advanced.cpp` against real PDFium and all available native libraries, then copies `libjpdfium.so` and `libpdfium.so` to the platform-specific natives JAR. Native libraries are auto-detected via `pkg-config`; any missing libraries are silently skipped (the corresponding features return empty results at runtime).
+`build-real.sh` uses CMake to compile the native bridge (`jpdfium_document.cpp`, `jpdfium_render.cpp`, `jpdfium_text.cpp`, `jpdfium_redact.cpp`, `jpdfium_advanced.cpp`) against real PDFium and all available native libraries, then copies `libjpdfium.so` and `libpdfium.so` to the platform-specific natives JAR. Native libraries are auto-detected via `pkg-config`; any missing libraries are silently skipped (the corresponding features return empty results at runtime).
 
 ### Regenerate FFM Bindings (after changing `jpdfium.h`)
 
@@ -336,13 +476,9 @@ jpdfium/src/test/java/stirling/software/jpdfium/samples/
 ├── S01_Render.java          -> samples-output/render/page-N.png
 ├── S02_TextExtract.java     -> samples-output/text-extract/report.txt
 ├── S03_TextSearch.java      -> stdout
-├── S04_RedactRegion.java    -> samples-output/redact-region/output.pdf
-├── S05_RedactPattern.java   -> samples-output/redact-pattern/output.pdf
 ├── S06_RedactWords.java     -> samples-output/redact-words/output.pdf
-├── S07_SecureRedact.java    -> samples-output/secure-redact/output.pdf
 ├── S08_FullPipeline.java    -> samples-output/full-pipeline/
 ├── S09_Flatten.java         -> samples-output/flatten/
-├── S10_PiiRedact.java       -> samples-output/pii-redact/
 └── RunAllSamples.java       -> all of the above (smoke test)
 ```
 
@@ -365,7 +501,7 @@ True redaction requires more than painting a black rectangle. JPDFium implements
 
 ### How it works
 
-1. **Spatial correlation** - each text-page character index is mapped to its owning `FPDF_PAGEOBJECT` by comparing character bounding-box centres against page-object bounding boxes. Characters with degenerate bounding boxes (synthetic spaces) are assigned to their nearest neighbor's object.
+1. **Direct char-to-object mapping** - each text-page character index is mapped to its owning `FPDF_PAGEOBJECT` via `FPDFText_GetTextObject` (PDFium's direct API). Characters with no direct mapping (synthetic spaces) are assigned to their nearest neighbor's object.
 2. **Object classification** - for every text object that contains redacted characters:
    - *Fully contained* -> the entire object is destroyed.
    - *Partially overlapping* -> **Object Fission**: the surviving (non-redacted) characters are split into per-word fragments. Each word becomes an independent text object with:
