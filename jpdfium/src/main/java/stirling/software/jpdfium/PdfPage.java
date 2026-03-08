@@ -1,9 +1,15 @@
 package stirling.software.jpdfium;
 
+import stirling.software.jpdfium.doc.*;
 import stirling.software.jpdfium.panama.JpdfiumLib;
 import stirling.software.jpdfium.model.PageSize;
 import stirling.software.jpdfium.model.Rect;
 import stirling.software.jpdfium.model.RenderResult;
+
+import java.awt.image.BufferedImage;
+import java.lang.foreign.MemorySegment;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Represents an open page within a {@link PdfDocument}.
@@ -136,6 +142,153 @@ public final class PdfPage implements AutoCloseable {
         ensureOpen();
         return JpdfiumLib.redactWordsEx(handle, words, argbColor, padding,
                 wholeWord, useRegex, removeContent, caseSensitive);
+    }
+
+    // Annotation-Based Redaction (Mark → Commit)
+
+    /**
+     * Mark phase: create a REDACT annotation at the given rectangle.
+     * No content is modified - the annotation is stored in the page's
+     * annotation dictionary.  Call {@link #commitRedactions} to burn.
+     *
+     * @param rect      the area to mark for redaction (PDF coordinates)
+     * @param argbColor fill color for the redaction box (0xAARRGGBB)
+     * @return the annotation index within the page's annotation array
+     */
+    public int markRedactRegion(Rect rect, int argbColor) {
+        ensureOpen();
+        return JpdfiumLib.annotCreateRedact(handle, rect.x(), rect.y(),
+                rect.width(), rect.height(), argbColor);
+    }
+
+    /**
+     * Mark phase: find all word matches and create REDACT annotations.
+     * No content is modified.  Call {@link #commitRedactions} to burn.
+     *
+     * @param words         words or patterns to mark for redaction
+     * @param argbColor     fill color for redaction boxes
+     * @param padding       extra padding in PDF points around each match
+     * @param wholeWord     if true, only match whole words
+     * @param useRegex      if true, treat each word as a regex pattern
+     * @param caseSensitive if true, match case-sensitively
+     * @return the number of REDACT annotations created
+     */
+    public int markRedactWords(String[] words, int argbColor, float padding,
+                                boolean wholeWord, boolean useRegex,
+                                boolean caseSensitive) {
+        ensureOpen();
+        return JpdfiumLib.redactMarkWords(handle, words, padding,
+                wholeWord, useRegex, caseSensitive, argbColor);
+    }
+
+    /**
+     * Returns the number of pending REDACT annotations on this page.
+     */
+    public int pendingRedactionCount() {
+        ensureOpen();
+        return JpdfiumLib.annotCountRedacts(handle);
+    }
+
+    /**
+     * Returns JSON describing all pending REDACT annotations.
+     * Format: [{"idx":0,"x":10.0,"y":20.0,"w":50.0,"h":12.0}, ...]
+     */
+    public String pendingRedactionsJson() {
+        ensureOpen();
+        return JpdfiumLib.annotGetRedactsJson(handle);
+    }
+
+    /**
+     * Remove a specific pending REDACT annotation (undo a single mark).
+     *
+     * @param annotIndex the annotation index from {@link #markRedactRegion}
+     */
+    public void unmarkRedaction(int annotIndex) {
+        ensureOpen();
+        JpdfiumLib.annotRemoveRedact(handle, annotIndex);
+    }
+
+    /**
+     * Remove all pending REDACT annotations from this page (undo all marks).
+     */
+    public void clearPendingRedactions() {
+        ensureOpen();
+        JpdfiumLib.annotClearRedacts(handle);
+    }
+
+    /**
+     * Commit phase: burn all REDACT annotations on this page.
+     *
+     * <p>This permanently removes text/images under each marked rectangle
+     * using the Object Fission Algorithm, paints filled rectangles, and
+     * removes the consumed annotations.  The document handle remains
+     * valid - no reload required.
+     *
+     * @param argbColor     fill color for the redaction rectangles
+     * @param removeContent if true, apply Object Fission to strip content;
+     *                      if false, paint visual overlay only
+     * @return the number of REDACT annotations that were committed
+     */
+    public int commitRedactions(int argbColor, boolean removeContent) {
+        ensureOpen();
+        return JpdfiumLib.redactCommit(handle, argbColor, removeContent);
+    }
+
+    /**
+     * Returns the raw FPDF_PAGE MemorySegment for direct PDFium FFM calls.
+     */
+    public MemorySegment rawHandle() {
+        ensureOpen();
+        return JpdfiumLib.pageRawHandle(handle);
+    }
+
+    /**
+     * Returns the raw FPDF_DOCUMENT MemorySegment from this page's parent document.
+     */
+    public MemorySegment rawDocHandle() {
+        ensureOpen();
+        return JpdfiumLib.pageDocRawHandle(handle);
+    }
+
+    /**
+     * List all annotations on this page.
+     */
+    public List<Annotation> annotations() {
+        return PdfAnnotations.list(rawHandle());
+    }
+
+    /**
+     * List all hyperlinks on this page.
+     */
+    public List<PdfLink> links() {
+        return PdfLinks.list(rawDocHandle(), rawHandle());
+    }
+
+    /**
+     * Get the structure tree (tagged structure) for this page.
+     */
+    public List<StructElement> structureTree() {
+        return PdfStructureTree.get(rawHandle());
+    }
+
+    /**
+     * Get the decoded thumbnail image data for this page.
+     */
+    public Optional<byte[]> thumbnail() {
+        return PdfThumbnails.getDecoded(rawHandle());
+    }
+
+    /**
+     * Get the embedded thumbnail for this page as a {@link BufferedImage}.
+     *
+     * <p>Preferred over {@link #thumbnail()} when you need a viewable image -
+     * dimensions are resolved via {@code FPDFPage_GetThumbnailAsBitmap} so the
+     * result can be written directly to a PNG/JPEG file.
+     *
+     * @return the thumbnail image, or empty if the page has no embedded thumbnail
+     */
+    public Optional<BufferedImage> thumbnailImage() {
+        return PdfThumbnails.getAsImage(rawHandle());
     }
 
     /** Flatten all annotations (including applied redactions) into page content. */

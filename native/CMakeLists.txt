@@ -75,7 +75,18 @@ if(JPDFIUM_USE_PDFIUM)
         message(FATAL_ERROR "Could not find libpdfium in ${PDFIUM_LIB_DIR}")
     endif()
 
-    add_library(jpdfium SHARED bridge/src/jpdfium_document.cpp bridge/src/jpdfium_advanced.cpp)
+    add_library(jpdfium SHARED
+        bridge/src/jpdfium_document.cpp
+        bridge/src/jpdfium_render.cpp
+        bridge/src/jpdfium_text.cpp
+        bridge/src/jpdfium_redact.cpp
+        bridge/src/jpdfium_advanced.cpp
+        bridge/src/jpdfium_image.cpp
+        bridge/src/jpdfium_repair.cpp
+        bridge/src/jpdfium_brotli.cpp
+        bridge/src/jpdfium_pdfio.cpp
+        bridge/src/jpdfium_lcms.cpp
+        bridge/src/jpdfium_openjpeg.cpp)
     target_include_directories(jpdfium
         PUBLIC  bridge/include
         PRIVATE "${PDFIUM_INCLUDE_DIR}")

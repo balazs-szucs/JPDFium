@@ -3,6 +3,8 @@ plugins {
 }
 
 dependencies {
+    implementation(libs.imageio.webp)
+    implementation(libs.imageio.tiff)
     testRuntimeOnly(project(":jpdfium-natives:jpdfium-natives-linux-x64"))
     testImplementation(libs.pdfbox)
 }
@@ -41,7 +43,28 @@ val jpdfiumFunctions = listOf(
     // XMP Metadata Redaction
     "jpdfium_xmp_redact_patterns", "jpdfium_metadata_strip", "jpdfium_metadata_strip_all",
     // ICU4C Text Processing
-    "jpdfium_icu_normalize_nfc", "jpdfium_icu_break_sentences", "jpdfium_icu_bidi_reorder"
+    "jpdfium_icu_normalize_nfc", "jpdfium_icu_break_sentences", "jpdfium_icu_bidi_reorder",
+    // Annotation-Based Redaction (Mark → Commit pattern)
+    "jpdfium_annot_create_redact", "jpdfium_redact_mark_words",
+    "jpdfium_annot_count_redacts", "jpdfium_annot_get_redacts_json",
+    "jpdfium_annot_remove_redact", "jpdfium_annot_clear_redacts",
+    "jpdfium_redact_commit", "jpdfium_doc_save_incremental",
+    // Raw handle extraction (for direct PDFium FFM bindings)
+    "jpdfium_doc_raw_handle", "jpdfium_page_raw_handle", "jpdfium_page_doc_raw_handle",
+    // PDF Repair Pipeline
+    "jpdfium_repair_pdf", "jpdfium_repair_inspect",
+    // Brotli Codec
+    "jpdfium_brotli_decode", "jpdfium_brotli_to_flate",
+    // PDFio Structural Repair
+    "jpdfium_pdfio_try_repair",
+    // lcms2 ICC Profile Validation
+    "jpdfium_validate_icc_profile", "jpdfium_generate_replacement_icc",
+    // OpenJPEG JPEG2000
+    "jpdfium_validate_jpx_stream", "jpdfium_jpx_to_raw",
+    // Image to PDF
+    "jpdfium_image_to_pdf", "jpdfium_doc_add_image_page",
+    // N-Up Layout
+    "jpdfium_import_n_pages_to_one"
 )
 
 val generateBindings by tasks.registering(Exec::class) {

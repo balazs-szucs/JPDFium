@@ -30,6 +30,17 @@ public final class JpdfiumLib {
     public static final int ERR_PASSWORD  =  -3;
     public static final int ERR_NOT_FOUND =  -4;
 
+    // Image placement positions (match JPDFIUM_POSITION_* constants and Position enum ordinals)
+    public static final int POSITION_TOP_LEFT      = 0;
+    public static final int POSITION_TOP_CENTER    = 1;
+    public static final int POSITION_TOP_RIGHT     = 2;
+    public static final int POSITION_MIDDLE_LEFT   = 3;
+    public static final int POSITION_CENTER        = 4;
+    public static final int POSITION_MIDDLE_RIGHT  = 5;
+    public static final int POSITION_BOTTOM_LEFT   = 6;
+    public static final int POSITION_BOTTOM_CENTER = 7;
+    public static final int POSITION_BOTTOM_RIGHT  = 8;
+
     static {
         NativeLoader.ensureLoaded();
         int rc = JpdfiumH.jpdfium_init();
@@ -228,5 +239,176 @@ public final class JpdfiumLib {
 
     public static void pageToImage(long doc, int pageIndex, int dpi) {
         check(JpdfiumH.jpdfium_page_to_image(doc, pageIndex, dpi), "pageToImage");
+    }
+
+    /**
+     * Mark phase: create a REDACT annotation at the given rectangle.
+     * No content is modified - only an annotation is stored.
+     *
+     * @return the annotation index within the page's annotation array
+     */
+    public static int annotCreateRedact(long page, float x, float y, float w, float h, int argb) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment idxSeg = a.allocate(JAVA_INT);
+            check(JpdfiumH.jpdfium_annot_create_redact(page, x, y, w, h, argb, idxSeg), "annotCreateRedact");
+            return idxSeg.get(JAVA_INT, 0);
+        }
+    }
+
+    /**
+     * Mark phase: find word matches and create REDACT annotations for each.
+     * No content is modified - only annotations are stored.
+     *
+     * @return the number of REDACT annotations created
+     */
+    public static int redactMarkWords(long page, String[] words, float padding,
+                                       boolean wholeWord, boolean useRegex,
+                                       boolean caseSensitive, int argb) {
+        if (words == null || words.length == 0) return 0;
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment ptrs = a.allocate(ADDRESS, words.length);
+            for (int i = 0; i < words.length; i++) {
+                ptrs.setAtIndex(ADDRESS, i, a.allocateFrom(words[i]));
+            }
+            MemorySegment countSeg = a.allocate(JAVA_INT);
+            check(JpdfiumH.jpdfium_redact_mark_words(page, ptrs, words.length, padding,
+                    wholeWord ? 1 : 0, useRegex ? 1 : 0, caseSensitive ? 1 : 0,
+                    argb, countSeg), "redactMarkWords");
+            return countSeg.get(JAVA_INT, 0);
+        }
+    }
+
+    /** Returns the number of pending REDACT annotations on the page. */
+    public static int annotCountRedacts(long page) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment cSeg = a.allocate(JAVA_INT);
+            check(JpdfiumH.jpdfium_annot_count_redacts(page, cSeg), "annotCountRedacts");
+            return cSeg.get(JAVA_INT, 0);
+        }
+    }
+
+    /** Returns JSON array of all REDACT annotation rects. */
+    public static String annotGetRedactsJson(long page) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment ptrSeg = a.allocate(ADDRESS);
+            check(JpdfiumH.jpdfium_annot_get_redacts_json(page, ptrSeg), "annotGetRedactsJson");
+            MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+            String result = strPtr.reinterpret(Long.MAX_VALUE).getString(0);
+            JpdfiumH.jpdfium_free_string(strPtr);
+            return result;
+        }
+    }
+
+    /** Remove a specific REDACT annotation by its index. */
+    public static void annotRemoveRedact(long page, int annotIndex) {
+        check(JpdfiumH.jpdfium_annot_remove_redact(page, annotIndex), "annotRemoveRedact");
+    }
+
+    /** Remove all REDACT annotations from the page (undo all marks). */
+    public static void annotClearRedacts(long page) {
+        check(JpdfiumH.jpdfium_annot_clear_redacts(page), "annotClearRedacts");
+    }
+
+    /**
+     * Commit phase: burn all REDACT annotations on the page via Object Fission.
+     * Permanently removes content, paints fill rects, removes the annotations.
+     * The document handle remains valid - no reload required.
+     *
+     * @return the number of REDACT annotations that were committed
+     */
+    public static int redactCommit(long page, int argb, boolean removeContent) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment countSeg = a.allocate(JAVA_INT);
+            check(JpdfiumH.jpdfium_redact_commit(page, argb, removeContent ? 1 : 0, countSeg), "redactCommit");
+            return countSeg.get(JAVA_INT, 0);
+        }
+    }
+
+    /**
+     * Incremental save: writes only changed objects.
+     * The document handle remains valid after this call.
+     */
+    public static byte[] docSaveIncremental(long doc) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment ptrSeg = a.allocate(ADDRESS);
+            MemorySegment lenSeg = a.allocate(JAVA_LONG);
+            check(JpdfiumH.jpdfium_doc_save_incremental(doc, ptrSeg, lenSeg), "docSaveIncremental");
+            MemorySegment nativePtr = ptrSeg.get(ADDRESS, 0);
+            byte[] result = nativePtr.reinterpret(lenSeg.get(JAVA_LONG, 0)).toArray(JAVA_BYTE);
+            JpdfiumH.jpdfium_free_buffer(nativePtr);
+            return result;
+        }
+    }
+
+    /**
+     * Returns the raw FPDF_DOCUMENT pointer (as a MemorySegment) from a bridge handle.
+     * This enables direct FFM calls to PDFium functions not covered by the bridge.
+     */
+    public static MemorySegment docRawHandle(long doc) {
+        long raw = JpdfiumH.jpdfium_doc_raw_handle(doc);
+        if (raw == 0) throw new JPDFiumException("Invalid document handle");
+        return FfmHelper.ptrToSegment(raw);
+    }
+
+    /**
+     * Returns the raw FPDF_PAGE pointer (as a MemorySegment) from a bridge handle.
+     */
+    public static MemorySegment pageRawHandle(long page) {
+        long raw = JpdfiumH.jpdfium_page_raw_handle(page);
+        if (raw == 0) throw new JPDFiumException("Invalid page handle");
+        return FfmHelper.ptrToSegment(raw);
+    }
+
+    /**
+     * Returns the raw FPDF_DOCUMENT pointer for the document that owns a page.
+     */
+    public static MemorySegment pageDocRawHandle(long page) {
+        long raw = JpdfiumH.jpdfium_page_doc_raw_handle(page);
+        if (raw == 0) throw new JPDFiumException("Invalid page handle");
+        return FfmHelper.ptrToSegment(raw);
+    }
+
+    /**
+     * Create a new PDF document containing a single image page.
+     *
+     * @param imageData   raw RGBA bytes with 8-byte [width][height] header (imageFormat=3)
+     * @param pageWidth   output page width in PDF points
+     * @param pageHeight  output page height in PDF points
+     * @param margin      margin in PDF points
+     * @param position    placement position (POSITION_* constant)
+     * @param imageFormat 0=auto, 1=PNG, 2=JPEG, 3=raw RGBA with header
+     * @return bridge document handle (must be closed via {@link #docClose(long)})
+     */
+    public static long imageToPdf(byte[] imageData, float pageWidth, float pageHeight,
+                                   float margin, int position, int imageFormat) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment hSeg = a.allocate(JAVA_LONG);
+            check(JpdfiumH.jpdfium_image_to_pdf(
+                    a.allocateFrom(JAVA_BYTE, imageData), (long) imageData.length,
+                    pageWidth, pageHeight, margin, position, imageFormat, hSeg), "imageToPdf");
+            return hSeg.get(JAVA_LONG, 0);
+        }
+    }
+
+    /**
+     * Append an image page to an existing document.
+     *
+     * @param doc            bridge document handle
+     * @param imageData      raw RGBA bytes with 8-byte [width][height] header
+     * @param pageWidth      output page width in PDF points
+     * @param pageHeight     output page height in PDF points
+     * @param margin         margin in PDF points
+     * @param position       placement position (POSITION_* constant)
+     * @param imageFormat    0=auto, 1=PNG, 2=JPEG, 3=raw RGBA with header
+     * @param insertAtIndex  0-based page index to insert at, or -1 to append
+     */
+    public static void docAddImagePage(long doc, byte[] imageData, float pageWidth, float pageHeight,
+                                        float margin, int position, int imageFormat, int insertAtIndex) {
+        try (Arena a = Arena.ofConfined()) {
+            check(JpdfiumH.jpdfium_doc_add_image_page(
+                    doc, a.allocateFrom(JAVA_BYTE, imageData), (long) imageData.length,
+                    pageWidth, pageHeight, margin, position, imageFormat, insertAtIndex),
+                    "docAddImagePage");
+        }
     }
 }
