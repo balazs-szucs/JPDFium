@@ -19,8 +19,36 @@ extern "C" {
 #define JPDFIUM_ERR_NOT_FOUND  -4
 #define JPDFIUM_ERR_NATIVE     -99
 
+// PDF Repair pipeline status codes
+#define JPDFIUM_REPAIR_CLEAN    0   // No repairs needed; document was valid
+#define JPDFIUM_REPAIR_FIXED    1   // Document was repaired successfully
+#define JPDFIUM_REPAIR_PARTIAL  2   // Partially repaired; some issues remain
+#define JPDFIUM_REPAIR_FAILED  -1   // Repair failed; document unrecoverable
+
+// PDF Repair operation flags (combinable via bitwise OR)
+#define JPDFIUM_REPAIR_NORMALIZE_XREF  0x01  // Normalize cross-reference table
+#define JPDFIUM_REPAIR_FIX_STARTXREF   0x02  // Brute-force startxref offset
+#define JPDFIUM_REPAIR_FORCE_V14       0x04  // Force PDF 1.4 output
+
+// Image placement position constants (match Java Position enum ordinals)
+#define JPDFIUM_POSITION_TOP_LEFT      0
+#define JPDFIUM_POSITION_TOP_CENTER    1
+#define JPDFIUM_POSITION_TOP_RIGHT     2
+#define JPDFIUM_POSITION_MIDDLE_LEFT   3
+#define JPDFIUM_POSITION_CENTER        4
+#define JPDFIUM_POSITION_MIDDLE_RIGHT  5
+#define JPDFIUM_POSITION_BOTTOM_LEFT   6
+#define JPDFIUM_POSITION_BOTTOM_CENTER 7
+#define JPDFIUM_POSITION_BOTTOM_RIGHT  8
+
 JPDFIUM_EXPORT int32_t jpdfium_init(void);
 JPDFIUM_EXPORT void    jpdfium_destroy(void);
+
+// Raw handle extraction — allows direct FFM calls to PDFium functions.
+// These return the raw FPDF_DOCUMENT / FPDF_PAGE pointers as int64_t values.
+JPDFIUM_EXPORT int64_t jpdfium_doc_raw_handle(int64_t doc);
+JPDFIUM_EXPORT int64_t jpdfium_page_raw_handle(int64_t page);
+JPDFIUM_EXPORT int64_t jpdfium_page_doc_raw_handle(int64_t page);
 
 JPDFIUM_EXPORT int32_t jpdfium_doc_open(const char* path, int64_t* handle);
 JPDFIUM_EXPORT int32_t jpdfium_doc_open_bytes(const uint8_t* data, int64_t len, int64_t* handle);
@@ -55,6 +83,56 @@ JPDFIUM_EXPORT int32_t jpdfium_page_to_image(int64_t doc, int32_t pageIndex, int
 // Each element contains the character index, origin (ox,oy), and bounding box (l,r,b,t).
 // Used by tests to verify that text positions are preserved after redaction.
 JPDFIUM_EXPORT int32_t jpdfium_text_get_char_positions(int64_t page, char** json);
+
+// Annotation-Based Redaction (Mark / Commit pattern)
+//
+// Two-phase redaction modeled after EmbedPDF's architecture:
+//   Mark phase:  Create FPDF_ANNOT_REDACT annotations (zero content mutation).
+//   Commit phase: Burn all REDACT annotations via Object Fission (destructive).
+//
+// The document stays alive between phases - no close/reload required.
+
+// Mark phase: create a single REDACT annotation at the given rectangle.
+// The annotation is stored in the page's annotation dictionary; the content
+// stream is NOT modified.  Returns the annotation index on success.
+JPDFIUM_EXPORT int32_t jpdfium_annot_create_redact(int64_t page,
+                                                    float x, float y, float w, float h,
+                                                    uint32_t argb, int32_t* annot_index);
+
+// Mark phase: find all word matches and create REDACT annotations for each.
+// Equivalent to jpdfium_redact_words_ex but ONLY creates annotations,
+// without modifying the content stream.  Returns the number of annotations
+// created in *matchCount.
+JPDFIUM_EXPORT int32_t jpdfium_redact_mark_words(int64_t page,
+                                                  const char** words, int32_t wordCount,
+                                                  float padding, int32_t wholeWord,
+                                                  int32_t useRegex, int32_t caseSensitive,
+                                                  uint32_t argb, int32_t* matchCount);
+
+// Query: return the number of REDACT annotations on the page.
+JPDFIUM_EXPORT int32_t jpdfium_annot_count_redacts(int64_t page, int32_t* count);
+
+// Query: return all REDACT annotation rects as JSON.
+// [{"idx":0,"x":10.0,"y":20.0,"w":50.0,"h":12.0}, ...]
+JPDFIUM_EXPORT int32_t jpdfium_annot_get_redacts_json(int64_t page, char** json);
+
+// Remove a specific REDACT annotation by its annotation index.
+JPDFIUM_EXPORT int32_t jpdfium_annot_remove_redact(int64_t page, int32_t annot_index);
+
+// Remove all REDACT annotations from the page (undo all marks).
+JPDFIUM_EXPORT int32_t jpdfium_annot_clear_redacts(int64_t page);
+
+// Commit phase: burn all REDACT annotations on the page using Object Fission.
+// This permanently removes text/images under each REDACT rect, paints filled
+// rectangles, removes the consumed annotations, and regenerates the content
+// stream.  The document handle remains valid - no reload required.
+// Returns the number of REDACT annotations that were committed in *commitCount.
+JPDFIUM_EXPORT int32_t jpdfium_redact_commit(int64_t page, uint32_t argb,
+                                              int32_t remove_content,
+                                              int32_t* commitCount);
+
+// Incremental save: writes only changed objects, document stays live.
+JPDFIUM_EXPORT int32_t jpdfium_doc_save_incremental(int64_t doc, uint8_t** data, int64_t* len);
 
 // Advanced Pattern Engine (PCRE2 JIT)
 //
@@ -224,6 +302,114 @@ JPDFIUM_EXPORT int32_t jpdfium_icu_break_sentences(const char* text, char** json
 // Needed to compute correct redact box coordinates for RTL/mixed-direction text.
 // Caller must free *result with jpdfium_free_string.
 JPDFIUM_EXPORT int32_t jpdfium_icu_bidi_reorder(const char* text, char** result);
+
+// PDF Repair Pipeline
+//
+// Multi-stage structural repair: qpdf XRef rebuild -> startxref brute-force ->
+// PDFio third-opinion fallback. Returns repaired bytes via *output.
+// Caller must free *output with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_repair_pdf(const uint8_t* input, int64_t inputLen,
+                                           uint8_t** output, int64_t* outputLen,
+                                           int32_t flags);
+
+// Inspect a PDF for structural damage without modifying it.
+// Returns JSON diagnostic report via *diagnosticJson.
+// Caller must free *diagnosticJson with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_repair_inspect(const uint8_t* input, int64_t inputLen,
+                                               char** diagnosticJson);
+
+// Brotli Codec (PDF 2.0+ /BrotliDecode streams)
+//
+// Decompress /BrotliDecode streams and optionally transcode to /FlateDecode
+// for backward compatibility with pre-PDF-2.0 viewers.
+
+// Decompress a Brotli-compressed stream.
+// Returns decompressed bytes via *output. Caller must free with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_brotli_decode(const uint8_t* compressed, int64_t compressedLen,
+                                              uint8_t** output, int64_t* outputLen);
+
+// Transcode Brotli -> FlateDecode (decompress + zlib recompress).
+// Returns flate-compressed bytes via *flateOutput. Caller must free with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_brotli_to_flate(const uint8_t* compressed, int64_t compressedLen,
+                                                uint8_t** flateOutput, int64_t* flateLen);
+
+// PDFio Structural Repair
+//
+// Third-opinion XRef repair using PDFio's independent parser.
+
+// Attempt to repair a PDF using PDFio's XRef recovery.
+// Returns repaired bytes via *output and recovered page count via *pagesRecovered.
+// Caller must free *output with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_pdfio_try_repair(const uint8_t* input, int64_t inputLen,
+                                                 uint8_t** output, int64_t* outputLen,
+                                                 int32_t* pagesRecovered);
+
+// lcms2 ICC Color Profile Validation
+//
+// Validates /ICCBased profile streams and generates standard replacements
+// for corrupted profiles.
+
+// Validate an ICC color profile byte stream.
+// Returns JSON validation result via *json. Caller must free with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_validate_icc_profile(const uint8_t* data, int64_t len,
+                                                     int32_t expectedComponents, char** json);
+
+// Generate a standard replacement ICC profile for the given component count.
+// numComponents: 1=Gray, 3=sRGB, 4=CMYK.
+// Returns profile bytes via *output. Caller must free with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_generate_replacement_icc(int32_t numComponents,
+                                                         uint8_t** output, int64_t* outputLen);
+
+// OpenJPEG JPEG2000 Stream Validation
+//
+// Validates /JPXDecode (JPEG2000) streams with non-strict parsing for
+// partial bitstream recovery.
+
+// Validate a JPEG2000 stream.
+// Returns JSON validation result via *json. Caller must free with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_validate_jpx_stream(const uint8_t* data, int64_t len,
+                                                    char** json);
+
+// Decode a JPEG2000 stream to raw interleaved pixels.
+// Returns raw pixel bytes via *output, plus dimensions and component count.
+// Caller must free *output with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_jpx_to_raw(const uint8_t* data, int64_t len,
+                                           uint8_t** output, int64_t* outputLen,
+                                           int32_t* width, int32_t* height,
+                                           int32_t* components);
+
+// Image to PDF Conversion
+//
+// Create PDF documents from image data. Supports raw RGBA (format=3, with
+// 8-byte [width][height] header), auto-detect (format=0), PNG (format=1),
+// and JPEG (format=2).
+
+// Create a new PDF document with a single image page.
+// Returns bridge document handle via *doc_handle.
+JPDFIUM_EXPORT int32_t jpdfium_image_to_pdf(const uint8_t* image_data, int64_t image_len,
+                                             float page_width, float page_height,
+                                             float margin, int32_t position,
+                                             int32_t image_format, int64_t* doc_handle);
+
+// Append an image page to an existing document at insert_at_index (-1 = append).
+JPDFIUM_EXPORT int32_t jpdfium_doc_add_image_page(int64_t doc_handle,
+                                                   const uint8_t* image_data, int64_t image_len,
+                                                   float page_width, float page_height,
+                                                   float margin, int32_t position,
+                                                   int32_t image_format, int32_t insert_at_index);
+
+// N-Up Layout
+//
+// Tile multiple source pages onto a single output page using FPDF_ImportNPagesToOne.
+
+// Create an N-up layout from a source document.
+// srcDoc: raw FPDF_DOCUMENT pointer (obtained via jpdfium_doc_raw_handle).
+// Returns PDF bytes of the N-up document via *output.
+// Caller must free *output with jpdfium_free_buffer.
+JPDFIUM_EXPORT int32_t jpdfium_import_n_pages_to_one(void* srcDoc,
+                                                      float outputWidth, float outputHeight,
+                                                      int32_t cols, int32_t rows,
+                                                      uint8_t** output, int64_t* outputLen);
 
 #ifdef __cplusplus
 }
