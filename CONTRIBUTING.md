@@ -22,20 +22,99 @@
        libicu-dev libqpdf-dev libpugixml-dev libunibreak-dev
    ```
 
-3. **Build the real native library** (recommended)
+3. **Quick Try-Out** (no PDFium or native dependencies needed)
    ```bash
-   bash native/setup-pdfium.sh    # Download PDFium (~25 MB, one-time)
-   bash native/build-real.sh      # CMake build against real PDFium + native libs
+   ./gradlew quickTry
+   ```
+   This builds the stub bridge and runs all 50 samples in stub mode. Perfect for testing Java-layer changes.
+
+4. **Full Build with Real PDFium** (recommended for production testing)
+   ```bash
+   # One command: build PDFium from source, build real bridge, run all tests and samples
+   ./gradlew fullBuildAndTest
+   ```
+   
+   Or step by step:
+   ```bash
+   ./gradlew buildPdfium         # Build PDFium from EmbedPDF fork (~15 GB, first time takes 15-60 min)
+   ./gradlew buildRealBridge     # Build native bridge against real PDFium
+   ./gradlew test                # Unit tests (stub mode)
+   ./gradlew :jpdfium:integrationTest  # Integration tests (real PDFium)
+   ./gradlew runAllSamples       # Run all 50 samples
    ```
 
-4. **Run all tests**
-   ```bash
-   ./gradlew test                        # unit tests
-   ./gradlew :jpdfium:integrationTest    # integration tests (real PDFium required)
-   ```
+   > **Note:** The PDFium build requires `git`, `python3`, and ~15 GB disk space.
+   > On Fedora, also install: `sudo dnf install clang lld pkg-config ninja-build`.
+   > The build script installs `depot_tools` (gclient/gn/ninja) automatically.
+   > Subsequent builds with `--rebuild` are much faster (incremental).
+
+### PDFium Build Details
+
+JPDFium uses the [EmbedPDF fork](https://github.com/embedpdf/pdfium) (branch `embedpdf/main`) which adds
+`EPDF_*` APIs for native encryption, annotation control, and redaction.
+
+The build uses a **component build** (`is_component_build=true`) with `use_allocator_shim=false`:
+- Component build produces `libpdfium.so` plus dependency `.so` files (PartitionAlloc, ICU, zlib, abseil)
+- `use_allocator_shim=false` is **required** — without it, PartitionAlloc replaces the system allocator
+  (malloc/free), causing crashes when loaded into a JVM that manages its own heap
+- `COMPONENT_BUILD` + `FPDF_IMPLEMENTATION` defines are set automatically, giving FPDF_EXPORT symbols
+  `__attribute__((visibility("default")))` — no manual header patching needed
+
+The build script applies these source patches:
+- **`base/BUILD.gn`**: Stub file (standalone PDFium lacks full `//base`)
+- **`third_party/libpng/visibility.gni`**: Adds fpdfsdk to libpng visibility (EmbedPDF adds PNG export)
+- **`cpdf_pagecontentgenerator.cpp`**: Fixes two null pointer crashes in PDFium's resource dict handling
+
+The `NativeLoader` reads a `native-libs.txt` manifest to extract all component `.so` files to a temp
+directory before loading. The dynamic linker resolves dependencies via `RUNPATH=$ORIGIN`.
 
 5. **Open in IntelliJ IDEA** - import as a Gradle project. Add
    `--enable-native-access=ALL-UNNAMED` to Run Configurations -> Templates -> Application -> VM Options.
+
+### Gradle Tasks Overview
+
+| Task | Description |
+|------|-------------|
+| `./gradlew quickTry` | Quick try-out: stub bridge + unit tests + all samples (no PDFium) |
+| `./gradlew buildPdfium` | Build PDFium from EmbedPDF fork source (~15 GB, first build 15-60 min) |
+| `./gradlew buildRealBridge` | Build real native bridge with PDFium |
+| `./gradlew buildStubBridge` | Build stub native bridge (no PDFium) |
+| `./gradlew fullBuildAndTest` | Full end-to-end: PDFium + real bridge + all tests + samples |
+| `./gradlew runAllSamples` | Run all 50 samples (requires real bridge for full features) |
+| `./gradlew runSample -Psample=01` | Run a specific sample (01-47) |
+| `./gradlew test` | Run unit tests (stub mode) |
+| `./gradlew :jpdfium:integrationTest` | Run integration tests (real PDFium required) |
+
+### Sample Numbers
+
+| Sample | Feature | Sample | Feature |
+|--------|---------|--------|---------|
+| 01 | Render | 25 | Page Geometry |
+| 02 | Text Extract | 26 | Header/Footer |
+| 03 | Text Search | 27 | Security |
+| 04 | Metadata | 28 | Doc Info |
+| 05 | Bookmarks | 29 | Render Options |
+| 06 | Redact Words | 30 | Form Reader |
+| 07 | Annotations | 31 | Image Extract |
+| 08 | Full Pipeline | 32 | Page Objects |
+| 09 | Flatten | 33 | Encryption |
+| 10 | Signatures | 34 | Linearizer |
+| 11 | Attachments | 35 | Overlay |
+| 12 | Links | 36 | Annotation Builder |
+| 13 | Page Import | 37 | Path Drawer |
+| 14 | Structure Tree | 38 | JavaScript Inspector |
+| 15 | Thumbnails (embedded) | 39 | Web Links |
+| 16 | Page Editing | 40 | Page Boxes |
+| 17 | N-Up Layout | 41 | Version Converter |
+| 18 | Repair | 42 | Bounded Text |
+| 19 | PDF to Images | 43 | Stream Optimizer |
+| 20 | Images to PDF | 44 | Flatten Rotation |
+| 21 | Thumbnails (generated) | 45 | Page Interleaver |
+| 22 | Merge/Split | 46 | Named Destinations |
+| 23 | Watermark | 47 | Blank Page Detector |
+| 24 | Table Extract | 48 | EmbedPDF Annotations |
+| | | 49 | Native Encryption |
+| | | 50 | Native Redaction |
 
 **Stub-only development** (no PDFium or native libraries needed):
 ```bash
@@ -48,70 +127,105 @@ The stub provides pass-through behavior for Java-layer testing only.
 
 ```
 JPDFium/
-├── native/
-│   ├── bridge/
-│   │   ├── include/
-│   │   │   ├── jpdfium.h              # Public C API (consumed by jextract)
-│   │   │   └── jpdfium_internal.h     # DocWrapper, PageWrapper, helpers
-│   │   └── src/
-│   │       ├── jpdfium_document.cpp   # Core document operations
-│   │       ├── jpdfium_render.cpp     # Page rendering
-│   │       ├── jpdfium_text.cpp       # Text extraction and search
-│   │       ├── jpdfium_redact.cpp     # Redaction (Object Fission)
-│   │       ├── jpdfium_advanced.cpp   # PII pipeline: PCRE2, FreeType, HarfBuzz, ICU, qpdf, pugixml
-│   │       ├── jpdfium_repair.cpp     # PDF repair cascade
-│   │       ├── jpdfium_image.cpp      # PDF to image conversion
-│   │       ├── jpdfium_brotli.cpp     # Brotli transcoding
-│   │       ├── jpdfium_lcms.cpp       # ICC color profile validation
-│   │       ├── jpdfium_openjpeg.cpp   # JPEG2000 validation
-│   │       ├── jpdfium_pdfio.cpp      # PDFio fallback repair
-│   │       ├── jpdfium_unicode.cpp    # Unicode text processing
-│   │       └── jpdfium_stub.cpp       # Stub for testing without PDFium
-│   ├── setup-pdfium.sh                # Download bblanchon/pdfium-binaries
-│   ├── build-real.sh                  # Build bridge against real PDFium
-│   └── build-stub.sh                  # Build stub only
-│
-├── jpdfium/                           # All Java source (main module)
-│   └── src/
-│       ├── main/java/stirling/software/jpdfium/
-│       │   ├── PdfDocument.java       # Main document API
-│       │   ├── PdfPage.java           # Page API
-│       │   ├── PdfImageConverter.java # PDF <-> Image conversion
-│       │   ├── doc/                   # Document inspection APIs
-│       │   │   ├── PdfMetadata.java
-│       │   │   ├── PdfBookmarks.java
-│       │   │   ├── PdfAnnotations.java
-│       │   │   ├── PdfLinks.java
-│       │   │   ├── PdfSignatures.java
-│       │   │   ├── PdfAttachments.java
-│       │   │   ├── PdfThumbnails.java
-│       │   │   ├── PdfStructureTree.java
-│       │   │   ├── PdfPageImporter.java
-│       │   │   ├── PdfPageEditor.java
-│       │   │   ├── PdfRepair.java
-│       │   │   ├── NUpLayout.java
-│       │   │   └── ...
-│       │   ├── exception/             # JPDFiumException hierarchy
-│       │   ├── fonts/                 # FontInfo, FontNormalizer
-│       │   ├── model/                 # Rect, PageSize, RenderResult, ImageFormat
-│       │   ├── panama/                # NativeLoader, JpdfiumLib, JpdfiumH (generated)
-│       │   ├── redact/                # PdfRedactor, RedactOptions, RedactResult
-│       │   │   └── pii/               # PiiRedactor, PatternEngine, GlyphRedactor, ...
-│       │   ├── text/                  # PdfTextExtractor, PdfTextSearcher, PageText, ...
-│       │   └── transform/             # PageOps
-│       └── test/java/stirling/software/jpdfium/
-│           ├── PdfDocumentTest.java   # Unit tests (stub native)
-│           ├── RealPdfIntegrationTest.java  # Integration tests (real PDFium)
-│           ├── ManualTest.java         # Quick smoke-test (right-click -> Run)
-│           ├── samples/               # Numbered manual-test classes (S01-S21)
-│           └── ...
-│
-├── jpdfium-natives/                   # Platform-specific native JARs
-│   ├── jpdfium-natives-linux-x64/
-│   └── ...
-├── jpdfium-spring/                    # Spring Boot auto-configuration
-├── jpdfium-bom/                       # Maven BOM
-└── buildSrc/                          # Gradle convention plugins
+  native/
+    bridge/
+      include/
+        - jpdfium.h              # Public C API (consumed by jextract)
+        - jpdfium_internal.h     # DocWrapper, PageWrapper, helpers
+      src/
+        - jpdfium_document.cpp   # Core document operations
+        - jpdfium_render.cpp     # Page rendering
+        - jpdfium_text.cpp       # Text extraction and search
+        - jpdfium_redact.cpp     # Redaction (Object Fission)
+        - jpdfium_advanced.cpp   # PII pipeline: PCRE2, FreeType, HarfBuzz, ICU, qpdf, pugixml
+        - jpdfium_repair.cpp     # PDF repair cascade
+        - jpdfium_image.cpp      # PDF to image conversion
+        - jpdfium_brotli.cpp     # Brotli transcoding
+        - jpdfium_lcms.cpp       # ICC color profile validation
+        - jpdfium_openjpeg.cpp   # JPEG2000 validation
+        - jpdfium_pdfio.cpp      # PDFio fallback repair
+        - jpdfium_unicode.cpp    # Unicode text processing
+        - jpdfium_stub.cpp       # Stub for testing without PDFium
+    - setup-pdfium.sh            # Build PDFium from EmbedPDF fork source
+    - build-real.sh              # Build bridge against real PDFium
+    - build-stub.sh              # Build stub only
+
+  jpdfium/                       # All Java source (main module)
+    src/
+      main/java/stirling/software/jpdfium/
+        - PdfDocument.java       # Main document API
+        - PdfPage.java           # Page API
+        - PdfImageConverter.java # PDF <-> Image conversion
+        - PdfMerge.java          # Merge multiple PDFs
+        - PdfSplit.java          # Split PDFs by strategy
+        - Watermark.java         # Watermark builder
+        - WatermarkApplier.java  # Apply watermarks
+        - HeaderFooter.java      # Header/footer builder
+        - HeaderFooterApplier.java # Apply headers/footers
+        - doc/                   # Document inspection APIs
+          - PdfMetadata.java
+          - PdfBookmarks.java
+          - PdfAnnotations.java
+          - PdfLinks.java
+          - PdfSignatures.java
+          - PdfAttachments.java
+          - PdfThumbnails.java
+          - PdfStructureTree.java
+          - PdfPageImporter.java
+          - PdfPageEditor.java
+          - PdfRepair.java
+          - PdfSecurity.java     # Security hardening
+          - PdfTableExtractor.java
+          - PdfOverlay.java      # Page overlay/stamp
+          - PdfLinearizer.java   # Fast web view
+          - PdfStreamOptimizer.java # File size reduction
+          - PdfVersionConverter.java # PDF version
+          - PdfEncryption.java   # AES-256 encrypt/decrypt (native + qpdf file-to-file)
+          - EmbedPdfAnnotations.java # Extended annotation operations (opacity, rotation, redaction, etc.)
+          - PdfPageInterleaver.java # Duplex scan merge
+          - PdfNamedDestinations.java # Named destination lookup
+          - PdfWebLinks.java     # Web link enumeration
+          - PdfPageBoxes.java    # All five page boxes
+          - PdfAnnotationBuilder.java # Create annotations
+          - PdfPathDrawer.java   # Vector path drawing
+          - PdfFlattenRotation.java # Apply rotation transform
+          - PdfFormReader.java   # Form field extraction
+          - PdfImageExtractor.java # Embedded image extraction
+          - PdfJavaScriptInspector.java # JS audit
+          - PdfBoundedText.java  # Bounded text blocks
+          - BlankPageDetector.java # Blank page detection
+          - DocInfo.java         # Comprehensive PDF audit
+          - RenderOptions.java   # Advanced render options
+          - NUpLayout.java
+          - QpdfHelper.java
+          - ...
+        - exception/             # JPDFiumException hierarchy
+        - fonts/                 # FontInfo, FontNormalizer
+        - model/                 # Rect, PageSize, RenderResult, ImageFormat, PdfVersion, ColorScheme, FlattenMode, Position, ImageToPdfOptions, PdfToImageOptions
+        - panama/                # NativeLoader, JpdfiumLib, JpdfiumH (generated), DocBindings, PageEditBindings, AnnotationBindings, EmbedPdfAnnotationBindings, EmbedPdfDocumentBindings, TextPageBindings, RenderBindings, JavaScriptBindings, ActionBindings, FontLib, RepairLib, FfmHelper
+        - redact/                # PdfRedactor, RedactOptions, RedactResult, RedactionSession
+          - pii/                 # PatternEngine, PiiCategory, EntityRedactor, GlyphRedactor, XmpRedactor
+        - text/                  # PdfTextExtractor, PdfTextSearcher, PageText, TextLine, TextWord, TextChar, Table
+          - edit/                # TextEditor
+        - transform/             # PageOps, PdfPageGeometry, PdfPageBoxes
+        - convert/               # (PDF <-> Image conversion utilities)
+        - util/                  # NativeJsonParser
+      test/java/stirling/software/jpdfium/
+        - PdfDocumentTest.java   # Unit tests (stub native)
+        - RealPdfIntegrationTest.java  # Integration tests (real PDFium)
+        - ManualTest.java        # Quick smoke-test (right-click -> Run)
+        - samples/               # Numbered manual-test classes (S01-S50)
+          - RunAllSamples.java   # Execute all 50 samples
+          - SampleBase.java      # Base class for samples
+          - S01_Render.java ... S50_NativeRedaction.java
+        - ...
+
+  jpdfium-natives/               # Platform-specific native JARs
+    - jpdfium-natives-linux-x64/
+    - ...
+  jpdfium-spring/                # Spring Boot auto-configuration
+  jpdfium-bom/                   # Maven BOM
+  buildSrc/                      # Gradle convention plugins
 ```
 
 ## Adding a New Native Function
@@ -239,9 +353,19 @@ not throw) so Java-layer tests pass without installing native dependencies.
 
 ## Build with Real PDFium
 
+JPDFium uses the [EmbedPDF fork](https://github.com/embedpdf/pdfium) of PDFium, which adds
+native encryption, annotation, and redaction APIs (the `EPDF_*` / `EPDFAnnot_*` symbols).
+No pre-built binaries are available — the library must be built from source.
+
 ```bash
-# 1. Download (~25 MB, gitignored)
+# 1. Build PDFium from EmbedPDF fork source (first run: ~15 GB download + 15-60 min build)
 bash native/setup-pdfium.sh
+
+# Subsequent builds (incremental, much faster):
+bash native/setup-pdfium.sh --rebuild
+
+# Full clean rebuild:
+bash native/setup-pdfium.sh --clean
 
 # 2. Build real bridge with CMake (auto-detects native libraries)
 bash native/build-real.sh
@@ -250,12 +374,25 @@ bash native/build-real.sh
 ./gradlew :jpdfium:integrationTest
 ```
 
+### PDFium Build Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| `git`, `python3` | Used by depot_tools (gclient/gn/ninja) |
+| `clang`, `lld` | C++ compiler and linker (Fedora: `dnf install clang lld`) |
+| ~15 GB disk space | Source checkout + build artifacts |
+| Network access | First build downloads Chromium build toolchain |
+
+The script installs `depot_tools` automatically. After a successful build, the
+resulting `libpdfium.so` is placed in `native/pdfium/lib/` with headers in
+`native/pdfium/include/`. The build verifies that `EPDF_*` symbols are exported.
+
 ## Manual Testing
 
 The `samples` package provides quick 1-click runnable classes for each feature:
 
-Right-click any `S01_Render` ... `S21_Thumbnails` class in IntelliJ and hit Run.
-`RunAllSamples` runs all 21 in sequence. Output lands in `jpdfium/samples-output/`.
+Right-click any `S01_Render` ... `S47_BlankPageDetector` class in IntelliJ and hit Run.
+`RunAllSamples` runs all 50 samples in sequence. Output lands in `jpdfium/samples-output/`.
 
 See `jpdfium/src/test/java/stirling/software/jpdfium/samples/` for details.
 
