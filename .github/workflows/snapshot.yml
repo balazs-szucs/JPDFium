@@ -195,6 +195,8 @@ jobs:
 
       - name: Install build deps (macOS, native arm64)
         if: matrix.platform == 'darwin-arm64'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           brew install cmake ninja \
             pcre2 freetype harfbuzz icu4c qpdf pugixml libunibreak \
@@ -203,6 +205,8 @@ jobs:
 
       - name: Install build deps (macOS, x86_64 cross-compile)
         if: matrix.platform == 'darwin-x64'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           sudo softwareupdate --install-rosetta --agree-to-license || true
           if [ ! -x /usr/local/bin/brew ]; then
@@ -443,6 +447,7 @@ jobs:
       - name: Functional smoke test (load native + open a PDF)
         if: matrix.libc != 'musl' && matrix.platform != 'darwin-x64' && (github.event_name != 'pull_request' || !startsWith(matrix.platform, 'darwin-'))
         run: ./gradlew :jpdfium:nativeSmokeTest -Pjpdfium.testNatives=${{ matrix.platform }} --no-daemon --stacktrace
+        timeout-minutes: 60
 
       - name: Verify native smoke actually ran
         if: always() && matrix.libc != 'musl' && matrix.platform != 'darwin-x64' && (github.event_name != 'pull_request' || !startsWith(matrix.platform, 'darwin-'))
@@ -463,6 +468,7 @@ jobs:
           arch -x86_64 "$HOME/x64-jdk/Contents/Home/bin/java" -version
           export JAVA_HOME="$HOME/x64-jdk/Contents/Home"
           arch -x86_64 ./gradlew :jpdfium:nativeSmokeTest -Pjpdfium.testNatives=darwin-x64 --no-daemon --stacktrace
+        timeout-minutes: 60
 
       - name: Verify darwin-x64 smoke actually ran
         if: always() && matrix.platform == 'darwin-x64' && github.event_name != 'pull_request'
@@ -548,6 +554,8 @@ jobs:
             sudo apt-get install -y --no-install-recommends libvips-dev patchelf
       - name: Install libvips (macOS, fallback)
         if: matrix.platform == 'darwin-arm64'
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           [ -f /usr/local/lib/libvips.42.dylib ] || brew install vips
       - name: Fetch prebuilt libvips (Windows)
@@ -584,6 +592,7 @@ jobs:
       - name: Vips smoke test (render PDF -> all major formats)
         if: steps.stage.outcome == 'success' && (github.event_name != 'pull_request' || matrix.platform != 'darwin-arm64')
         run: ./gradlew :jpdfium-vips:vipsSmokeTest -Pjpdfium.testNatives=${{ matrix.platform }} -Pjpdfium.testVipsNatives=vips-${{ matrix.platform }} --no-daemon --stacktrace
+        timeout-minutes: 60
 
       - name: Verify vips smoke actually ran
         if: always() && steps.stage.outcome == 'success' && (github.event_name != 'pull_request' || matrix.platform != 'darwin-arm64')

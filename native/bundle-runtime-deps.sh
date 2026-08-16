@@ -393,15 +393,18 @@ bundle_windows() {
     redist_dir=$(find "/c/Program Files/Microsoft Visual Studio" -path "*VC/Redist/MSVC/*/${arch_dir}/Microsoft.VC*.CRT" -type d 2>/dev/null | sort | tail -1 || true)
     if [ -n "$redist_dir" ]; then
         echo "Resolving imported-but-missing CRT DLLs from: $redist_dir"
+        local work_dir
+        work_dir=$(mktemp -d 2>/dev/null || mktemp -d -t 'crt-imports')
+        local crt_imports="$work_dir/crt-imports.txt"
         # Collect every CRT DLL basename the bundled DLLs import.
-        : > "$WORK/crt-imports.txt"
+        : > "$crt_imports"
         for dll in "$DIST_DIR"/*.dll; do
             [ -e "$dll" ] || continue
             "$DUMPBIN" //dependents "$dll" 2>/dev/null \
                 | grep -oiE '(msvcp140|vcruntime140|concrt140)[a-z0-9_]*\.dll' \
-                >> "$WORK/crt-imports.txt" || true
+                >> "$crt_imports" || true
         done
-        sort -u "$WORK/crt-imports.txt" | while IFS= read -r crt; do
+        sort -u "$crt_imports" | while IFS= read -r crt; do
             [ -z "$crt" ] && continue
             [ -e "$DIST_DIR/$crt" ] && continue
             if [ -f "$redist_dir/$crt" ]; then
@@ -410,6 +413,7 @@ bundle_windows() {
                 echo "WARNING: $crt imported but not in VS redist or bundle" >&2
             fi
         done
+        rm -rf "$work_dir"
     else
         echo "WARNING: VC redist CRT dir not found - CRT DLLs may be missing from the bundle" >&2
     fi
@@ -458,18 +462,14 @@ case "$PLATFORM" in
     windows-*|vips-windows-*)
         bundle_windows
         # The prebuilt PDFium component build ships PartitionAlloc DLLs that
-        # NOTHING links against on Windows (verified: no DLL imports the
-        # allocator shim or raw_ptr on windows-x64 / windows-arm64). They are
-        # dead weight AND a JVM hazard: the shim's DllMain replaces the process
+        # NOTHING links against on Windows (verified: no DLL imports any
+        # allocator, partition_alloc, or raw_ptr DLL on windows-x64 / windows-arm64).
+        # They are dead weight AND a JVM hazard: their DllMain replaces the process
         # allocator, which hard-crashes the JVM when NativeLoader preloads the
-        # manifest (STATUS_ENTRYPOINT_NOT_FOUND on windows-arm64). Strip them
-        # on Windows only. Dependency matrix (verified against the prebuilt
-        # tarballs): shim is orphaned on linux+windows but linked by
-        # libpdfium.dylib on macOS; raw_ptr is orphaned on windows but linked
-        # by libpdfium on linux+macOS. The linux leg strips the shim; macOS
-        # strips neither.
+        # manifest (STATUS_ENTRYPOINT_NOT_FOUND / 0xc0000139 on windows-arm64).
+        # Strip them on Windows only.
         find "$DIST_DIR" -maxdepth 1 -type f \
-            \( -name '*allocator_shim*' -o -name '*raw_ptr*' \) -print -delete
+            \( -name '*allocator*' -o -name '*partition_alloc*' -o -name '*raw_ptr*' \) -print -delete
         # The MSVC linker strips PE files in Release config already; no
         # equivalent `strip` step needed.
         ;;
