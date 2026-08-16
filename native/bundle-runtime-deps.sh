@@ -461,17 +461,11 @@ case "$PLATFORM" in
         ;;
     windows-*|vips-windows-*)
         bundle_windows
-        # The prebuilt PDFium component build ships PartitionAlloc DLLs that
-        # NOTHING links against on Windows (verified: no DLL imports the
-        # allocator shim or raw_ptr on windows-x64 / windows-arm64). They are
-        # dead weight AND a JVM hazard: the shim's DllMain replaces the process
-        # allocator, which hard-crashes the JVM when NativeLoader preloads the
-        # manifest (STATUS_ENTRYPOINT_NOT_FOUND on windows-arm64). Strip them
-        # on Windows only. Dependency matrix (verified against the prebuilt
-        # tarballs): shim is orphaned on linux+windows but linked by
-        # libpdfium.dylib on macOS; raw_ptr is orphaned on windows but linked
-        # by libpdfium on linux+macOS. The linux leg strips the shim; macOS
-        # strips neither.
+        # The prebuilt PDFium component build ships PartitionAlloc DLLs where
+        # only the allocator shim and raw_ptr are orphaned on Windows (allocator_base
+        # and allocator_core are imported by pdfium.dll and must stay).
+        # allocator_shim's DllMain replaces the process allocator, which is a JVM
+        # hazard - strip it along with orphaned raw_ptr.
         find "$DIST_DIR" -maxdepth 1 -type f \
             \( -name '*allocator_shim*' -o -name '*raw_ptr*' \) -print -delete
         # The MSVC linker strips PE files in Release config already; no
