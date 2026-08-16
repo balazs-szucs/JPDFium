@@ -181,8 +181,7 @@ public final class NativeLoader {
      */
     private static boolean isWindowsJvmHazardDll(String lib) {
         String l = lib.toLowerCase();
-        return l.contains("allocator")
-                || l.contains("partition_alloc")
+        return l.contains("allocator_shim")
                 || l.contains("raw_ptr")
                 || l.startsWith("api-ms-win-") || l.startsWith("ext-ms-")
                 || l.startsWith("vcruntime140") || l.startsWith("msvcp140")
