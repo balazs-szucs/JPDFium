@@ -630,7 +630,25 @@ jobs:
         run: ./gradlew :jpdfium-natives:jpdfium-natives-vips-${{ matrix.platform }}:jar --no-daemon
 
       - name: Vips smoke test (render PDF -> all major formats)
+        if: matrix.platform != 'darwin-x64'
         run: ./gradlew :jpdfium-vips:vipsSmokeTest -Pjpdfium.testNatives=${{ matrix.platform }} -Pjpdfium.testVipsNatives=vips-${{ matrix.platform }} --no-daemon --stacktrace
+        timeout-minutes: 60
+
+      # darwin-x64 is cross-compiled on this arm64 (macos-14) host; run its
+      # x86_64 vips smoke under Rosetta with an x86_64 JDK so platform
+      # detection resolves darwin-x64 (same gate as the core Rosetta smoke).
+      - name: Vips smoke test - darwin-x64 (Rosetta)
+        if: matrix.platform == 'darwin-x64'
+        shell: bash
+        run: |
+          curl -fL --max-time 300 --retry 5 --retry-all-errors --retry-delay 3 \
+            "https://api.adoptium.net/v3/binary/latest/25/ga/mac/x64/jdk/hotspot/normal/eclipse?project=jdk" \
+            -o /tmp/x64-jdk.tar.gz
+          mkdir -p "$HOME/x64-jdk"
+          tar -xzf /tmp/x64-jdk.tar.gz -C "$HOME/x64-jdk" --strip-components=1
+          arch -x86_64 "$HOME/x64-jdk/Contents/Home/bin/java" -version
+          export JAVA_HOME="$HOME/x64-jdk/Contents/Home"
+          arch -x86_64 ./gradlew :jpdfium-vips:vipsSmokeTest -Pjpdfium.testNatives=darwin-x64 -Pjpdfium.testVipsNatives=vips-darwin-x64 --no-daemon --stacktrace
         timeout-minutes: 60
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -51,6 +51,10 @@ class VipsSmokeTest {
                 + "HEIF/AVIF=" + state.heifsave() + ", "
                 + "JXL=" + state.jxlsave());
 
+        if (!state.available() && state.error() != null) {
+            System.out.println("Libvips init failure cause:");
+            state.error().printStackTrace(System.out);
+        }
         assertTrue(state.available(), "libvips is not available: " + VipsAvailability.installMessage(state));
 
         List<String> missingSavers = new ArrayList<>();
