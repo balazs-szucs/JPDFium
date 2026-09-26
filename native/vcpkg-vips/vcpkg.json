@@ -14,13 +14,12 @@
     {
       "name": "libheif",
       "default-features": false,
-      "features": ["aom", "jpeg", "openjpeg", "header-compression"]
+      "features": ["aom", "jpeg", "openjpeg", "libde265", "header-compression"]
     },
     "libjxl",
     "openjpeg",
     "lcms",
     "libexif",
-    "librsvg",
     "openexr",
     "libraw",
     "libspng",

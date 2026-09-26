@@ -17,6 +17,20 @@ on:
         description: 'libvips tag (vX.Y.Z)'
         type: string
         default: v8.18.6
+  # Bootstrap: workflow_dispatch only works from the default branch, so while
+  # this workflow is brought up on a PR branch, runs are triggered by pushes
+  # that touch the prebuild inputs. Drop this trigger once merged to main.
+  push:
+    branches: [fix-native-size-and-platforms]
+    paths:
+      - '.github/workflows/prebuild-vips.yml'
+      - 'native/vcpkg-vips/**'
+      - 'native/vcpkg-install.sh'
+      - 'native/fetch-prebuilt-pdfium.sh'
+      - 'native/build-vips.sh'
+      - 'native/bundle-runtime-deps.sh'
+      - 'native/patch-windows-libcxx.py'
+      - 'native/vips.version'
 
 permissions:
   contents: read
@@ -45,7 +59,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { platform: windows-x64, runner: windows-2022, triplet: x64-windows }
+          - { platform: windows-x64,   runner: windows-2022,  triplet: x64-windows }
+          - { platform: windows-arm64, runner: windows-11-arm, triplet: arm64-windows }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -121,7 +136,10 @@ jobs:
             -o vips.tar.gz
           tar xzf vips.tar.gz
 
+          # --vsenv: GitHub's default shell has no MSVC environment; meson
+          # activates the Visual Studio env itself.
           meson setup build "libvips-${VIPS_TAG#v}" \
+            --vsenv \
             --prefix="$PREFIX" --libdir=lib --buildtype=release \
             -Dauto_features=disabled -Ddeprecated=false -Dexamples=false \
             -Dmodules=disabled -Dintrospection=disabled -Dvapi=false \
@@ -146,9 +164,10 @@ jobs:
           PREFIX="$(cygpath -m "$PWD/vips-prefix")"
           PDFIUM_DIR="$(cygpath -m "$PWD/native/pdfium")"
           export PATH="$PREFIX/bin:$PDFIUM_DIR/lib:$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/bin:$PATH"
+          # Relative output path: native vips.exe cannot resolve MSYS /tmp.
           "$PREFIX/bin/vips.exe" pdfload \
-            jpdfium/src/main/resources/pdfs/general/basic-text.pdf /tmp/out.png
-          "$PREFIX/bin/vipsheader.exe" /tmp/out.png
+            jpdfium/src/main/resources/pdfs/general/basic-text.pdf out.png
+          "$PREFIX/bin/vipsheader.exe" out.png
 
       - name: Stage + bundle Windows vips
         run: |
