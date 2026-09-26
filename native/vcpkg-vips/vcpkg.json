@@ -1,7 +1,7 @@
 {
   "name": "jpdfium-vips-deps",
   "version-string": "0.0.0",
-  "description": "Permissive-only vcpkg dependencies for the GPL-free Windows libvips prebuild. libheif's default feature is the GPL-2 x265 encoder, so its defaults are disabled and only permissive codecs are selected (libde265 for HEIC decode, aom for AVIF, jpeg, openjpeg).",
+  "description": "Permissive-only vcpkg dependencies for the GPL-free Windows libvips prebuild. libheif's default feature is the GPL-2 x265 encoder, so its defaults are disabled and only permissive codecs are selected (aom for AVIF, jpeg, openjpeg); HEIC decode comes from the port's unconditional libde265 dependency.",
   "dependencies": [
     "pkgconf",
     "glib",
@@ -14,7 +14,7 @@
     {
       "name": "libheif",
       "default-features": false,
-      "features": ["aom", "jpeg", "openjpeg", "libde265", "header-compression"]
+      "features": ["aom", "jpeg", "openjpeg", "header-compression"]
     },
     "libjxl",
     "openjpeg",

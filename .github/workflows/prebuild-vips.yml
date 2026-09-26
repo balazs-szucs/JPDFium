@@ -93,6 +93,8 @@ jobs:
             --triplet="$TRIPLET"
           echo "PKG_CONFIG_PATH=$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/tools/pkgconf" >> "$GITHUB_PATH"
+          # vcpkg ships the tool as pkgconf.exe; meson probes `pkg-config`.
+          echo "PKG_CONFIG=$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/tools/pkgconf/pkgconf.exe" >> "$GITHUB_ENV"
 
       - name: Build libvips with PDFium (no fftw, no poppler)
         env:
@@ -106,6 +108,9 @@ jobs:
           TRIPLET="${{ matrix.triplet }}"
           PREFIX="$(cygpath -m "$PWD/vips-prefix")"
           PDFIUM_DIR="$(cygpath -m "$PWD/native/pdfium")"
+          # MSVC resolves -lpdfium to pdfium.lib; the component asset ships the
+          # import library as pdfium.dll.lib.
+          cp "$PDFIUM_DIR/lib/pdfium.dll.lib" "$PDFIUM_DIR/lib/pdfium.lib"
 
           # libvips requires pdfium >= 4200; the placeholder clears the gate.
           # The component libpdfium is linked deliberately: it exports only the
