@@ -17,26 +17,20 @@ on:
         description: 'libvips tag (vX.Y.Z)'
         type: string
         default: v8.18.6
-  # Bootstrap: workflow_dispatch only works from the default branch, so while
-  # this workflow is brought up on a PR branch, runs are triggered by pushes
-  # that touch the prebuild inputs. Drop this trigger once merged to main.
-  push:
-    branches: [fix-native-size-and-platforms]
-    paths:
-      - '.github/workflows/prebuild-vips.yml'
-      - 'native/vcpkg-vips/**'
-      - 'native/vcpkg-install.sh'
-      - 'native/fetch-prebuilt-pdfium.sh'
-      - 'native/build-vips.sh'
-      - 'native/bundle-runtime-deps.sh'
-      - 'native/patch-windows-libcxx.py'
-      - 'native/vips.version'
+  # Bootstrap: workflow_dispatch is only available from the default branch, so
+  # while this workflow is brought up on a PR, runs are triggered by adding the
+  # `prebuild-vips` label to the PR (pull_request events use the PR head's
+  # workflow file). The release/pin update stays a workflow_dispatch-only step;
+  # PR runs just upload the zips as run artifacts.
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
 
 jobs:
   resolve-sha:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'prebuild-vips'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.vars.outputs.sha }}
@@ -44,6 +38,8 @@ jobs:
       tag: ${{ steps.vars.outputs.tag }}
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - id: vars
         run: |
           sha=$(git rev-parse HEAD)
@@ -53,6 +49,7 @@ jobs:
 
   build:
     needs: resolve-sha
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'prebuild-vips'
     permissions:
       contents: read
     strategy:
@@ -68,6 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -98,7 +96,7 @@ jobs:
 
       - name: Build libvips with PDFium (no fftw, no poppler)
         env:
-          INPUT_VIPS_VERSION: ${{ inputs.vips_version }}
+          INPUT_VIPS_VERSION: ${{ inputs.vips_version || 'v8.18.6' }}
         run: |
           set -euo pipefail
           if ! [[ "$INPUT_VIPS_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -193,6 +191,9 @@ jobs:
             vips-${{ matrix.platform }}.zip.sha256
 
   publish:
+    # PR runs only upload run artifacts (a PR token cannot create releases);
+    # the release + native/vips.version pin happen on workflow_dispatch runs.
+    if: github.event_name == 'workflow_dispatch'
     needs: [resolve-sha, build]
     permissions:
       contents: write
