@@ -85,16 +85,22 @@ jobs:
           HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           TRIPLET="${{ matrix.triplet }}"
+          INSTALL_ROOT="$(cygpath -m "$VCPKG_INSTALLATION_ROOT/installed")"
           # Manifest mode: the manifest disables libheif's default `hevc`
           # feature (GPL-2 x265) and selects permissive codecs only.
           bash native/vcpkg-install.sh \
-            --x-manifest-root="$PWD/native/vcpkg-vips" \
-            --x-install-root="$VCPKG_INSTALLATION_ROOT/installed" \
+            --x-manifest-root="$(cygpath -m "$PWD/native/vcpkg-vips")" \
+            --x-install-root="$INSTALL_ROOT" \
             --triplet="$TRIPLET"
-          echo "PKG_CONFIG_PATH=$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/tools/pkgconf" >> "$GITHUB_PATH"
+          PKGCONF=$(find "$INSTALL_ROOT/$TRIPLET/tools" -name 'pkgconf.exe' 2>/dev/null | head -1 || true)
+          if [ -z "$PKGCONF" ]; then
+            echo "ERROR: pkgconf.exe not found under $INSTALL_ROOT/$TRIPLET/tools" >&2
+            exit 1
+          fi
+          echo "PKG_CONFIG_PATH=$INSTALL_ROOT/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
           # vcpkg ships the tool as pkgconf.exe; meson probes `pkg-config`.
-          echo "PKG_CONFIG=$VCPKG_INSTALLATION_ROOT/installed/$TRIPLET/tools/pkgconf/pkgconf.exe" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG=$(cygpath -m "$PKGCONF")" >> "$GITHUB_ENV"
+          echo "$(cygpath -w "$(dirname "$PKGCONF")")" >> "$GITHUB_PATH"
 
       - name: Build libvips with PDFium (no fftw, no poppler)
         env:
@@ -116,7 +122,7 @@ jobs:
           # The component libpdfium is linked deliberately: it exports only the
           # FPDF API, so PDFium's bundled openjpeg/lcms/libpng/zlib cannot
           # shadow the copies libvips was compiled against.
-          PC_DIR="$PWD/vips-pc"
+          PC_DIR="$(cygpath -m "$PWD/vips-pc")"
           mkdir -p "$PC_DIR"
           cat > "$PC_DIR/pdfium.pc" <<EOF
           prefix=$PDFIUM_DIR
@@ -131,7 +137,8 @@ jobs:
           Libs: -L\${libdir} -lpdfium
           Cflags: -I\${includedir}
           EOF
-          export PKG_CONFIG_PATH="$PC_DIR:$PKG_CONFIG_PATH"
+          # Windows pkgconf separates search paths with ';'.
+          export PKG_CONFIG_PATH="$PC_DIR;$PKG_CONFIG_PATH"
 
           VIPS_TAG="$INPUT_VIPS_VERSION"
           curl -fsSL --retry 3 --retry-delay 3 \
