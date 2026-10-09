@@ -415,7 +415,7 @@ class MemoryBehaviorTest {
         sb.replace(0, sb.length(), sb.substring(0, streamStart)
                 + contentObj + " 0 obj<</Length " + (streamEnd - streamStart - 1)
                 + ">>\nstream\n"
-                + sb.substring(streamStart + ("" + contentObj + " 0 obj<</Length 0>>\nstream\n").length(),
+                + sb.substring(streamStart + (contentObj + " 0 obj<</Length 0>>\nstream\n").length(),
                                streamEnd)
                 + "\nendstream\nendobj\n");
         int xrefOffset = sb.length();
