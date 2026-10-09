@@ -2,6 +2,7 @@ package stirling.software.jpdfium;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -68,5 +69,21 @@ class PdfColorAdjusterTest {
         assertThrows(IllegalArgumentException.class, () -> PdfColorAdjuster.Adjustment.fromPercent(201, 100, 100, 100, 100, 100));
         assertThrows(IllegalArgumentException.class, () -> PdfColorAdjuster.Adjustment.fromPercent(100, -1, 100, 100, 100, 100));
         assertThrows(IllegalArgumentException.class, () -> PdfColorAdjuster.Adjustment.fromPercent(100, 100, 100, 100, 100, 201));
+    }
+
+    @Test
+    void bulkApplyMatchesScalarAcrossTheParallelThreshold() {
+        PdfColorAdjuster.Adjustment adjustment =
+                PdfColorAdjuster.Adjustment.fromPercent(180, 110, 130, 105, 95, 100);
+        // Size past PARALLEL_THRESHOLD (1 << 17) so the multi-core path is exercised.
+        int n = (1 << 17) + 1234;
+        int[] pixels = new int[n];
+        int[] expected = new int[n];
+        for (int i = 0; i < n; i++) {
+            pixels[i] = (i * 0x9E3779B9) & 0xFFFFFF;
+            expected[i] = adjustment.apply(pixels[i]);
+        }
+        adjustment.apply(pixels);
+        assertArrayEquals(expected, pixels);
     }
 }

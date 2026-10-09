@@ -12,17 +12,8 @@ import java.util.Set;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Convert page object colors between color spaces (RGB -> grayscale, etc.).
- *
- * <p>Walks all page objects (text, paths, images) and converts fill/stroke
- * colors to the target color space using luminance-preserving conversion.
- *
- * <pre>{@code
- * try (PdfDocument doc = PdfDocument.open(Path.of("color.pdf"))) {
- *     PdfColorConverter.toGrayscale(doc);
- *     doc.save(Path.of("grayscale.pdf"));
- * }
- * }</pre>
+ * Converts page object fill/stroke colors between color spaces (RGB, grayscale) using
+ * luminance-preserving conversion.
  */
 public final class PdfColorConverter {
 
@@ -166,113 +157,100 @@ public final class PdfColorConverter {
         int count;
         try {
             count = (int) PageEditBindings.FPDFPage_CountObjects.invokeExact(rawPage);
-        } catch (Throwable t) { return 0; }
+        } catch (Throwable t) {
+            return 0;
+        }
+        if (count <= 0) return 0;
 
         int converted = 0;
         boolean changed = false;
 
-        for (int i = 0; i < count; i++) {
-            MemorySegment obj;
-            try {
-                obj = (MemorySegment) PageEditBindings.FPDFPage_GetObject.invokeExact(rawPage, i);
-            } catch (Throwable t) { continue; }
-            if (obj.equals(MemorySegment.NULL)) continue;
+        // One arena and four int slots are reused for every object on the page.
+        // Allocating them per fill/stroke call dominated the allocation profile.
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment r = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment g = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment b = arena.allocate(ValueLayout.JAVA_INT);
+            MemorySegment a = arena.allocate(ValueLayout.JAVA_INT);
 
-            int type;
-            try { type = (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(obj); }
-            catch (Throwable t) { continue; }
-
-            // Type 1 = TEXT, 2 = PATH, 3 = IMAGE
-            boolean isText = (type == 1);
-            boolean isPath = (type == 2);
-
-            if (isText && !options.convertText()) continue;
-            if (isPath && !options.convertVectors()) continue;
-            if (type == 3 && !options.convertImages()) continue;
-
-            // Convert fill color
-            if (isText || isPath) {
-                if (convertFillColor(obj, options, target)) {
-                    changed = true;
-                    converted++;
+            for (int i = 0; i < count; i++) {
+                MemorySegment obj;
+                try {
+                    obj = (MemorySegment) PageEditBindings.FPDFPage_GetObject.invokeExact(rawPage, i);
+                } catch (Throwable t) {
+                    continue;
                 }
-                if (convertStrokeColor(obj, options, target)) {
-                    changed = true;
+                if (obj.equals(MemorySegment.NULL)) continue;
+
+                int type;
+                try {
+                    type = (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(obj);
+                } catch (Throwable t) {
+                    continue;
+                }
+
+                // Type 1 = TEXT, 2 = PATH, 3 = IMAGE.
+                boolean isText = (type == 1);
+                boolean isPath = (type == 2);
+                if (isText && !options.convertText()) continue;
+                if (isPath && !options.convertVectors()) continue;
+                if (type == 3 && !options.convertImages()) continue;
+
+                if (isText || isPath) {
+                    if (convertColor(obj, target, options.preserveBlack(), r, g, b, a, true)) {
+                        changed = true;
+                        converted++;
+                    }
+                    if (convertColor(obj, target, options.preserveBlack(), r, g, b, a, false)) {
+                        changed = true;
+                    }
                 }
             }
         }
 
         if (changed) {
-            try { int gcOk = (int) PageEditBindings.FPDFPage_GenerateContent.invokeExact(rawPage); }
-            catch (Throwable t) { throw new JPDFiumException("FPDFPage_GenerateContent failed", t); }
+            try {
+                PageEditBindings.FPDFPage_GenerateContent.invokeExact(rawPage);
+            } catch (Throwable t) {
+                throw new JPDFiumException("FPDFPage_GenerateContent failed", t);
+            }
         }
         return converted;
     }
 
-    private static boolean convertFillColor(MemorySegment obj, ColorConvertOptions options,
-                                             ColorSpace target) {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment r = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment g = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment b = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment a = arena.allocate(ValueLayout.JAVA_INT);
-
-            int ok = (int) PageEditBindings.FPDFPageObj_GetFillColor.invokeExact(obj, r, g, b, a);
+    /** Reads, remaps and writes one fill or stroke colour using the shared slots. */
+    private static boolean convertColor(MemorySegment obj, ColorSpace target, boolean preserveBlack,
+                                        MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
+                                        boolean fill) {
+        try {
+            int ok = fill
+                    ? (int) PageEditBindings.FPDFPageObj_GetFillColor.invokeExact(obj, r, g, b, a)
+                    : (int) PageEditBindings.FPDFPageObj_GetStrokeColor.invokeExact(obj, r, g, b, a);
             if (ok == 0) return false;
 
             int ri = r.get(ValueLayout.JAVA_INT, 0);
             int gi = g.get(ValueLayout.JAVA_INT, 0);
             int bi = b.get(ValueLayout.JAVA_INT, 0);
             int ai = a.get(ValueLayout.JAVA_INT, 0);
+            if (preserveBlack && ri == 0 && gi == 0 && bi == 0) return false;
 
-            if (options.preserveBlack() && ri == 0 && gi == 0 && bi == 0) return false;
+            int tr = ri;
+            int tg = gi;
+            int tb = bi;
+            if (target == ColorSpace.GRAYSCALE) {
+                tr = tg = tb = toGray(ri, gi, bi);
+            }
 
-            int[] rgb = toTargetRgb(ri, gi, bi, target);
-            int setOk = (int) PageEditBindings.FPDFPageObj_SetFillColor.invokeExact(
-                    obj, rgb[0], rgb[1], rgb[2], ai);
+            int setOk = fill
+                    ? (int) PageEditBindings.FPDFPageObj_SetFillColor.invokeExact(obj, tr, tg, tb, ai)
+                    : (int) PageEditBindings.FPDFPageObj_SetStrokeColor.invokeExact(obj, tr, tg, tb, ai);
             return setOk != 0;
-        } catch (Throwable t) { return false; }
-    }
-
-    private static boolean convertStrokeColor(MemorySegment obj, ColorConvertOptions options,
-                                               ColorSpace target) {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment r = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment g = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment b = arena.allocate(ValueLayout.JAVA_INT);
-            MemorySegment a = arena.allocate(ValueLayout.JAVA_INT);
-
-            int ok = (int) PageEditBindings.FPDFPageObj_GetStrokeColor.invokeExact(obj, r, g, b, a);
-            if (ok == 0) return false;
-
-            int ri = r.get(ValueLayout.JAVA_INT, 0);
-            int gi = g.get(ValueLayout.JAVA_INT, 0);
-            int bi = b.get(ValueLayout.JAVA_INT, 0);
-            int ai = a.get(ValueLayout.JAVA_INT, 0);
-
-            if (options.preserveBlack() && ri == 0 && gi == 0 && bi == 0) return false;
-
-            int[] rgb = toTargetRgb(ri, gi, bi, target);
-            int setOk = (int) PageEditBindings.FPDFPageObj_SetStrokeColor.invokeExact(
-                    obj, rgb[0], rgb[1], rgb[2], ai);
-            return setOk != 0;
-        } catch (Throwable t) { return false; }
-    }
-
-    /**
-     * Map an RGB triplet to the target color space for the PDFium RGB setter.
-     */
-    private static int[] toTargetRgb(int r, int g, int b, ColorSpace target) {
-        if (target == ColorSpace.GRAYSCALE) {
-            int gray = toGray(r, g, b);
-            return new int[] { gray, gray, gray };
+        } catch (Throwable t) {
+            return false;
         }
-        return new int[] { r, g, b };
     }
 
-    /**
-     * Convert RGB to grayscale using ITU-R BT.709 luminance coefficients.
-     */
+    /** RGB to grayscale using ITU-R BT.709 luminance coefficients. */
     private static int toGray(int r, int g, int b) {
         return Math.clamp(Math.round(0.2126f * r + 0.7152f * g + 0.0722f * b), 0, 255);
     }

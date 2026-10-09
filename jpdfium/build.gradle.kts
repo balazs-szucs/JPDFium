@@ -229,6 +229,7 @@ val jpdfiumFunctions = listOf(
     "jpdfium_rust_compress_pdf",
     "jpdfium_rust_repair_lopdf",
     "jpdfium_rust_resize_pixels",
+    "jpdfium_rust_unpack_pixels",
     "jpdfium_rust_svg_to_rgba",
     "jpdfium_rust_free",
     // QPDF in-process functions
@@ -359,6 +360,13 @@ val patchBindingsForCrossPlatform = tasks.register("patchBindingsForCrossPlatfor
                     "public static final MemorySegment ADDR = SYMBOL_LOOKUP.find(\"$fn\").orElse(null);\n\n        public static final MethodHandle HANDLE = ADDR != null ? Linker.nativeLinker().downcallHandle(ADDR, DESC) : null;"
                 )
             }
+
+            // jextract emits a plain downcall, which routes heap pointers through
+            // SharedUtils.checkNative and rejects them; only critical(true) allows heap.
+            text = text.replace(
+                "public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow(\"jpdfium_rust_unpack_pixels\");\n\n        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);",
+                "public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow(\"jpdfium_rust_unpack_pixels\");\n\n        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC, Linker.Option.critical(true));"
+            )
 
             // Ownership-boundary contract for the raw bindings: jextract output
             // carries no hand documentation, so re-apply it here on every

@@ -1319,6 +1319,11 @@ int32_t jpdfium_rust_resize_pixels(const uint8_t*, int64_t, int32_t, int32_t, in
     return fail_native_bytes(out_ptr, out_len);
 }
 
+int32_t jpdfium_rust_unpack_pixels(const uint8_t*, int32_t, int32_t, int64_t, int32_t, uint32_t*,
+                                   int64_t) {
+    return JPDFIUM_ERR_NATIVE;
+}
+
 int32_t jpdfium_rust_compress_png(const uint8_t*, int64_t, uint8_t** out_ptr, int64_t* out_len,
                                   int32_t) {
     return fail_native_bytes(out_ptr, out_len);

@@ -4,8 +4,10 @@ import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.PdfPage;
 import stirling.software.jpdfium.exception.JPDFiumException;
 import stirling.software.jpdfium.panama.ImageObjBindings;
+import stirling.software.jpdfium.panama.JpdfiumH;
 import stirling.software.jpdfium.panama.NativeRuntime;
 import stirling.software.jpdfium.panama.PageEditBindings;
+import stirling.software.jpdfium.panama.Symbols;
 
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -22,9 +24,8 @@ import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 
 /**
- * In-process image downsampling for PDF compression. Images above
- * {@code maxImageDpi} are resampled from their native pixels and re-embedded
- * via {@code FPDFImageObj_SetBitmap}; no external binary is used.
+ * In-process image downsampling: images above {@code maxImageDpi} are resampled from their native
+ * pixels and re-embedded via {@code FPDFImageObj_SetBitmap}, with no external binary.
  */
 public final class PdfImageOptimizer {
 
@@ -36,11 +37,17 @@ public final class PdfImageOptimizer {
     private static final int FPDF_BITMAP_BGRx = 3;
     private static final int FPDF_BITMAP_BGRA = 4;
 
-    // Hard cap on the decoded pixel count. The int[] pixel buffers and the
-    // byte[] decode buffers are both live at once, so the int-max bound alone
-    // still permits several GB of heap for an untrusted PDF. This keeps peak
-    // memory per image bounded (100M px * 4 B ~= 400 MB).
+    // Hard cap on decoded pixels: bounds peak heap per untrusted image (~400 MB at 100M px).
     private static final long MAX_PIXELS = 100_000_000L;
+
+    // Native unpack formats: 1=gray8, 2=rgb24, 3=cmyk32.
+    private static final int RUST_FMT_GRAY8 = 1;
+    private static final int RUST_FMT_RGB24 = 2;
+    private static final int RUST_FMT_CMYK32 = 3;
+
+    // Native unpack kernel present in the loaded bridge; the stub also resolves it but returns -99.
+    private static final boolean NATIVE_UNPACK =
+            Symbols.find("jpdfium_rust_unpack_pixels").isPresent();
 
     private static final int CS_DEVICE_GRAY = 1;
     private static final int CS_DEVICE_RGB = 2;
@@ -62,14 +69,11 @@ public final class PdfImageOptimizer {
     }
 
     /**
-     * Downsample images above {@code maxImageDpi}. Images at or below the
-     * threshold are left byte-for-byte untouched, preserving quality and
-     * avoiding unnecessary decode/encode work. Lossy re-encoding without
-     * downsampling is not performed.
+     * Downsamples images above {@code maxImageDpi}; images at or below it are left byte-for-byte
+     * untouched, and lossy re-encoding without downsampling never happens.
      *
-     * @param doc         document to modify in place
-     * @param maxImageDpi images above this effective DPI are downsampled;
-     *                    {@code <= 0} disables the pass
+     * @param doc document to modify in place
+     * @param maxImageDpi images above this effective DPI are downsampled; {@code <= 0} disables it
      * @return number of image objects rewritten
      */
     public static int optimize(PdfDocument doc, int maxImageDpi) {
@@ -216,9 +220,7 @@ public final class PdfImageOptimizer {
                 case CS_DEVICE_CMYK -> 4;
                 default -> 0;
             };
-            // bits_per_pixel is the total per pixel; when it does not match the
-            // colour space (1/4-bit gray, 16-bit components) the layout is not
-            // one we can unpack unambiguously, so skip rather than mis-decode.
+            // bpp must match the color space; otherwise the layout is ambiguous, so skip it.
             if (width <= 0 || height <= 0 || channels <= 0 || (bpp > 0 && bpp != channels * 8)) {
                 return null;
             }
@@ -234,39 +236,76 @@ public final class PdfImageOptimizer {
             long written = (long) ImageObjBindings.FPDFImageObj_GetImageDataDecoded
                     .invokeExact(imgObj, buf, size);
             if (written < expected) return null;
-            byte[] data = buf.asSlice(0, (long) pixels * channels).toArray(JAVA_BYTE);
 
-            int[] px = new int[pixels];
-            int o = 0;
-            for (int i = 0; i < px.length; i++) {
-                int r;
-                int g;
-                int b;
-                if (channels == 1) {
-                    r = g = b = data[o] & 0xFF;
-                } else if (channels == 3) {
-                    r = data[o] & 0xFF;
-                    g = data[o + 1] & 0xFF;
-                    b = data[o + 2] & 0xFF;
-                } else {
-                    int c = data[o] & 0xFF;
-                    int m = data[o + 1] & 0xFF;
-                    int y = data[o + 2] & 0xFF;
-                    int k = data[o + 3] & 0xFF;
-                    r = 255 - Math.min(255, c + k);
-                    g = 255 - Math.min(255, m + k);
-                    b = 255 - Math.min(255, y + k);
-                }
-                px[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
-                o += channels;
-            }
             BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-            img.setRGB(0, 0, width, height, px, 0, width);
+            if (!(img.getRaster().getDataBuffer() instanceof DataBufferInt dbi)
+                    || dbi.getData().length < pixels) {
+                return null;
+            }
+            int[] rgba = dbi.getData();
+            int format = switch (channels) {
+                case 1 -> RUST_FMT_GRAY8;
+                case 3 -> RUST_FMT_RGB24;
+                case 4 -> RUST_FMT_CMYK32;
+                default -> 0;
+            };
+            // Native kernel reads the decode buffer and writes straight into the raster.
+            if (!nativeUnpack(buf, width, height, (long) width * channels, format, rgba, pixels)) {
+                byte[] data = buf.asSlice(0, (long) pixels * channels).toArray(JAVA_BYTE);
+                unpackPixels(data, pixels, channels, rgba);
+            }
             return new ImageSource(img, width, height);
         } catch (Throwable t) {
             NativeRuntime.rethrowFatal(t);
             return null;
         }
+    }
+
+    // Native path: writes into `dst` with no extra Java copy. Returns false when the
+    // symbol is absent, the format is unsupported, or the native call reports failure.
+    static boolean nativeUnpack(MemorySegment src, int width, int height, long srcStride,
+                                int format, int[] dst, int pixels) {
+        if (format == 0 || !NATIVE_UNPACK) return false;
+        try {
+            MemorySegment out = MemorySegment.ofArray(dst).asSlice(0, (long) pixels * Integer.BYTES);
+            int rc = JpdfiumH.jpdfium_rust_unpack_pixels(src, width, height, srcStride, format, out, pixels);
+            return rc == 0;
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return false;
+        }
+    }
+
+    // Unpack gray8/rgb24/cmyk32 into opaque ARGB ints straight into `dst`; branch-free
+    // loops so the JIT can vectorise. Returns false when channels is not one of 1, 3, 4.
+    static boolean unpackPixels(byte[] data, int pixels, int channels, int[] dst) {
+        switch (channels) {
+            case 1 -> {
+                for (int i = 0; i < pixels; i++) {
+                    int v = data[i] & 0xFF;
+                    dst[i] = 0xFF000000 | (v << 16) | (v << 8) | v;
+                }
+            }
+            case 3 -> {
+                for (int i = 0, o = 0; i < pixels; i++, o += 3) {
+                    dst[i] = 0xFF000000 | ((data[o] & 0xFF) << 16)
+                            | ((data[o + 1] & 0xFF) << 8) | (data[o + 2] & 0xFF);
+                }
+            }
+            case 4 -> {
+                for (int i = 0, o = 0; i < pixels; i++, o += 4) {
+                    int k = data[o + 3] & 0xFF;
+                    int c = 255 - Math.min(255, (data[o] & 0xFF) + k);
+                    int m = 255 - Math.min(255, (data[o + 1] & 0xFF) + k);
+                    int y = 255 - Math.min(255, (data[o + 2] & 0xFF) + k);
+                    dst[i] = 0xFF000000 | (c << 16) | (m << 8) | y;
+                }
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static ImageSource bitmapToSource(MemorySegment bitmap) throws Throwable {
@@ -279,9 +318,7 @@ public final class PdfImageOptimizer {
         MemorySegment buf = (MemorySegment) PageEditBindings.FPDFBitmap_GetBuffer.invokeExact(bitmap);
         if (buf.equals(MemorySegment.NULL)) return null;
 
-        // Validate the layouts before any row copy: FPDFBitmap_GetBuffer can
-        // return a zero-length segment, and an inconsistent stride would push
-        // MemorySegment.copy past the buffer (IndexOutOfBoundsException).
+        // Validate first: a zero-length buffer or bad stride would make the row copies overflow.
         int bytesPerPixel = fmt == FPDF_BITMAP_GRAY ? 1
                 : fmt == FPDF_BITMAP_BGR ? 3
                 : (fmt == FPDF_BITMAP_BGRx || fmt == FPDF_BITMAP_BGRA) ? 4 : 0;
@@ -293,9 +330,7 @@ public final class PdfImageOptimizer {
         int pixels = width * height;
         buf = buf.reinterpret((long) stride * height);
 
-        // 4-byte BGRx/BGRA: on little-endian the native [B,G,R,X] bytes already
-        // form the ARGB int expected by TYPE_INT_ARGB, so copy rows directly
-        // instead of running a per-pixel repack (no pixels are reinterpreted).
+        // BGRx/BGRA bytes already form the little-endian ARGB int, so copy rows directly.
         if (fmt == FPDF_BITMAP_BGRx || fmt == FPDF_BITMAP_BGRA) {
             BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             int[] px = ((DataBufferInt) img.getRaster().getDataBuffer()).getData();
@@ -319,8 +354,7 @@ public final class PdfImageOptimizer {
             return new ImageSource(img, width, height);
         }
 
-        // 3-byte packed BGR: the only format left after the BGRx/BGRA and
-        // grayscale branches returned above, so unpack each pixel in place.
+        // 3-byte packed BGR: the only format left, so unpack each pixel.
         byte[] raw = buf.toArray(JAVA_BYTE);
         int[] px = new int[pixels];
         int idx = 0;
@@ -376,9 +410,7 @@ public final class PdfImageOptimizer {
         try {
             int fmt = (int) PageEditBindings.FPDFBitmap_GetFormat.invokeExact(bitmap);
             int stride = (int) PageEditBindings.FPDFBitmap_GetStride.invokeExact(bitmap);
-            // Mirror the bitmapToSource guard: FPDFBitmap_GetBuffer can return a
-            // zero-length segment, and an inconsistent stride would push the row
-            // copies past the buffer (IndexOutOfBoundsException).
+            // Mirror the bitmapToSource guard: a zero-length buffer or bad stride would overflow.
             MemorySegment bufferSeg =
                     (MemorySegment) PageEditBindings.FPDFBitmap_GetBuffer.invokeExact(bitmap);
             int bpp = fmt == FPDF_BITMAP_BGR ? 3
@@ -391,9 +423,8 @@ public final class PdfImageOptimizer {
             int pixels = width * height;
             MemorySegment buf = bufferSeg.reinterpret((long) stride * height);
 
-            // Fast path: an int-backed raster whose scanline stride equals the
-            // width. On little-endian an ARGB int is byte-identical to a BGRx
-            // pixel, so rows can be copied directly instead of unpacked per pixel.
+            // Fast path: an int-backed raster whose stride equals the width — ARGB is byte-identical
+            // to little-endian BGRx, so rows copy directly.
             if (bpp == 4 && img.getType() != BufferedImage.TYPE_CUSTOM
                     && img.getRaster().getDataBuffer() instanceof DataBufferInt dbi
                     && img.getRaster().getSampleModel() instanceof SinglePixelPackedSampleModel sp
@@ -401,7 +432,7 @@ public final class PdfImageOptimizer {
                     && dbi.getData().length >= pixels) {
                 int[] px = dbi.getData();
                 int n = pixels;
-                // Preserve the previous behaviour of an opaque pad byte (x = 0xFF).
+                // Opaque pad byte, as before.
                 for (int i = 0; i < n; i++) px[i] |= 0xFF000000;
                 MemorySegment src = MemorySegment.ofArray(px);
                 for (int y = 0; y < height; y++) {

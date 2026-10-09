@@ -2,6 +2,7 @@ package stirling.software.jpdfium;
 
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.util.Arrays;
 import java.util.Objects;
 
 import stirling.software.jpdfium.internal.ImageCodecs;
@@ -9,27 +10,8 @@ import stirling.software.jpdfium.model.ColorType;
 import stirling.software.jpdfium.panama.JpdfiumLib;
 
 /**
- * Rasterises a document and applies the same contrast, brightness, saturation and per-channel level
- * maths as the editor's Adjust Colors/Contrast tool, rebuilding the result as an image-only PDF.
- *
- * <p>{@link Adjustment} is a line-for-line port of the editor's JavaScript
- * {@code applyAdjustmentsToCanvas}, including its clamping points and its HSL round-trip, so a page
- * adjusted here and one adjusted by the Stirling-PDF server-side twin converge on the same bytes for
- * the same rendered pixel. The default render scale (2x, i.e. 144 DPI) also matches those callers.
- *
- * <p>Usage:
- *
- * <pre>{@code
- * PdfColorAdjuster.Adjustment adjustment =
- *         PdfColorAdjuster.Adjustment.fromPercent(120, 110, 100, 100, 100, 100);
- * try (PdfDocument adjusted = PdfColorAdjuster.adjust(source, adjustment)) {
- *     adjusted.save(Path.of("adjusted.pdf"));
- * }
- * }</pre>
- *
- * <p>Output pages are images only: text and vector content are no longer selectable.
- *
- * <p>This class is thread-safe; each call owns an independent native document.
+ * Rasterises a document, applies the editor's Adjust Colors/Contrast maths, and rebuilds it as an
+ * image-only PDF. {@link Adjustment} matches the editor JavaScript byte-for-byte.
  */
 public final class PdfColorAdjuster {
 
@@ -39,14 +21,12 @@ public final class PdfColorAdjuster {
     /** Raw RGBA frame with the 8-byte {@code [width][height]} header the C bridge expects. */
     private static final int RGBA_FORMAT = 3;
 
+    /** Frames this large or larger are adjusted across all cores; smaller frames stay serial. */
+    private static final int PARALLEL_THRESHOLD = 1 << 17;
+
     private PdfColorAdjuster() {}
 
-    /**
-     * Adjustment factors as fractions (percent / 100); {@code 1.0} leaves a channel unchanged.
-     *
-     * <p>Prefer {@link #fromPercent} when working with the 0-200 percentages used by the editor and
-     * the REST API.
-     */
+    /** Adjustment factors as fractions (percent / 100); {@code 1.0} leaves a channel unchanged. */
     public record Adjustment(
             double contrast, double brightness, double saturation, double red, double green, double blue) {
 
@@ -136,6 +116,21 @@ public final class PdfColorAdjuster {
             return (toByte(r2) << 16) | (toByte(g2) << 8) | toByte(b2);
         }
 
+        /**
+         * Adjusts every pixel of {@code pixels} in place. Large frames are split across cores.
+         *
+         * @param pixels packed {@code 0xRRGGBB} pixels, modified in place
+         */
+        public void apply(int[] pixels) {
+            if (pixels.length >= PARALLEL_THRESHOLD) {
+                Arrays.parallelSetAll(pixels, i -> apply(pixels[i]));
+                return;
+            }
+            for (int i = 0; i < pixels.length; i++) {
+                pixels[i] = apply(pixels[i]);
+            }
+        }
+
         private static double hueToRgb(double p, double q, double t) {
             if (t < 0) t += 1;
             if (t > 1) t -= 1;
@@ -155,22 +150,14 @@ public final class PdfColorAdjuster {
         }
     }
 
-    /**
-     * Rasterise at the editor's default 2x scale (144 DPI) and adjust.
-     *
-     * @see #adjust(PdfDocument, Adjustment, double)
-     */
+    /** Rasterise at the editor's default 2x scale (144 DPI) and adjust. */
     public static PdfDocument adjust(PdfDocument source, Adjustment adjustment) {
         return adjust(source, adjustment, DEFAULT_RENDER_SCALE);
     }
 
     /**
-     * Rasterise every page at {@code 72 * renderScale} DPI, apply {@code adjustment} to each pixel,
-     * and return a new image-only document whose pages keep the source geometry
-     * ({@code pixels / renderScale} points).
-     *
-     * <p>Large pages at a high render scale can need a lot of heap; the caller controls that via
-     * {@code renderScale}.
+     * Rasterises every page at {@code 72 * renderScale} DPI and applies {@code adjustment} to each
+     * pixel; the result keeps the source geometry ({@code pixels / renderScale} points).
      *
      * @param source document to rasterise; not modified
      * @param adjustment per-pixel adjustment to apply
@@ -230,8 +217,6 @@ public final class PdfColorAdjuster {
                     "expected an int-packed RGB raster, got " + image.getType());
         }
         int[] pixels = buffer.getData();
-        for (int i = 0; i < pixels.length; i++) {
-            pixels[i] = adjustment.apply(pixels[i]);
-        }
+        adjustment.apply(pixels);
     }
 }
