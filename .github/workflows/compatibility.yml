@@ -79,13 +79,25 @@ jobs:
           # documented contract no longer holds (it cannot admit the execution
           # domain), it has no in-repo callers, and removal turns cryptic
           # runtime failures into clear compile errors toward PdfiumRuntime.
-          # Everything else must stay compatible.
+          # PdfAConverter was a Ghostscript-backed helper removed together with
+          # the Ghostscript dependency; PDF/A conformance handling now lives in
+          # the in-process compression pipeline (see PdfCompressor). The
+          # deprecated compression members (recompressLossless/removeThumbnails
+          # and the pre-warnings result constructor) and PdfEncryption's
+          # isQpdfAvailable() were dead options removed in the overhaul; callers
+          # must use the current API. Everything else must stay compatible.
           java -jar /tmp/japicmp.jar \
             --old "$BASE_JAR" \
             --new "$CURR_JAR" \
             --only-modified \
             --ignore-missing-classes \
             --exclude "stirling.software.jpdfium.panama.NativeGuard" \
+            --exclude "stirling.software.jpdfium.doc.PdfAConverter" \
+            --exclude "stirling.software.jpdfium.doc.CompressOptions" \
+            --exclude 'stirling.software.jpdfium.doc.CompressOptions$Builder' \
+            --exclude "stirling.software.jpdfium.doc.CompressPreset" \
+            --exclude "stirling.software.jpdfium.doc.CompressResult" \
+            --exclude "stirling.software.jpdfium.doc.PdfEncryption" \
             --error-on-binary-incompatibility \
             --error-on-source-incompatibility \
             > /tmp/japicmp-report.txt 2>&1
