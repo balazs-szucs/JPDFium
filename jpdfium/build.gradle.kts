@@ -422,14 +422,16 @@ tasks.register<Test>("integrationTest") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath       = sourceSets.test.get().runtimeClasspath
     systemProperty("jpdfium.integration", "true")
-    // Forward -Djpdfium.bench.* from gradle invocation to the test JVM.
+    // Forward -Djpdfium.bench.* / -Djpdfium.compress.* from the invocation.
     System.getProperties().forEach { k, v ->
         val key = k.toString()
-        if (key.startsWith("jpdfium.bench")) systemProperty(key, v.toString())
+        if (key.startsWith("jpdfium.bench") || key.startsWith("jpdfium.compress")) {
+            systemProperty(key, v.toString())
+        }
     }
     jvmArgs("--enable-native-access=ALL-UNNAMED", "-Xmx4g")
     maxHeapSize = "4g"
-    setForkEvery(20)
+    forkEvery = 20
 }
 
 // Run: ./gradlew :jpdfium:corpusTest -Pjpdfium.testNatives=<platform>
