@@ -4,10 +4,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Wrapper-level transfer accounting for large bridge outputs (save/render).
- * It observes size and release only where both are visible at the Java
- * boundary - not malloc time, PDFium internals, or dependencies. Use it for
- * leak/retention tests and peak-memory reasoning, never as a native census.
+ * Wrapper-level transfer accounting for large bridge outputs (save/render). It observes size and release only where both are visible at the Java boundary; use it for leak/retention tests and peak-memory reasoning, never as a native census.
  */
 public final class BridgeAlloc {
 
@@ -18,10 +15,8 @@ public final class BridgeAlloc {
     }
 
     private static final class Counters {
-        // Single atomic per family: live bytes, totals and the high-water mark
-        // must all agree. Summing separate adders would let the "live" figure
-        // drift from the totals under concurrent alloc/free, so leak tests could
-        // report a non-zero residue that never existed.
+        // Single atomic per family: live bytes, totals and the high-water mark must
+        // all agree; summing separate adders would let "live" drift from the totals under concurrency.
         final AtomicLong current = new AtomicLong();
         final AtomicLong peak = new AtomicLong();
         final LongAdder totalAllocated = new LongAdder();

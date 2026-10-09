@@ -10,10 +10,8 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Create and edit page content: text objects, paths, rectangles, images.
- *
- * <p>After adding or modifying page objects, call {@link #generateContent(MemorySegment)}
- * to commit changes to the page. The document must then be saved to persist them.
+ * Create and edit page content: text objects, paths, rectangles, images. After adding or modifying
+ * objects, call {@link #generateContent(MemorySegment)} to commit changes to the page, then save the document to persist them.
  *
  * <pre>{@code
  * // Add a red rectangle to a page

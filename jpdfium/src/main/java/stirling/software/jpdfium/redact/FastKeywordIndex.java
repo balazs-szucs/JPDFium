@@ -6,22 +6,14 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-// Keyword index for page-level redaction candidate prefiltering.
-//
-// Contract: zero false negatives. If the authoritative native PCRE2 matcher
-// would match, the prefilter must report a candidate. False positives are
-// acceptable (native verifies). Folding uses Unicode simple case folding
-// (single code point, PCRE2-compatible): no multi-character expansions
-// (PCRE2 does not fold s-s/SS or sharp-s), final sigma folds to sigma,
-// supplementary pairs fold by code point.
+// Keyword index for page-level redaction candidate prefiltering. Contract: zero false negatives - if
+// the authoritative native PCRE2 matcher would match, the prefilter must report a candidate (false positives are acceptable, native verifies). Folding uses Unicode simple case folding (single code point, PCRE2-compatible): no multi-character expansions (no s-s/SS/sharp-s), final sigma folds to sigma, supplementary pairs fold by code point.
 final class FastKeywordIndex {
 
     private static final class TrieNode {
         final char ch;
-        // Every original keyword folding to this node. Multiple inputs can
-        // share one key (NFKC variants like ﬁle/file, folding equivalents
-        // like istanbul/İstanbul); keeping only the last would send a
-        // non-matching spelling to native and miss the other (CWE-212).
+        // Every original keyword folding to this node. Multiple inputs can share one key (NFKC variants
+        // like ﬁle/file, folding equivalents like istanbul/İstanbul); keeping only the last would send a non-matching spelling to native and miss the other (CWE-212).
         List<String> keywords;
         boolean keywordStartsWithWordChar;
         boolean keywordEndsWithWordChar;
@@ -92,13 +84,11 @@ final class FastKeywordIndex {
         if (caseSensitive) {
             return codePoint;
         }
-        // Lowercase via uppercase first so PCRE2 case-equivalent variants
-        // without NFKC decompositions (Cyrillic U+1C80-U+1C88, long s, etc.)
-        // merge to the same form instead of being missed.
+        // Lowercase via uppercase first so PCRE2 case-equivalent variants without NFKC decompositions
+        // (Cyrillic U+1C80-U+1C88, long s, etc.) merge to the same form instead of being missed.
         int lower = Character.toLowerCase(Character.toUpperCase(codePoint));
-        // Unicode simple folding: final sigma (U+03C2) folds to sigma (U+03C3).
-        // Character.toLowerCase leaves final sigma unchanged, but PCRE2
-        // caseless matching treats them as equivalent (shared uppercase Σ).
+        // Unicode simple folding: final sigma (U+03C2) folds to sigma (U+03C3). Character.toLowerCase
+        // leaves final sigma unchanged, but PCRE2 caseless matching treats them as equivalent (shared uppercase Σ).
         if (lower == 0x3C2) {
             return 0x3C3;
         }
@@ -157,11 +147,8 @@ final class FastKeywordIndex {
             curr.keywords = new ArrayList<>(1);
         }
         curr.keywords.add(word);
-        // Whole-word boundaries mirror PCRE2 \b: each side is enforced only
-        // when the corresponding keyword edge is a word character. Keywords
-        // starting or ending with non-word characters (e.g. "#1234", "(555)")
-        // must remain candidates regardless of the adjacent text. Edge flags
-        // depend only on the shared folded key.
+        // Whole-word boundaries mirror PCRE2 \b: each side is enforced only when the corresponding
+        // keyword edge is a word character, so keywords starting/ending with non-word characters (e.g. "#1234", "(555)") remain candidates regardless of adjacent text. Edge flags depend only on the shared folded key.
         curr.keywordStartsWithWordChar = isWordChar(key.charAt(0));
         curr.keywordEndsWithWordChar = isWordChar(key.charAt(key.length() - 1));
         if (!curr.keywordStartsWithWordChar) {

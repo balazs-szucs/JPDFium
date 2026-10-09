@@ -15,24 +15,8 @@ import java.util.function.Supplier;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Command transport for an optional owner-thread backend. Not the default:
- * production calls go through {@link PdfiumRuntime} directly. This exists
- * only for experiments, so no two calls ever overlap by construction.
- *
- * <p>Deliberately not a specialized queue: a command carries a whole document
- * operation, so transport cost is off the hot path. Measure before specializing.
- *
- * <p>Contract:
- * <ul>
- *   <li>Bounded FIFO admission. A full queue rejects; it never runs the command
- *       on the caller, which would break PDFium's single-thread rule.</li>
- *   <li>Accepted commands run to completion, even if quiesce happens while they
- *       are queued. Admission is checked once, at submission.</li>
- *   <li>A command submitted from the owner runs inline, avoiding self-deadlock.</li>
- *   <li>Interruption does not abandon the command: the caller waits for the real
- *       outcome, then restores its interrupt status, since native code may still
- *       borrow the caller's buffers.</li>
- * </ul>
+ * Command transport for an optional owner-thread backend. Not the default - production calls go
+ * through {@link PdfiumRuntime} directly - and it exists only for experiments, so no two calls ever overlap by construction. Deliberately not a specialized queue, since a command carries a whole document operation and transport cost is off the hot path. Contract: bounded FIFO admission (a full queue rejects rather than running on the caller, which would break PDFium's single-thread rule); accepted commands run to completion even if quiesce happens while queued (admission is checked once at submission); a command submitted from the owner runs inline to avoid self-deadlock; and interruption does not abandon the command - the caller waits for the real outcome then restores its interrupt status, since native code may still borrow the caller's buffers.
  */
 final class OwnerTransport {
 
@@ -147,11 +131,8 @@ final class OwnerTransport {
             throw failure("PDFium owner queue is saturated; " + operation + " refused");
         }
         if (!running.get() && queue.remove(task)) {
-            // Shutdown won the race after admission: the owner has already
-            // drained and exited, so nobody will ever run this command. Fail it
-            // here instead of leaving the submitter blocked on its future.
-            // queue.remove only succeeds while the owner still has not taken
-            // the task, which is exactly the case where cancelling is safe.
+            // Shutdown won the race after admission: the owner has already drained and exited, so
+            // nobody will ever run this command. Fail it here instead of leaving the submitter blocked. queue.remove only succeeds while the owner still has not taken the task, which is exactly when cancelling is safe.
             rejected.incrementAndGet();
             future.cancel(false);
             throw failure("PDFium owner has stopped; " + operation + " refused");
@@ -193,13 +174,8 @@ final class OwnerTransport {
     }
 
     /**
-     * Best-effort teardown: stop accepting work, let accepted commands finish
-     * on the owner, then join. Bounded so a stuck owner cannot hang the caller.
-     *
-     * <p>The caller never runs a command itself. The owner may still be inside
-     * one, and executing another on this thread would put two PDFium calls on
-     * two threads at the same time, which is the one thing this transport
-     * exists to prevent.
+     * Best-effort teardown: stop accepting work, let accepted commands finish on the owner, then join,
+     * bounded so a stuck owner cannot hang the caller. The caller never runs a command itself - the owner may still be inside one, and executing another on this thread would put two PDFium calls on two threads at once, the one thing this transport prevents.
      */
     void shutdown(long timeoutMillis) {
         if (!running.compareAndSet(true, false)) {
@@ -225,9 +201,8 @@ final class OwnerTransport {
         started.countDown();
         try {
             while (true) {
-                // Timed poll rather than take(): flipping `running` alone cannot
-                // wake a parked take(), so shutdown would otherwise always burn
-                // the whole join timeout and leave the daemon alive.
+                // Timed poll rather than take(): flipping `running` alone cannot wake a parked take(),
+                // so shutdown would otherwise always burn the whole join timeout and leave the daemon alive.
                 Task task = queue.poll(IDLE_POLL_MILLIS, TimeUnit.MILLISECONDS);
                 if (task == null) {
                     // Exit only once shutdown was requested, so a submission
@@ -235,9 +210,8 @@ final class OwnerTransport {
                     if (!running.get()) return;
                     continue;
                 }
-                // A taken task always runs, even if `running` flipped while it
-                // was in flight: its submitter is already parked on the future
-                // and has no other way to learn the outcome.
+                // A taken task always runs, even if `running` flipped while it was in flight: its
+                // submitter is already parked on the future and has no other way to learn the outcome.
                 runOne(task);
             }
         } catch (InterruptedException e) {
@@ -258,9 +232,8 @@ final class OwnerTransport {
             task.run();
             executed.incrementAndGet();
         } catch (Throwable t) {
-            // A failing command must not kill the owner: pending callers are
-            // already waiting on their own futures, and the runtime decides
-            // whether the failure is terminal.
+            // A failing command must not kill the owner: pending callers are already waiting on their
+            // own futures, and the runtime decides whether the failure is terminal.
             ownerFailure.compareAndSet(null, t);
         }
     }

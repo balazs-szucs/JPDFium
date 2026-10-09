@@ -15,8 +15,7 @@ import java.util.List;
 /**
  * Report effective DPI for each embedded image and flag over-resolution images.
  *
- * <p>For each image object on each page, reports the native pixel dimensions,
- * the display size in points, and the effective DPI. Flags images above a threshold.
+ * <p>For each image object on each page, reports native pixel dimensions, display size in points, and effective DPI, flagging images above a threshold.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("photos.pdf"))) {

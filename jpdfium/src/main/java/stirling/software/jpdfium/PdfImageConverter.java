@@ -26,14 +26,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * PDF to Image conversion utilities.
- *
- * <p>Provides bidirectional conversion between PDFs and images:
- * <ul>
- *   <li>PDF pages to images (PNG, JPEG, TIFF, WEBP, BMP)</li>
- *   <li>Images to PDF (scanner workflow, photo albums)</li>
- *   <li>Thumbnail generation for web previews</li>
- * </ul>
+ * PDF to Image conversion utilities: PDF pages to images (PNG, JPEG, TIFF, WEBP, BMP), images to PDF (scanner workflow, photo albums), and thumbnail generation for web previews.
  *
  * <p><b>Usage Examples</b></p>
  * <pre>{@code
@@ -247,13 +240,8 @@ public final class PdfImageConverter {
     }
 
     /**
-     * Converts a PDF to image bytes matching Stirling-PDF's convertFromPdf requirements.
-     * When singleImage is true:
-     * <ul>
-     *   <li>For TIFF: encodes all pages as consecutive frames in a multi-page TIFF byte array.</li>
-     *   <li>For other formats: stitches all pages vertically centered into a single image byte array.</li>
-     * </ul>
-     * When singleImage is false, renders the first page to bytes.
+     * Converts a PDF to image bytes matching Stirling-PDF's convertFromPdf requirements. When
+     * {@code singleImage} is true, TIFF encodes all pages as consecutive frames while other formats stitch them vertically centered; when false, only the first page is rendered.
      *
      * @param doc         PDF document
      * @param format      image format
@@ -309,9 +297,8 @@ public final class PdfImageConverter {
      * @throws IOException if reading images fails
      */
     public static PdfDocument imagesToPdf(List<Path> imagePaths, ImageToPdfOptions options) throws IOException {
-        // Decode through the active codec (libvips when jpdfium-vips is on the
-        // classpath, which also adds HEIC/HEIF/AVIF/JXL/JPEG2000 inputs), with
-        // ImageIO as the fallback.
+        // Decode through the active codec (libvips when jpdfium-vips is on the classpath, which adds
+        // HEIC/HEIF/AVIF/JXL/JPEG2000 inputs), with ImageIO as the fallback.
         List<byte[]> frames = new ArrayList<>(imagePaths.size());
         for (Path path : imagePaths) {
             frames.addAll(ImageCodecs.decodeFrames(path));
@@ -385,13 +372,8 @@ public final class PdfImageConverter {
     }
 
     /**
-     * Embed pre-decoded RGBA frames into a new PDF document. Each frame must
-     * carry the 8-byte {@code [width LE][height LE]} header the C bridge's
-     * {@code format=3} path reads, followed by {@code width*height*4} RGBA bytes
-     * (the layout {@link ImageCodecs#frameFromImage} produces). Shared by
-     * {@link #imagesToPdfInternal} and the optional {@code jpdfium-vips}
-     * {@code VipsImageToPdf} (libvips decode) so the page-size/position/embed
-     * logic lives in one place.
+     * Embed pre-decoded RGBA frames into a new PDF document. Each frame carries the 8-byte
+     * {@code [width LE][height LE]} header the C bridge's {@code format=3} path reads, followed by {@code width*height*4} RGBA bytes ({@link ImageCodecs#frameFromImage}). Shared by {@link #imagesToPdfInternal} and optional {@code jpdfium-vips} {@code VipsImageToPdf} so page-size/position/embed logic lives in one place.
      */
     public static PdfDocument embedRgbaImages(List<byte[]> rgbaFrames, ImageToPdfOptions options) {
         if (rgbaFrames.isEmpty()) {
@@ -514,10 +496,8 @@ public final class PdfImageConverter {
     }
 
     /**
-     * Lower {@code dpi} so neither rendered dimension exceeds the opt-in
-     * {@code jpdfium.image.max_dimension} ceiling. Unlimited (0) returns the
-     * requested DPI untouched: clamping against a zero ceiling would collapse
-     * every render to 1 DPI.
+     * Lower {@code dpi} so neither rendered dimension exceeds the opt-in {@code jpdfium.image.max_dimension}
+     * ceiling. Unlimited (0) returns the requested DPI untouched: clamping against a zero ceiling would collapse every render to 1 DPI.
      */
     private static int effectiveDpi(PageSize size, int dpi) {
         if (MAX_IMAGE_DIMENSION <= 0 || size == null) return dpi;

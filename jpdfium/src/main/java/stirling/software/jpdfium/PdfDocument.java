@@ -57,15 +57,7 @@ import java.util.function.ObjIntConsumer;
 /**
  * Represents an open PDF document backed by native PDFium.
  *
- * <p><strong>Thread safety:</strong> A single {@code PdfDocument} instance (and any
- * {@link PdfPage} handles obtained from it) must be confined to one thread at a time.
- *
- * <p>Independent {@code PdfDocument} instances may be used from separate threads:
- * PDFium itself is not thread-safe even across independent documents, so every
- * native call is serialised by the
- * {@link stirling.software.jpdfium.panama.PdfiumRuntime} execution domain.
- * That makes concurrent use safe, but PDFium work does not run in parallel - the
- * throughput ceiling is roughly one thread's worth of PDFium time.
+ * <p><strong>Thread safety:</strong> a single instance (and any {@link PdfPage} handles obtained from it) must be confined to one thread; independent instances are serialised by the {@link stirling.software.jpdfium.panama.PdfiumRuntime} execution domain, so concurrent use is safe, but PDFium work never runs in parallel - the throughput ceiling is roughly one thread.
  */
 public final class PdfDocument implements AutoCloseable {
 
@@ -75,20 +67,14 @@ public final class PdfDocument implements AutoCloseable {
     private final AtomicInteger structureEpoch = new AtomicInteger(0);
 
     /**
-     * Temporary file this document owns, deleted on {@link #close()}.
-     *
-     * <p>Set both when a document is opened from a stream (which spools to a
-     * spool file) and when a file-backed merge or split produces one. PDFium keeps
-     * its own handle on the file for the document's lifetime, so it cannot be
-     * removed earlier. Volatile and cleared on close so the deletion happens once.
+     * Owned temp file (spooled streams, file-backed merges/splits) deleted on {@link #close()}.
+     * PDFium keeps its own handle for the document's lifetime; volatile and cleared on close so deletion happens once.
      */
     private volatile Path ownedTempFile;
 
     /**
-     * Original file this document was opened from, or null for memory/stream
-     * documents. Used by bulk operations to reuse the stable file-backed
-     * source without snapshotting when the document is still at generation 0
-     * (no structural mutation since open). Never deleted by this document.
+     * Original file this document was opened from, or null for memory/stream documents. Bulk
+     * operations reuse it when still at generation 0 (no structural mutation since open); never deleted here.
      */
     private volatile Path sourcePath;
     private volatile byte[] sourceBytes;
@@ -115,16 +101,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Re-queries the raw FPDF_DOCUMENT handle from the native bridge.
-     *
-     * <p><strong>Internal use only.</strong> Must be called after any native operation
-     * (QPDF metadata, font stripping) that replaces the underlying {@code FPDF_DOCUMENT}
-     * pointer, so that EmbedPDF direct bindings pick up the new address.
-     * External callers must not invoke this; the invariant is maintained automatically
-     * by every library operation that reloads the document.
-     *
-     * <p>Refreshing implies native replacement: previously opened pages become
-     * stale and fail loudly instead of touching freed memory.
+     * Re-queries the raw FPDF_DOCUMENT handle from the native bridge. <strong>Internal use only:</strong>
+     * call after any native operation (QPDF metadata, font stripping) that replaces the pointer; previously opened pages become stale and fail loudly.
      */
     public void refreshRawHandle() {
         this.rawDocSegment = JpdfiumLib.docRawHandle(handle);
@@ -156,9 +134,8 @@ public final class PdfDocument implements AutoCloseable {
         if (data == null) throw new IllegalArgumentException("data must not be null");
         if (data.length == 0) throw new IllegalArgumentException("data must not be empty");
         PdfDocument doc = new PdfDocument(JpdfiumLib.docOpenBytes(data));
-        // Retain a reference (no copy) so the open-time bytes remain available for
-        // signed-document preservation without doubling peak memory; sourceBytes()
-        // hands callers a defensive copy.
+        // Retain a reference (no copy) so the open-time bytes remain available for signed-document
+        // preservation without doubling peak memory; sourceBytes() hands callers a defensive copy.
         doc.sourceBytes = data;
         return doc;
     }
@@ -179,16 +156,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Opens a document from a stream.
-     *
-     * <p><strong>No size limit is applied.</strong> The stream is spooled to an
-     * owned temporary file and PDFium opens it file-backed, so peak memory stays
-     * bounded by the copy buffer regardless of document size. That is what makes
-     * the absence of a default limit safe: an unbounded stream cannot exhaust the
-     * heap, and is never materialised as a whole-document {@code byte[]}.
-     *
-     * <p>For untrusted input prefer {@link #open(InputStream, long)}, which
-     * rejects an over-long stream while spooling instead of writing it all out.
+     * Opens a document from a stream. <strong>No size limit is applied:</strong> the stream is spooled
+     * to an owned temp file and opened file-backed, so peak memory stays bounded and it is never a whole-document {@code byte[]}. Prefer {@link #open(InputStream, long)} for untrusted input.
      *
      * @param in source stream (fully consumed)
      */
@@ -197,12 +166,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Opens a document from a stream, refusing to spool more than
-     * {@code maxBytes} bytes.
-     *
-     * <p>This is the opt-in bound for untrusted input: the stream is rejected as
-     * soon as it exceeds {@code maxBytes}, so neither the heap nor the temporary
-     * file can grow without limit.
+     * Opens a document from a stream, refusing to spool more than {@code maxBytes}. The bound is
+     * checked as bytes arrive, so neither the heap nor the temp file can grow without limit.
      *
      * @param in       source stream (fully consumed up to the bound)
      * @param maxBytes maximum bytes to spool; non-positive values are rejected
@@ -225,9 +190,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Opens a password-protected document from a stream with an explicit spool bound
-     * (see {@link #open(InputStream, long)} and the shared password contract on
-     * {@link #open(Path, String)}).
+     * Opens a password-protected document from a stream with an explicit spool bound (see
+     * {@link #open(InputStream, long)} and the shared password contract on {@link #open(Path, String)}).
      */
     public static PdfDocument open(InputStream in, String password, long maxBytes) throws IOException {
         if (password == null) throw new IllegalArgumentException("password must not be null");
@@ -237,11 +201,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Spool {@code in} to an owner-only temporary file and open it file-backed.
-     *
-     * <p>The temp file outlives this call because PDFium keeps its own handle on
-     * the document, so it is deleted by {@link #close()}. Every failure path
-     * deletes it immediately, so a rejected stream leaves nothing behind.
+     * Spool {@code in} to an owner-only temporary file and open it file-backed. PDFium keeps its
+     * own handle, so the temp file is deleted by {@link #close()}; every failure path deletes it immediately.
      */
     private static PdfDocument openStream(InputStream in, Long maxBytes, String password)
             throws IOException {
@@ -258,9 +219,8 @@ public final class PdfDocument implements AutoCloseable {
             return doc;
         } finally {
             if (!ok) {
-                // The constructor can still throw (for example while resolving the
-                // raw handle), so the native document is closed here and the spool
-                // is removed instead of being orphaned.
+                // The constructor can still throw (for example while resolving the raw handle), so
+                // the native document is closed here and the spool removed instead of being orphaned.
                 if (handle != 0) JpdfiumLib.docClose(handle);
                 deleteQuietly(spooled);
             }
@@ -268,10 +228,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Copy a stream to an owner-only temporary file, enforcing an optional bound.
-     *
-     * <p>The bound is checked as bytes arrive, so an over-long or endless stream
-     * is abandoned without ever being fully written.
+     * Copy a stream to an owner-only temporary file, enforcing an optional bound that is checked as
+     * bytes arrive, so an over-long or endless stream is abandoned without ever being fully written.
      */
     private static Path spool(InputStream in, Long maxBytes) throws IOException {
         Path tmp;
@@ -322,19 +280,14 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Open a document from a byte buffer.
-     *
-     * <p>Direct buffers use a zero-copy view; the position advances to the limit,
-     * matching the heap path which consumes remaining bytes via {@code get}.
-     * Heap buffers copy once via {@code docOpenBytes} because the generated
-     * downcalls reject heap segments.
+     * Open a document from a byte buffer. Direct buffers use a zero-copy view; heap buffers copy
+     * once via {@code docOpenBytes} because the generated downcalls reject heap segments.
      */
     public static PdfDocument open(ByteBuffer buffer) {
         if (buffer == null) throw new IllegalArgumentException("buffer must not be null");
         if (buffer.isDirect()) {
-            // View, don't copy: the bridge copies synchronously inside the downcall,
-            // so peak heap cost is zero instead of one full-document byte[] transient.
-            // Heap buffers still copy once via docOpenBytes (jextract downcalls reject them).
+            // View, don't copy: the bridge copies synchronously inside the downcall, so peak heap
+            // cost is zero. Heap buffers still copy once via docOpenBytes (downcalls reject them).
             int remaining = buffer.remaining();
             MemorySegment seg = MemorySegment.ofBuffer(buffer.duplicate());
             long handle = JpdfiumLib.docOpenSegment(seg, seg.byteSize());
@@ -358,12 +311,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Open a password-protected document.
-     *
-     * <p>Password contract (consistent across all {@code open} overloads):
-     * {@code null} is rejected with {@link IllegalArgumentException}, while an
-     * empty password falls back to a plain open - PDFium accepts empty passwords
-     * for documents that need none, so emptiness alone is not an error.
+     * Open a password-protected document. Password contract (all {@code open} overloads): {@code null}
+     * is rejected with {@link IllegalArgumentException}; an empty password falls back to a plain open.
      */
     public static PdfDocument open(Path path, String password) {
         if (path == null) throw new IllegalArgumentException("path must not be null");
@@ -381,11 +330,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Retained open-time bytes when the document was opened from a byte array,
-     * or {@code null} otherwise (file-backed and stream documents never
-     * materialise the whole document on the heap; for those, read the original
-     * lazily via {@link #sourcePath()}). A defensive copy is returned so callers
-     * can rely on the retained bytes being immutable.
+     * Retained open-time bytes when the document was opened from a byte array, or {@code null}
+     * otherwise (file-backed/stream documents read lazily via {@link #sourcePath()}); a defensive copy is returned.
      */
     public byte[] sourceBytes() {
         byte[] s = sourceBytes;
@@ -573,12 +519,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Create a new, empty document.
-     *
-     * <p>This is the recommended base for page-import operations
-     * ({@link PdfPageImporter}): PDFium's page exporter leaves stale object
-     * references behind when importing into a document that already has
-     * content, which can crash the save path for large merges.
+     * Create a new, empty document; recommended base for page-import operations
+     * ({@link PdfPageImporter}), since importing into a document with existing content leaves stale object references that can crash the save path.
      */
     public static PdfDocument createEmpty() {
         return new PdfDocument(JpdfiumLib.docCreate());
@@ -628,10 +570,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Merge multiple open PDF documents into a single new document.
-     *
-     * <p>Delegates to {@link PdfMerge#merge(List)} to ensure bookmarks are preserved,
-     * objects deduplicated, and stale references avoided.
+     * Merge multiple open PDF documents into a single new document. Delegates to
+     * {@link PdfMerge#merge(List)} to preserve bookmarks, deduplicate objects, and avoid stale references.
      *
      * @param documents list of documents to merge in order
      * @return merged document
@@ -641,10 +581,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Merge multiple open PDF documents into a single new document.
-     *
-     * <p>Delegates to {@link PdfMerge#merge(List)} to ensure bookmarks are preserved,
-     * objects deduplicated, and stale references avoided.
+     * Merge multiple open PDF documents into a single new document. Delegates to
+     * {@link PdfMerge#merge(List)} to preserve bookmarks, deduplicate objects, and avoid stale references.
      *
      * @param documents documents to merge in order
      * @return merged document
@@ -923,16 +861,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Flatten all pages using the specified mode.
-     *
-     * <ul>
-     *   <li>{@link FlattenMode#ANNOTATIONS}: bakes annotations and form fields into
-     *       the content stream. Text remains selectable. Uses native PDFium
-     *       {@code jpdfium_page_flatten}.</li>
-     *   <li>{@link FlattenMode#FULL}: rasterizes each page at the given DPI,
-     *       replacing all content with an image. Nothing is selectable. Uses native
-     *       PDFium {@code jpdfium_page_to_image}.</li>
-     * </ul>
+     * Flatten using the given mode: {@link FlattenMode#ANNOTATIONS} bakes annotations and form
+     * fields into the content stream (text stays selectable, native PDFium {@code jpdfium_page_flatten}); {@link FlattenMode#FULL} rasterizes each page at {@code dpi} (nothing selectable, {@code jpdfium_page_to_image}).
      *
      * @param mode what to flatten (see {@link FlattenMode})
      * @param dpi  render resolution for {@link FlattenMode#FULL} (ignored for other modes)
@@ -956,11 +886,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Save to a file with bounded memory and transactional publish.
-     *
-     * <p>PDFium streams via native {@code FPDF_FILEWRITE} to a sibling staging
-     * file (no document-sized buffer), then the staging file is atomically
-     * moved into place. A failed save leaves the destination untouched.
+     * Save to a file with bounded memory and transactional publish: PDFium streams via native
+     * {@code FPDF_FILEWRITE} to a sibling staging file (never a document-sized buffer), then atomically moves it into place; a failed save leaves the destination untouched.
      */
     public void save(Path path) {
         saveTo(path, SaveOptions.fast());
@@ -979,19 +906,13 @@ public final class PdfDocument implements AutoCloseable {
         if (destination == null) throw new IllegalArgumentException("destination must not be null");
         SaveOptions opts = options == null ? SaveOptions.fast() : options;
         // Staging, reopen validation, and publish all live in docSaveToFile
-        // (via OutputTransaction.publish); duplicating the probe here would
-        // let the two paths drift.
+        // (via OutputTransaction.publish); duplicating the probe here would let the paths drift.
         JpdfiumLib.docSaveToFile(handle, destination, opts);
     }
 
     /**
-     * Save the document to a {@link WritableByteChannel} with bounded memory.
-     *
-     * <p>PDFium first spools to an owned temp file (guard held only for the
-     * file write), then the temp file is transferred in bounded chunks with
-     * the guard released, so a slow channel never stalls unrelated PDFium
-     * work. Neither a document-sized native buffer nor a Java {@code byte[]}
-     * is ever materialized.
+     * Save to a {@link WritableByteChannel} with bounded memory: PDFium spools to an owned temp
+     * file, then transfers it in bounded chunks with the guard released so a slow channel never stalls unrelated PDFium work. No document-sized native buffer or Java {@code byte[]} is materialized.
      *
      * @param channel target output channel
      * @throws IOException if an I/O error occurs
@@ -1184,11 +1105,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Incremental save: writes only changed objects to a new byte buffer.
-     * The document handle remains valid after this call - no reload needed.
-     *
-     * <p>This is the recommended save mode during annotation-based redaction
-     * workflows where the document stays open between mark/commit cycles.
+     * Incremental save: writes only changed objects to a new byte array; the document handle stays
+     * valid (no reload). Recommended during annotation-based redaction, where the document stays open between mark/commit cycles.
      *
      * @return byte array containing the incrementally-saved PDF
      */
@@ -1198,12 +1116,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Convert a page to an image-based page, removing all extractable text and vector content.
-     * This is the most secure form of redaction: after conversion, no text can be extracted
-     * or searched. Equivalent to Stirling-PDF's "Convert PDF to PDF-Image" feature.
-     *
-     * <p><strong>Warning:</strong> Any open {@link PdfPage} handles for this page index
-     * become invalid after this call. Re-open the page if needed.
+     * Convert a page to an image-based page, removing all extractable text and vector content
+     * (Stirling-PDF's "Convert PDF to PDF-Image"). <strong>Warning:</strong> any open {@link PdfPage} handles for this index become invalid; re-open if needed.
      *
      * @param pageIndex zero-based page index
      * @param dpi       render resolution (150 = good quality, 300 = high quality)
@@ -1216,12 +1130,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * JSON report of the last sanitize stage (qpdf pass) that ran when a
-     * redacted document was saved, or empty when none has run.
-     *
-     * <p>Sanitization is <strong>opt-in</strong> (needs
-     * {@link #setSanitizeOnSave(boolean) setSanitizeOnSave(true)} plus redaction);
-     * default saves leave metadata and structure untouched.
+     * JSON report of the last sanitize stage (qpdf pass) that ran when a redacted document was
+     * saved, or empty when none has run. Sanitization is <strong>opt-in</strong> (needs {@link #setSanitizeOnSave(boolean) setSanitizeOnSave(true)} plus redaction); default saves leave metadata and structure untouched.
      */
     public String sanitizeReport() {
         ensureOpen();
@@ -1237,19 +1147,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Returns the raw FPDF_DOCUMENT MemorySegment for direct PDFium FFM calls.
-     *
-     * <p><strong>Lifetime:</strong> zero-length view owned by this {@code PdfDocument}.
-     * Must not outlive {@link #close()}, must stay on the owning thread, and native
-     * calls using it must run inside the PdfiumRuntime execution domain
-     * (via the {@code *Bindings} or {@code JpdfiumLib} helpers).
-     *
-     * <p><strong>Outside the execution-domain guarantee:</strong> direct use of
-     * this handle bypasses the admission, batching, and lifecycle ordering that
-     * {@link stirling.software.jpdfium.panama.PdfiumRuntime} enforces for all
-     * built-in operations. It keeps working, but the domain makes no promise
-     * about it; prefer the typed API, which is the migration target for scoped
-     * advanced access in a future major version.
+     * Returns the raw FPDF_DOCUMENT MemorySegment for direct PDFium FFM calls. <strong>Lifetime:</strong>
+     * zero-length view owned by this document - must not outlive {@link #close()}, must stay on the owning thread, and calls using it must run inside the PdfiumRuntime execution domain. <strong>Internal use:</strong> bypasses the admission, batching, and lifecycle ordering enforced for built-in operations; prefer the typed API.
      */
     public MemorySegment rawHandle() {
         ensureOpen();
@@ -1428,12 +1327,8 @@ public final class PdfDocument implements AutoCloseable {
     }
 
     /**
-     * Returns the raw bridge document handle.
-     *
-     * <p><strong>Internal use only.</strong> This handle is an opaque token understood
-     * only by {@link JpdfiumLib} and its companions.
-     * External callers bypassing this method bypass all closed-document checks and
-     * thread-safety contracts enforced by this class.
+     * Returns the raw bridge document handle. <strong>Internal use only.</strong> This opaque token
+     * is understood only by {@link JpdfiumLib} and companions; external callers bypassing it skip all closed-document and thread-safety checks.
      */
     public long nativeHandle() {
         ensureOpen();
@@ -1452,9 +1347,8 @@ public final class PdfDocument implements AutoCloseable {
         try {
             JpdfiumLib.docClose(handle);
         } finally {
-            // PDFium has released its handle on the temp file, so it can go now.
-            // A still-locked file (Windows) falls back to delete-on-exit rather
-            // than leaving document content behind for an unbounded time.
+            // PDFium has released its handle on the temp file, so it can go now. A still-locked
+            // file (Windows) falls back to delete-on-exit rather than leaving document content behind.
             Path tmp = ownedTempFile;
             if (tmp != null) {
                 ownedTempFile = null;

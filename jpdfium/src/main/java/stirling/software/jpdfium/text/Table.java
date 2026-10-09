@@ -6,8 +6,7 @@ import java.util.List;
 /**
  * A table detected on a PDF page.
  *
- * <p>Tables are detected by geometric clustering of text positions.
- * Each cell contains the text found within that cell boundary.
+ * <p>Tables are detected by geometric clustering of text positions; each cell contains the text found within its boundary.
  *
  * @param rows     list of rows, each row is a list of cell strings
  * @param x        left edge of table bounding box (PDF points)

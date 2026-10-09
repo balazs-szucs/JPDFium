@@ -11,8 +11,7 @@ import stirling.software.jpdfium.panama.QpdfLib;
 /**
  * PDF linearization (fast web view).
  *
- * <p>Linearized PDFs let the first page render before the whole file downloads.
- * Uses the bundled qpdf library in-process (FFM), no external qpdf binary.
+ * <p>Linearized PDFs let the first page render before the whole file downloads. Uses the bundled in-process qpdf library (FFM), no external binary.
  */
 public final class PdfLinearizer {
 

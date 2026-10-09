@@ -9,8 +9,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for the EmbedPDF fork's document-level APIs.
  *
- * <p>Covers AES-256 encryption, page-rotation normalization,
- * and per-annotation bitmap rendering.
+ * <p>Covers AES-256 encryption, page-rotation normalization, and per-annotation bitmap rendering.
  */
 public final class EmbedPdfDocumentBindings {
 

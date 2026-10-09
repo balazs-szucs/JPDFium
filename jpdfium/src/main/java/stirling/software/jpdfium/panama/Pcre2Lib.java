@@ -9,8 +9,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for the PCRE2 JIT-compiled regex engine.
  *
- * <p>All methods delegate to the native bridge via {@link JpdfiumH}.
- * Compile patterns with {@link #compile} and free them with {@link #free} when done.
+ * <p>All methods delegate to the native bridge via {@link JpdfiumH}. Compile patterns with {@link #compile} and free with {@link #free} when done.
  */
 public final class Pcre2Lib {
 
@@ -27,9 +26,7 @@ public final class Pcre2Lib {
     /**
      * Whether this native build can actually compile patterns.
      *
-     * <p>The bridge exports {@code jpdfium_pcre2_compile} in every build, but a
-     * build without PCRE2 linked makes it return {@code JPDFIUM_ERR_NOT_FOUND},
-     * so the symbol alone proves nothing. Probe the real capability instead.
+     * <p>The bridge exports {@code jpdfium_pcre2_compile} in every build, but a build without PCRE2 linked returns {@code JPDFIUM_ERR_NOT_FOUND}, so probe the real capability instead of the symbol.
      */
     public static boolean isSupported() {
         return PdfiumRuntime.execute(() -> {

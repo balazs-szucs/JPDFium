@@ -17,9 +17,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Inspect digital signatures in a PDF document.
  *
- * <p>PDFium provides read-only access to signatures - it cannot create or verify them.
- * For verification, extract the contents bytes and use a cryptographic library
- * (e.g., BouncyCastle) to validate the PKCS#7 data.
+ * <p>PDFium provides read-only access to signatures - it cannot create or verify them; for verification, extract the contents bytes and validate the PKCS#7 data with a cryptographic library (e.g. BouncyCastle).
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(Path.of("signed.pdf"))) {
@@ -195,9 +193,7 @@ public final class PdfSignatures {
     }
 
     /**
-     * Number of byte revisions in the loaded document. Each revision is a byte
-     * prefix closed by an %%EOF; a signature that covers a whole revision seals
-     * exactly that prefix. Returns -1 when the revision chain is indeterminate.
+     * Number of byte revisions in the loaded document. Each revision is a byte prefix closed by an %%EOF; a signature covering a whole revision seals exactly that prefix. Returns -1 when the revision chain is indeterminate.
      */
     public static int revisionCount(long docHandle) {
         return JpdfiumLib.signatureRevisionCount(docHandle);
@@ -243,9 +239,7 @@ public final class PdfSignatures {
     }
 
     /**
-     * Digest of the signature's /ByteRange, computed over the document's own
-     * bytes. Use it with the signature's CMS contents to verify the signature
-     * in a cryptographic library.
+     * Digest of the signature's /ByteRange, computed over the document's own bytes; use it with the CMS contents to verify the signature in a cryptographic library.
      *
      * @param docHandle bridge document handle ({@code doc.nativeHandle()})
      * @param index     0-based signature field index

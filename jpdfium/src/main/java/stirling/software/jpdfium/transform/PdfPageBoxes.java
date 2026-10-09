@@ -109,10 +109,8 @@ public final class PdfPageBoxes {
         if (getter == null || rawPage == null || rawPage.equals(MemorySegment.NULL)) {
             return Optional.empty();
         }
-        // Cold path only (page boxes are queried rarely): one arena block plus
-        // four slice views. Each asSlice is a heap view object, so this is not
-        // a certified zero-alloc path; that is fine here and must not be copied
-        // into hot paths without the escape-analysis caveat.
+        // Cold path only (page boxes are rarely queried): one arena block plus four slice views,
+        // each asSlice a heap view object. Not a certified zero-alloc path; do not copy into hot paths without the escape-analysis caveat.
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment box = arena.allocate(16, 4);
             MemorySegment l = box.asSlice(0, 4);

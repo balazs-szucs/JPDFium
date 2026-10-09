@@ -8,11 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * In-process qpdf structural optimization (FFM, no CLI).
- *
- * <p>Thin wrapper over {@link QpdfLib} exposing the qpdf operations Stirling-PDF
- * used to run as a subprocess (linearize, recompress, object-stream generation,
- * content normalization).
+ * In-process qpdf structural optimization (FFM, no CLI). Thin wrapper over {@link QpdfLib} exposing
+ * the qpdf operations Stirling-PDF used to run as a subprocess: linearize, recompress, object-stream generation, and content normalization.
  */
 public final class PdfOptimizer {
 
@@ -54,22 +51,13 @@ public final class PdfOptimizer {
     }
 
     /**
-     * Optimize file-to-file, keeping no document-sized buffer in Java heap.
-     *
-     * <p>Preferred over the byte[] route for anything large: that form reads
-     * the whole input with {@code Files.readAllBytes} and also materializes the
-     * output, so peak heap is roughly input + output. This form streams through
-     * native code and holds only the paths.
-     *
-     * <p>Falls back to the buffered path when the native file route is
-     * unavailable (non-qpdf or stub builds), so callers do not have to branch
-     * on capability.
+     * Optimize file-to-file, keeping no document-sized buffer in Java heap. Preferred over the byte[]
+     * route for anything large, since that reads the whole input with {@code Files.readAllBytes} and materializes the output (peak heap roughly input + output), whereas this streams through native code and holds only the paths. Falls back to the buffered path when the native file route is unavailable (non-qpdf or stub builds), so callers need not branch on capability.
      */
     public static void optimize(Path input, Path output, int flags, int compressionLevel,
             int objectStreamMode, int streamDataMode, int decodeLevel) throws IOException {
-        // The file route takes no compression level: using it here would
-        // silently replace an explicit level with qpdf's default. Only take it
-        // when no level was requested; the buffered path honors the level.
+        // The file route takes no compression level: using it here would silently replace an explicit
+        // level with qpdf's default. Only take it when no level was requested; the buffered path honors the level.
         if (compressionLevel == DEFAULT && QpdfLib.optimizeFile(input, output, flags,
                 objectStreamMode, streamDataMode, decodeLevel)) {
             return;
@@ -91,12 +79,8 @@ public final class PdfOptimizer {
     }
 
     /**
-     * Normalize content streams (qpdf content normalization), preserving object
-     * streams. Used before PDF/A conversion to fix font programs and CIDSet issues.
-     *
-     * <p>Note: qpdf's {@code --remove-unreferenced-resources} only applies during
-     * {@code --pages} splitting, not a plain read/write pass, so CIDSet cleanup
-     * relies on content normalization alone.
+     * Normalize content streams (qpdf content normalization), preserving object streams; used before
+     * PDF/A conversion to fix font programs and CIDSet issues. Note: qpdf's {@code --remove-unreferenced-resources} only applies during {@code --pages} splitting, not a plain read/write pass, so CIDSet cleanup relies on content normalization alone.
      *
      * @return normalized bytes, or {@code null} on failure
      */
@@ -106,9 +90,8 @@ public final class PdfOptimizer {
     }
 
     /**
-     * Recompress and structurally optimize: regenerate object streams, recompress
-     * flate, compress streams, apply a flate level, optionally linearize and
-     * preserve unreferenced objects. Mirrors Stirling-PDF's qpdf compression pass.
+     * Recompress and structurally optimize: regenerate object streams, recompress flate, compress
+     * streams, apply a flate level, optionally linearize and preserve unreferenced objects. Mirrors Stirling-PDF's qpdf compression pass.
      *
      * @return optimized bytes, or {@code null} on failure
      */

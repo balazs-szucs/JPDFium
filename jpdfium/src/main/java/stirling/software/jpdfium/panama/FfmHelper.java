@@ -10,26 +10,14 @@ import java.nio.charset.StandardCharsets;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Utility methods for Foreign Function &amp; Memory interop with PDFium.
- *
- * <p>Handles the three string types PDFium uses:
- * <ul>
- *   <li>{@code char*} (FPDF_BYTESTRING) - Latin-1 / UTF-8 byte strings</li>
- *   <li>{@code FPDF_WIDESTRING} (UTF-16LE) - used by bookmarks, metadata values, search</li>
- *   <li>{@code FPDF_WCHAR*} - same as FPDF_WIDESTRING but for output buffers</li>
- * </ul>
- *
- * <p>Also provides the double-call buffer pattern used by dozens of PDFium APIs.
+ * Utility methods for Foreign Function &amp; Memory interop with PDFium. Handles the three string
+ * types PDFium uses: {@code char*} (FPDF_BYTESTRING) Latin-1/UTF-8 byte strings, {@code FPDF_WIDESTRING} (UTF-16LE) for bookmarks/metadata/search, and {@code FPDF_WCHAR*} for output buffers; also provides the double-call buffer pattern used by dozens of PDFium APIs.
  */
 public final class FfmHelper {
 
     /**
-     * Upper bound for a single NUL-terminated native string view.
-     *
-     * <p>Native JSON/text payloads scale with page content; without a cap a missing
-     * NUL terminator turns {@code getString(0)} into an unbounded scan. The view
-     * itself allocates nothing: this only limits how far the scan may read before
-     * failing loudly instead of segfaulting.
+     * Upper bound for a single NUL-terminated native string view. Native JSON/text payloads scale
+     * with page content, so without a cap a missing NUL terminator turns {@code getString(0)} into an unbounded scan; the view allocates nothing and this only limits how far the scan may read before failing loudly instead of segfaulting.
      */
     public static final long MAX_NATIVE_STRING_BYTES = 256L * 1024L * 1024L;
 
@@ -105,12 +93,8 @@ public final class FfmHelper {
     }
 
     /**
-     * Convenience: convert a raw pointer (as long) into a MemorySegment.
-     * Returns {@code MemorySegment.NULL} if the address is 0.
-     *
-     * <p>The returned segment is a zero-length view: it must not outlive the native
-     * object it points to and must not be dereferenced. Callers holding it past
-     * {@code close()} cause native use-after-free.
+     * Convenience: convert a raw pointer (as long) into a MemorySegment, returning
+     * {@code MemorySegment.NULL} for address 0. The result is a zero-length view that must not outlive the native object or be dereferenced; holding it past {@code close()} causes native use-after-free.
      */
     public static MemorySegment ptrToSegment(long address) {
         return address == 0 ? MemorySegment.NULL : MemorySegment.ofAddress(address);

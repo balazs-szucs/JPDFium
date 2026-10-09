@@ -18,8 +18,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Search for text and create highlight/underline/strikeout annotations on matches.
  *
- * <p>Non-destructive counterpart of redaction: finds text matches and marks them
- * with visual annotations. Annotations include proper QuadPoints for markup types.
+ * <p>Non-destructive counterpart of redaction: finds text matches and marks them with visual annotations, including proper QuadPoints for markup types.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

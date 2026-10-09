@@ -16,8 +16,7 @@ import java.util.List;
 /**
  * Export and import PDF annotations as structured JSON.
  *
- * <p>Critical for review workflows: export annotations from one copy, send the
- * JSON file (tiny), and import into another copy.
+ * <p>Critical for review workflows: export annotations from one copy, send the tiny JSON file, and import into another copy.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("reviewed.pdf"))) {

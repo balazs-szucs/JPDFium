@@ -19,9 +19,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Generate a Table of Contents page from detected headings.
  *
- * <p>Scans the document for lines with larger font sizes (assumed to be headings),
- * then creates a new first page with a clickable TOC listing those headings with
- * destination page numbers.
+ * <p>Scans the document for lines with larger font sizes (assumed headings) and creates a new first page with a clickable TOC listing them with destination page numbers.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("report.pdf"))) {
@@ -74,9 +72,7 @@ public final class PdfTocGenerator {
     /**
      * Generate a TOC page and insert it as the first page.
      *
-     * <p>The TOC page lists all detected headings with their page numbers.
-     * Since adding link annotations requires more complex bookmark/dest handling,
-     * this generates a simple text-based TOC with page references.
+     * <p>Lists all detected headings with page numbers; since adding link annotations needs more complex bookmark/dest handling, this generates a simple text-based TOC.
      *
      * @param doc               open PDF document
      * @param minHeadingFontSize minimum font size for heading detection

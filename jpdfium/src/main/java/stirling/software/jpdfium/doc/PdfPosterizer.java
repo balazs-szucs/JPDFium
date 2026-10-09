@@ -12,12 +12,7 @@ import java.lang.foreign.MemorySegment;
 /**
  * Posterize PDF pages by splitting them into a grid of tiles.
  *
- * <p>Supports two modes:
- * <ul>
- *   <li><b>Grid-based</b>: split into xFactor x yFactor tiles with optional overlap</li>
- *   <li><b>Target-size</b>: automatically compute the grid so each tile fits a target
- *       paper size (A4, A3, A5, Letter, Legal, or custom dimensions)</li>
- * </ul>
+ * <p>Two modes: grid-based (xFactor x yFactor tiles with optional overlap) and target-size (auto-compute the grid so each tile fits a target paper size).
  *
  * <pre>{@code
  * // Grid-based: 2x2 tiles
@@ -71,8 +66,7 @@ public final class PdfPosterizer {
     /**
      * Posterize all pages to fit a target paper size.
      *
-     * <p>Automatically computes the number of columns and rows needed so that
-     * each tile fits within the target paper dimensions.
+     * <p>Automatically computes the number of columns and rows needed so each tile fits within the target paper dimensions.
      *
      * @param doc     open PDF document
      * @param target  target paper size for each tile

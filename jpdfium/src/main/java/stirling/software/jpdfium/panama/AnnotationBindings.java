@@ -13,9 +13,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for PDFium annotation CRUD operations ({@code fpdf_annot.h}).
  *
- * <p>Also defines {@link #FS_RECTF_LAYOUT}, the struct layout for {@code FS_RECTF}
- * ({@code float left, top, right, bottom}), which is used by both annotation
- * and link APIs.
+ * <p>Also defines {@link #FS_RECTF_LAYOUT}, the struct layout for {@code FS_RECTF} ({@code float left, top, right, bottom}), used by both annotation and link APIs.
  */
 public final class AnnotationBindings {
 
@@ -34,9 +32,7 @@ public final class AnnotationBindings {
     }
 
     /**
-     * {@code unsigned long FPDFAnnot_GetAP(FPDF_ANNOTATION annot, int appearanceMode,
-     * FPDF_WCHAR* buffer, unsigned long buflen)} - normal appearance stream length,
-     * 0 when the annotation has no usable appearance.
+     * {@code unsigned long FPDFAnnot_GetAP(FPDF_ANNOTATION annot, int appearanceMode, FPDF_WCHAR* buffer, unsigned long buflen)} - normal appearance stream length, 0 when the annotation has no usable appearance.
      */
     public static final MethodHandle FPDFAnnot_GetAP = downcallOptional("FPDFAnnot_GetAP",
             FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_INT, ADDRESS, JAVA_LONG));

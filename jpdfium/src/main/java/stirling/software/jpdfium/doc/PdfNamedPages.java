@@ -108,8 +108,7 @@ public final class PdfNamedPages {
                     long req = (long) EmbedPdfNamedPageBindings.EPDFDoc_GetNamedPageAt.invokeExact(
                             rawDoc, tree.nativeVal, i, MemorySegment.NULL, 0L, MemorySegment.NULL, MemorySegment.NULL);
                     // req <= 2 means the native side returned only the null terminator (or
-                    // nothing) for this slot; the entry is corrupt or reserved – skip it.
-                    // The caller receives a shorter list than count(); that is documented.
+                    // nothing) for this slot; the entry is corrupt or reserved, so skip it and return a shorter list than count() (documented).
                     if (req <= 2) continue;
 
                     MemorySegment buf = arena.allocate(req);
@@ -192,9 +191,7 @@ public final class PdfNamedPages {
     }
 
     /**
-     * Return the indirect object number of the page at the given zero-based index.
-     * Returns {@code 0} when the native build does not export
-     * {@code EPDFDoc_GetPageObjectNumberByIndex} or when the lookup fails.
+     * Return the indirect object number of the page at the given zero-based index, or {@code 0} when the native build does not export the symbol or the lookup fails.
      */
     public static int getPageObjectNumber(MemorySegment rawDoc, int pageIndex) {
         if (rawDoc == null || rawDoc.equals(MemorySegment.NULL) || pageIndex < 0) return 0;

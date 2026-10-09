@@ -9,28 +9,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Ownership policy for pixel buffers exchanged with the PDFium domain.
- *
- * <p>A confined FFM arena belongs to its creating thread: segments allocated
- * from it cannot be touched on any other thread, so a caller-confined target
- * bitmap can never be handed to a future owner-thread dispatcher. The policy
- * is therefore explicit:
- *
- * <ul>
- *   <li>Synchronous {@code renderInto} is a legacy caller-thread operation:
- *       it accepts any valid native segment and uses it inline. Before an
- *       owner-thread backend becomes default, this path must either require
- *       shared caller storage, copy into owner-owned storage, or be
- *       deprecated, never smuggle a raw confined address across threads.</li>
- *   <li>Any buffer whose native use outlives the call (progressive sessions,
- *       retained targets) must be a {@link SharedRenderBuffer} held through
- *       an explicit {@link RenderLease}. The native arena closes only after
- *       every lease is released, so a caller closing early cannot free memory
- *       out from under an active session.</li>
- *   <li>Library-owned results ({@code renderAt}, detached saves) are always
- *       safe to process concurrently: the pixels are a plain detached
- *       allocation with no PDFium identity.</li>
- * </ul>
+ * Ownership policy for pixel buffers exchanged with the PDFium domain. A confined FFM arena belongs
+ * to its creating thread, so a caller-confined target bitmap can never be handed to a future owner-thread dispatcher; the policy is explicit: synchronous {@code renderInto} is a legacy caller-thread operation that accepts any valid native segment and uses it inline (before an owner-thread backend becomes default it must require shared caller storage, copy into owner-owned storage, or be deprecated - never smuggle a raw confined address across threads); any buffer whose native use outlives the call (progressive sessions, retained targets) must be a {@link SharedRenderBuffer} held through an explicit {@link RenderLease}, with the native arena closing only after every lease is released; and library-owned results ({@code renderAt}, detached saves) are always safe to process concurrently because the pixels are a plain detached allocation with no PDFium identity.
  */
 public final class PdfiumBuffers {
 
@@ -55,22 +35,16 @@ public final class PdfiumBuffers {
     }
 
     /**
-     * Post-generation cap for a single shared render allocation
-     * ({@code jpdfium.maxRenderBytes}, 0 = disabled). Pixel count alone does
-     * not express padded stride or concurrent outputs, so large retained
-     * targets are bounded in bytes as well as pixels.
+     * Post-generation cap for a single shared render allocation ({@code jpdfium.maxRenderBytes},
+     * 0 = disabled). Pixel count alone does not express padded stride or concurrent outputs, so large retained targets are bounded in bytes as well as pixels.
      */
     public static long maxRenderBytes() {
         return Long.getLong("jpdfium.maxRenderBytes", 0);
     }
 
     /**
-     * Allocate an owner-accessible RGBA render target for {@code width x height}.
-     * Backed by a shared arena, so the segment stays usable even if PDFium
-     * execution later moves to a dedicated owner thread.
-     *
-     * <p>Ordering: validate dimensions → checked pixel count → pixel budget →
-     * checked stride → checked byte size → byte budget → allocate.
+     * Allocate an owner-accessible RGBA render target for {@code width x height}, backed by a shared
+     * arena so the segment stays usable even if PDFium execution later moves to a dedicated owner thread. Ordering: validate dimensions -> checked pixel count -> pixel budget -> checked stride -> checked byte size -> byte budget -> allocate.
      */
     public static SharedRenderBuffer allocateRenderBuffer(int width, int height) {
         if (width <= 0 || height <= 0) {
@@ -118,9 +92,8 @@ public final class PdfiumBuffers {
     }
 
     /**
-     * Test-only hook run after a successful lease-count increment, before the
-     * closure recheck. Lets tests interleave caller close deterministically.
-     * Null in production.
+     * Test-only hook run after a successful lease-count increment, before the closure recheck, so
+     * tests can interleave caller close deterministically; null in production.
      */
     public interface PostIncrementHook {
         void onIncrement() throws Exception;
@@ -133,18 +106,16 @@ public final class PdfiumBuffers {
     public static volatile boolean failLeaseConstruction;
 
     /**
-     * Releases a buffer's storage. Production always closes the FFM arena;
-     * tests substitute a failing releaser to exercise the reclamation-failure
-     * path, which cannot be provoked through {@link Arena} itself.
+     * Releases a buffer's storage. Production always closes the FFM arena; tests substitute a failing
+     * releaser to exercise the reclamation-failure path, which cannot be provoked through {@link Arena} itself.
      */
     interface ArenaReleaser {
         void release() throws Throwable;
     }
 
     /**
-     * Package-private seam over {@link #allocateRenderBuffer(int, int)} for
-     * tests that need to observe reclamation failure. The releaser replaces
-     * the arena close and must still reclaim storage itself.
+     * Package-private seam over {@link #allocateRenderBuffer(int, int)} for tests that need to observe
+     * reclamation failure. The releaser replaces the arena close and must still reclaim storage itself.
      */
     static SharedRenderBuffer allocateRenderBuffer(int width, int height, ArenaReleaser releaser) {
         SharedRenderBuffer buf = allocateRenderBuffer(width, height);
@@ -153,13 +124,8 @@ public final class PdfiumBuffers {
     }
 
     /**
-     * Owner-accessible render target with explicit lease ownership.
-     *
-     * <p>Leases: the caller holds one from allocation; each retained user
-     * (e.g. a progressive session) acquires one more. The arena closes only
-     * when the last lease releases, so this exact sequence is safe:
-     * allocate → start session → close caller handle → continue to DONE →
-     * close session → arena reclaimed.
+     * Owner-accessible render target with explicit lease ownership. The caller holds one lease from
+     * allocation and each retained user (e.g. a progressive session) acquires one more; the arena closes only when the last lease releases, so this sequence is safe: allocate -> start session -> close caller handle -> continue to DONE -> close session -> arena reclaimed.
      */
     public static final class SharedRenderBuffer implements AutoCloseable {
         private final Arena arena;
@@ -171,9 +137,8 @@ public final class PdfiumBuffers {
         private final AtomicInteger leases = new AtomicInteger(1);
         private final AtomicBoolean callerClosed = new AtomicBoolean(false);
         /**
-         * Storage release mechanism, replaceable only before the arena is
-         * reclaimed (tests inject a failing releaser). Set once via the
-         * package-private factory, read at the single reclaim point.
+         * Storage release mechanism, replaceable only before the arena is reclaimed (tests inject a
+         * failing releaser). Set once via the package-private factory, read at the single reclaim point.
          */
         private volatile ArenaReleaser arenaReleaser;
 
@@ -189,16 +154,8 @@ public final class PdfiumBuffers {
         }
 
         /**
-         * Take a lease keeping the arena alive.
-         *
-         * <p>Contract, with a single linearization point: caller closure
-         * prevents all <em>new</em> acquisitions, while already-issued leases
-         * stay usable and the arena closes only after the last one releases.
-         * The linearization point is the successful CAS below as ordered
-         * against the post-increment closure recheck, if
-         * {@link #close()} wins, the increment is undone and acquisition
-         * fails; if acquisition wins, the later close cannot reclaim until
-         * the new lease releases. Either way the count never leaks.
+         * Take a lease keeping the arena alive. Contract, with a single linearization point: caller
+         * closure prevents all <em>new</em> acquisitions while already-issued leases stay usable and the arena closes only after the last one releases. The linearization point is the successful CAS below ordered against the post-increment closure recheck - if {@link #close()} wins the increment is undone and acquisition fails; if acquisition wins the later close cannot reclaim until the new lease releases. Either way the count never leaks.
          */
         public RenderLease acquireLease() {
             if (callerClosed.get()) {
@@ -228,17 +185,12 @@ public final class PdfiumBuffers {
                             throw failure;
                         }
                     }
-                    // Single volatile read: the flag is test-only (false in
-                    // production), but reading it twice would cost two fences
-                    // on the hot lease path.
+                    // Single volatile read: the flag is test-only (false in production), but reading it
+                    // twice would cost two fences on the hot lease path.
                     boolean injectedFailure = failLeaseConstruction;
                     if (callerClosed.get() || injectedFailure) {
-                        // Roll back through the same primitive as every other
-                        // release: if this increment was the last outstanding
-                        // owner, the arena is reclaimed here, never leaked.
-                        // (failLeaseConstruction models RenderLease-construction
-                        // failure for tests; production construction is infallible
-                        // short of JVM-fatal errors.)
+                        // Roll back through the same primitive as every other release: if this increment
+                        // was the last outstanding owner, the arena is reclaimed here, never leaked. (failLeaseConstruction models RenderLease-construction failure for tests; production construction is infallible short of JVM-fatal errors.)
                         IllegalStateException failure = new IllegalStateException(
                                 injectedFailure
                                         ? "injected lease construction failure"
@@ -246,9 +198,8 @@ public final class PdfiumBuffers {
                         try {
                             releaseLease();
                         } catch (Throwable cleanupFailure) {
-                            // The acquisition rejection stays primary: a failed
-                            // rollback (e.g. storage release threw) is recorded
-                            // on it rather than replacing the useful cause.
+                            // The acquisition rejection stays primary: a failed rollback (e.g. storage
+                            // release threw) is recorded on it rather than replacing the useful cause.
                             failure.addSuppressed(cleanupFailure);
                         }
                         throw failure;
@@ -296,12 +247,8 @@ public final class PdfiumBuffers {
                         "render buffer lease underflow - release without acquisition");
             }
             if (remaining == 0) {
-                // Bytes stay accounted until storage is actually reclaimed. If
-                // the release throws, the arena may still be alive and no
-                // owner remains to retry, so reporting it as freed would be
-                // false accounting. The failure propagates to the releasing
-                // caller; the retained byte count is the honest record that
-                // this reclamation never completed.
+                // Bytes stay accounted until storage is actually reclaimed. If the release throws, the
+                // arena may still be alive and no owner remains to retry, so reporting it as freed would be false accounting; the failure propagates to the releasing caller and the retained byte count is the honest record.
                 try {
                     arenaReleaser.release();
                 } catch (Throwable t) {

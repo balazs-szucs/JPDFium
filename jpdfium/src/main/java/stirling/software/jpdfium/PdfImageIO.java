@@ -20,13 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Unified image I/O facade providing familiar {@link ImageIO}-style APIs
- * backed by the active codec engine.
- *
- * <p>When the optional {@code jpdfium-vips} module is on the classpath, operations
- * use libvips for high-speed encode/decode and support extended modern formats
- * (HEIC, HEIF, AVIF, JXL, WebP, JPEG2000, TIFF, PNG, JPEG).
- * When {@code jpdfium-vips} is absent, it falls back seamlessly to standard {@link ImageIO}.
+ * Unified {@link ImageIO}-style image I/O facade backed by the active codec engine: libvips (when {@code jpdfium-vips} is on the classpath) provides high-speed encode/decode and extended formats (HEIC, HEIF, AVIF, JXL, WebP, JPEG2000, TIFF, PNG, JPEG), otherwise it falls back seamlessly to standard {@link ImageIO}.
  *
  * <p><b>Usage Examples:</b></p>
  * <pre>{@code

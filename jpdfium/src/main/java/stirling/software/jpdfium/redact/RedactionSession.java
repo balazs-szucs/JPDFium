@@ -16,34 +16,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * EmbedPDF-style two-phase redaction session.
- *
- * <p>A {@code RedactionSession} holds a PDF document open for the entire
- * session lifetime.  Redactions follow a strict two-phase workflow:
- *
- * <ol>
- *   <li><b>Mark phase</b> - Preview redactions via {@link #markWords} or
- *       {@link #markRegion}.  Matches are counted and stored in memory
- *       but the content stream is NOT modified.</li>
- *   <li><b>Commit phase</b> - Call {@link #commitAll()} or
- *       {@link #commitPage(int)} to apply all pending marks using the
- *       Object Fission Algorithm.  Text and images under each mark
- *       are permanently destroyed.</li>
- * </ol>
- *
- * <p>The document handle is <b>never closed or reloaded</b> between phases.
- * After commit, the same document can receive more marks and commits
- * without any reload.  Use {@link #saveIncremental()} to write only the
- * changed objects, or {@link #save(Path)} for a full rewrite.
- *
- * <h3>Thread Safety</h3>
- * <p>Like all PDFium operations, a session must be confined to one thread.
+ * EmbedPDF-style two-phase redaction session. Holds a PDF document open for the session lifetime: the <b>Mark phase</b> previews redactions via {@link #markWords}/{@link #markRegion} (counted and stored, content stream unchanged), and the <b>Commit phase</b> calls {@link #commitAll()}/{@link #commitPage(int)} to destroy marked content via Object Fission. The handle is never closed between phases; use {@link #saveIncremental()} or {@link #save(Path)} to persist. Confine a session to one thread.
  *
  * <h3>Usage Example</h3>
  * <pre>{@code
  * try (RedactionSession session = RedactionSession.open(Path.of("input.pdf"))) {
  *     // Mark phase - zero content mutation
- *     session.markWords(new String[]{"Confidential", "\\d{3}-\\d{2}-\\d{4}"},
+ *     session.markWords(new String[]{"Confidential", "\d{3}-\d{2}-\d{4}"},
  *             0xFF000000, 1.5f, false, true, false);
  *
  *     // Inspect pending marks
@@ -119,11 +98,8 @@ public final class RedactionSession implements AutoCloseable {
     }
 
     /**
-     * Run the full font normalization pipeline on all pages.
-     *
-     * <p>This repairs broken /ToUnicode maps and /W glyph width tables that cause
-     * text extraction failures and missed redactions. Must be called <b>before</b>
-     * any mark or commit operations to ensure text extraction is correct.
+     * Run the full font normalization pipeline on all pages, repairing broken /ToUnicode maps and
+     * /W glyph width tables that cause text extraction failures and missed redactions. Must be called <b>before</b> any mark or commit operations.
      *
      * @return normalization statistics
      */
@@ -304,9 +280,8 @@ public final class RedactionSession implements AutoCloseable {
     }
 
     /**
-     * Commit all pending marks across all pages.
-     * This permanently destroys content under each marked area.
-     * The document remains live - no reload required.
+     * Commit all pending marks across all pages, permanently destroying content under each marked
+     * area. The document remains live - no reload required.
      *
      * @return commit statistics per page
      */
@@ -376,11 +351,8 @@ public final class RedactionSession implements AutoCloseable {
                     }
                 }
             }
-            // The mark phase created real REDACT annotations on the page as a
-            // preview. After replaying the marks the content is gone - drop
-            // the annotations BEFORE flattening so they are not baked into
-            // the page, and so the document does not carry uncommitted marks
-            // (the native save guard would refuse to save them).
+            // The mark phase created real REDACT annotations on the page as a preview. After replaying
+            // the marks the content is gone - drop the annotations BEFORE flattening so they are not baked into the page and the document carries no uncommitted marks (the native save guard would refuse to save them).
             page.clearPendingRedactions();
             page.flatten();
         }
@@ -429,10 +401,8 @@ public final class RedactionSession implements AutoCloseable {
     }
 
     /**
-     * The visual-only cover mode (removeContent=false) is removed from the
-     * public API: painting over intact, extractable content is the banned
-     * "looks redacted" leak class. Every redaction ends verified-complete or
-     * in a loud error - never in a cover.
+     * The visual-only cover mode (removeContent=false) is removed from the public API: painting over
+     * intact, extractable content is the banned "looks redacted" leak class. Every redaction ends verified-complete or in a loud error - never in a cover.
      */
     private static void requireContentRemoval(boolean removeContent) {
         if (!removeContent) {

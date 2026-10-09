@@ -11,14 +11,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Overlay (stamp) pages from one PDF on top of another.
  *
- * <p>Uses PDFium's FPDF_ImportPages to import page content from an overlay
- * document into the destination document. Imported pages are appended after
- * the specified insertion point; call this method for each destination page
- * that needs an overlay.
- *
- * <p>For a common use-case (e.g. applying a watermark page to every page
- * of a document), iterate over the destination pages and call
- * {@link #overlayPage} for each one.
+ * <p>Uses PDFium's {@code FPDF_ImportPages} to import overlay page content into the destination; imported pages are appended after the insertion point. For a common use-case (e.g. a watermark on every page), iterate destination pages and call {@link #overlayPage} for each.
  */
 public final class PdfOverlay {
 
@@ -27,14 +20,12 @@ public final class PdfOverlay {
     /**
      * Import a single page from the overlay document into the destination document.
      *
-     * <p>The imported overlay page is appended at the end of the destination document.
-     * To overlay every page, call this method in a loop.
+     * <p>The imported overlay page is appended at the end; to overlay every page, call this in a loop.
      *
      * @param rawDest    raw FPDF_DOCUMENT of the destination
      * @param rawOverlay raw FPDF_DOCUMENT of the overlay source
      * @param overlayPageNum 1-based page number in the overlay document to import
-     * @param insertIndex 0-based index in the destination to insert before;
-     *                    use destination page count to append at the end
+     * @param insertIndex 0-based index in the destination to insert before; use destination page count to append at the end
      * @return true if the import succeeded
      */
     public static boolean overlayPage(MemorySegment rawDest, MemorySegment rawOverlay,
@@ -57,8 +48,7 @@ public final class PdfOverlay {
     /**
      * Overlay all pages of the overlay document onto the destination.
      *
-     * <p>For each page in the overlay (up to the destination page count),
-     * the overlay page is imported and placed after the corresponding destination page.
+     * <p>For each overlay page (up to the destination page count), the overlay page is imported and placed after the corresponding destination page.
      *
      * @param rawDest      raw FPDF_DOCUMENT destination
      * @param rawOverlay   raw FPDF_DOCUMENT overlay source

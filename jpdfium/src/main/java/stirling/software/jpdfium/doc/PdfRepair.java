@@ -10,20 +10,7 @@ import java.nio.file.Path;
 /**
  * PDF repair with a builder-pattern API.
  *
- * <p>
- * Multi-stage cascade pipeline:
- * <ol>
- * <li><b>Pre-repair</b>: Brotli-Flate transcoding (PDF 2.0+ compat)</li>
- * <li><b>Core</b>: PDFium tolerant open - qpdf recovery - startxref fix</li>
- * <li><b>Fallback</b>: PDFio third-opinion XRef repair</li>
- * <li><b>Rust fallback</b> (opt-in): lopdf tolerant XRef rebuild - final cascade
- * stage when all C-based repair strategies fail. Enabled via
- * {@link Builder#useLopdfFallback(boolean)} or included in {@link Builder#all()}.</li>
- * <li><b>Post-repair</b>: ICC profile validation (lcms2), JPEG2000 validation
- * (OpenJPEG)</li>
- * </ol>
- *
- * <h3>Usage</h3>
+ * <p>Multi-stage cascade: <b>pre-repair</b> Brotli-Flate transcoding (PDF 2.0+ compat), <b>core</b> PDFium tolerant open / qpdf recovery / startxref fix, <b>fallback</b> PDFio third-opinion XRef repair, <b>Rust fallback</b> (opt-in) lopdf tolerant XRef rebuild via {@link Builder#useLopdfFallback(boolean)} or {@link Builder#all()}, and <b>post-repair</b> ICC profile validation (lcms2) and JPEG2000 validation (OpenJPEG). All underlying libraries are MIT-compatible: qpdf (Apache 2.0), PDFium (BSD), Brotli (MIT), PDFio (Apache 2.0), lcms2 (MIT), OpenJPEG (BSD 2-Clause), lopdf (MIT, Rust).
  *
  * <pre>{@code
  * RepairResult result = PdfRepair.builder()
@@ -39,11 +26,6 @@ import java.nio.file.Path;
  * // Inspect only (non-destructive)
  * String diagnostics = PdfRepair.inspect(pdfBytes);
  * }</pre>
- *
- * <p>
- * All underlying libraries are MIT-compatible:
- * qpdf (Apache 2.0), PDFium (BSD), Brotli (MIT), PDFio (Apache 2.0),
- * lcms2 (MIT), OpenJPEG (BSD 2-Clause), lopdf (MIT, Rust).
  */
 public final class PdfRepair {
 
@@ -210,12 +192,7 @@ public final class PdfRepair {
         /**
          * Enable lopdf (Rust) XRef rebuild as a final fallback (opt-in).
          *
-         * <p>Tried only after both the core qpdf pipeline and the PDFio fallback have
-         * failed. lopdf's tolerant parser can often recover PDFs with corrupted XRef
-         * tables that qpdf and PDFio cannot parse at all.
-         *
-         * <p>Included automatically by {@link #all()}.  If the Rust library is not
-         * compiled in, this option is silently ignored (no error is thrown).
+         * <p>Tried only after the core qpdf pipeline and the PDFio fallback have failed; lopdf's tolerant parser can often recover PDFs with corrupted XRef tables. Included automatically by {@link #all()}; if the Rust library is not compiled in, this option is silently ignored.
          *
          * @param enable {@code true} to enable (default {@code false})
          */

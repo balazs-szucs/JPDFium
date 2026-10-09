@@ -19,9 +19,7 @@ import java.util.Set;
 /**
  * Splits each PDF page in half to produce two pages per source page.
  *
- * <p>Essential for flatbed book scanning where two book pages end up on one
- * scanner page. Supports automatic gutter detection (the vertical strip of
- * whitespace between the two halves).
+ * <p>Essential for flatbed book scanning where two book pages end up on one scanner page; supports automatic gutter detection (the vertical whitespace strip between halves).
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("scanned-book.pdf"))) {

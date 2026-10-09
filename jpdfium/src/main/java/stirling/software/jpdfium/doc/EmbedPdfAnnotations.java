@@ -15,17 +15,8 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Extended annotation operations provided by the EmbedPDF PDFium fork.
- *
- * <p>Provides richer annotation manipulation than standard PDFium:
- * <ul>
- *   <li>Color/opacity control that works even with existing appearance streams</li>
- *   <li>Border style, dash patterns, and cloudy effects</li>
- *   <li>Appearance generation and blend modes</li>
- *   <li>Annotation rotation and reply types</li>
- *   <li>Redaction overlay text and native apply-redaction</li>
- *   <li>Annotation flattening</li>
- * </ul>
+ * Extended annotation operations provided by the EmbedPDF PDFium fork, offering richer manipulation
+ * than standard PDFium: color/opacity control with existing appearance streams, border styles/dash/cloudy effects, appearance generation and blend modes, annotation rotation and reply types, redaction overlay text plus native apply-redaction, and annotation flattening.
  */
 public final class EmbedPdfAnnotations {
 
@@ -207,10 +198,8 @@ public final class EmbedPdfAnnotations {
     }
 
     /**
-     * Apply a single redact annotation, permanently removing content underneath.
-     *
-     * <p>Uses the native redaction engine which handles shading objects,
-     * JBIG2 images, transparent PNGs, and Form XObjects.
+     * Apply a single redact annotation, permanently removing content underneath. Uses the native
+     * redaction engine, which handles shading objects, JBIG2 images, transparent PNGs, and Form XObjects.
      *
      * @param page  raw FPDF_PAGE
      * @param index annotation index of a REDACT annotation

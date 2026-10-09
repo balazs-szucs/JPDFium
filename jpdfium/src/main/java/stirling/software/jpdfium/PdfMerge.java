@@ -36,12 +36,8 @@ public final class PdfMerge {
     private PdfMerge() {}
 
     /**
-     * Merge multiple open PDF documents into a new document.
-     *
-     * <p>All pages from each source document are imported in order. The source
-     * documents must remain open during this call but can be closed immediately
-     * afterwards - the returned document is fully self-contained. The caller owns
-     * the returned document and must close it.
+     * Merge multiple open PDF documents into a new document. All pages from each source are imported
+     * in order; sources must remain open during this call but can be closed immediately afterwards, as the returned self-contained document is owned and closed by the caller.
      *
      * @param documents list of open source documents
      * @return merged document
@@ -52,9 +48,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Merge multiple open PDF documents with explicit storage control.
-     * FILE mode fails loudly when the native file-backed merge is unavailable
-     * or fails; live documents are materialized to temp files first.
+     * Merge multiple open PDF documents with explicit storage control. FILE mode fails loudly when the
+     * native file-backed merge is unavailable or fails; live documents are materialized to temp files first.
      */
     public static PdfDocument merge(List<PdfDocument> documents, StorageOptions options) {
         if (documents.isEmpty()) throw new IllegalArgumentException("At least one document is required");
@@ -74,10 +69,8 @@ public final class PdfMerge {
             if (QpdfLib.isMergeFilesSupported()) {
                 List<Path> cleanup = new ArrayList<>();
                 try {
-                    // A document opened from a path may have been edited in
-                    // memory since; never merge the file behind its back.
-                    // Serialize each live document to a temp (native save, no
-                    // Java heap) and merge those.
+                    // A document opened from a path may have been edited in memory since; never merge the
+                    // file behind its back. Serialize each live document to a temp (native save, no Java heap) and merge those.
                     List<Path> filePaths = new ArrayList<>(documents.size());
                     for (PdfDocument sourceDoc : documents) {
                         Path materialized = options.createTempFile("jpdfium-merge-src", ".pdf");
@@ -157,11 +150,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Merge PDF files from paths into a new document.
-     *
-     * <p>Opens each file, imports all pages, closes the sources, and returns a
-     * fully self-contained document. The caller owns the returned document and
-     * must close it.
+     * Merge PDF files from paths into a new document. Opens each file, imports all pages, closes the
+     * sources, and returns a fully self-contained document; the caller owns and closes the result.
      *
      * @param paths file paths to merge
      * @return merged document
@@ -172,9 +162,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Merge PDF files with explicit storage control.
-     * FILE mode fails loudly when the native file-backed merge is unavailable
-     * or fails.
+     * Merge PDF files with explicit storage control. FILE mode fails loudly when the native
+     * file-backed merge is unavailable or fails.
      */
     public static PdfDocument mergeFiles(List<Path> paths, StorageOptions options) {
         if (paths.isEmpty()) throw new IllegalArgumentException("At least one file path is required");
@@ -213,9 +202,8 @@ public final class PdfMerge {
                         if (!done) deleteQuietly(tmp);
                     }
                 }
-            // A native failure surfaces as JPDFiumException and openTemp() can throw
-            // runtime exceptions, so catch Exception: otherwise a file-backed
-            // failure escapes instead of falling through to the in-memory paths.
+            // A native failure surfaces as JPDFiumException and openTemp() can throw runtime exceptions,
+            // so catch Exception: otherwise a file-backed failure escapes instead of falling through to the in-memory paths.
         } catch (Exception _) {
                 // Fall through to the paths below
             }
@@ -305,20 +293,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Merge PDF files from paths straight into an output file.
-     *
-     * <p>Unlike {@link #mergeFiles(List)}, no document bytes ever live on the
-     * Java heap: inputs are read from disk and the result is written to disk
-     * by native code. Peak heap stays flat regardless of input size, which is
-     * what makes multi-gigabyte merges feasible.
-     *
-     * <p>No bookmarks are merged by this method. Read source bookmarks first
-     * (via short-lived {@link PdfDocument#open(Path)} handles, which only
-     * parse the catalog) and apply the combined tree afterwards with
-     * {@code PdfBookmarkEditor}.
-     *
-     * <p>Falls back to {@link #mergeFiles(List)} plus save when the
-     * file-backed native path is unavailable.
+     * Merge PDF files from paths straight into an output file. Unlike {@link #mergeFiles(List)}, no
+     * document bytes ever live on the Java heap - inputs are read from disk and native code writes the result to disk, so peak heap stays flat regardless of input size (making multi-gigabyte merges feasible). No bookmarks are merged: read source bookmarks first (via short-lived {@link PdfDocument#open(Path)} handles, which only parse the catalog) and apply the combined tree afterwards with {@code PdfBookmarkEditor}. Falls back to {@link #mergeFiles(List)} plus save when the file-backed native path is unavailable.
      *
      * @param paths  file paths to merge in order
      * @param output destination PDF file path
@@ -329,9 +305,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Merge files straight to an output file with explicit storage control.
-     * Existing output is replaced only after the merge succeeds. FILE mode
-     * fails loudly when the native file-backed merge is unavailable or fails.
+     * Merge files straight to an output file with explicit storage control. Existing output is
+     * replaced only after the merge succeeds; FILE mode fails loudly when the native file-backed merge is unavailable or fails.
      */
     public static void mergeFilesToFile(List<Path> paths, Path output, StorageOptions options) throws IOException {
         if (paths.isEmpty()) throw new IllegalArgumentException("At least one file path is required");
@@ -383,10 +358,8 @@ public final class PdfMerge {
     }
 
     /**
-     * Native-merge into a staging file and replace {@code output} only on
-     * success: qpdf must never truncate an input it is still reading when the
-     * output aliases one of the inputs. Returns false when the native path is
-     * unavailable or fails; the caller then falls back or fails in FILE mode.
+     * Native-merge into a staging file and replace {@code output} only on success: qpdf must never
+     * truncate an input it is still reading when output aliases one of the inputs. Returns false when the native path is unavailable or fails; the caller then falls back or fails in FILE mode.
      */
     private static boolean stageNativeMerge(List<Path> paths, Path output, StorageOptions options)
             throws IOException {

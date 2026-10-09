@@ -24,10 +24,8 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Save a PDF document with a specific version number.
- *
- * <p>Uses FPDF_SaveWithVersion with an FFM upcall-based FPDF_FILEWRITE callback
- * to write the document with the specified PDF version header.
+ * Save a PDF document with a specific version number, using FPDF_SaveWithVersion with an
+ * FFM upcall-based FPDF_FILEWRITE callback to write the specified PDF version header.
  */
 public final class PdfVersionConverter {
 
@@ -41,11 +39,8 @@ public final class PdfVersionConverter {
             ADDRESS.withName("WriteBlock")
     );
 
-    // WriteBlock signature: int (*)(FPDF_FILEWRITE* pThis, const void* pData, unsigned long size)
-    // C unsigned long is platform-dependent (4 on Windows LLP64, 8 on LP64):
-    // JAVA_LONG would mismatch the native stack on Windows and corrupt the
-    // size argument. Use the canonical C long layout so the upcall matches the
-    // loaded bridge on every platform.
+    // WriteBlock signature: int (*)(FPDF_FILEWRITE* pThis, const void* pData, unsigned long size).
+    // C unsigned long is platform-dependent (4 on Windows LLP64, 8 on LP64): JAVA_LONG would mismatch the native stack on Windows and corrupt the size argument, so use the canonical C long layout so the upcall matches the loaded bridge everywhere.
     private static final MemoryLayout C_LONG_LAYOUT =
             Linker.nativeLinker().canonicalLayouts().get("long");
 
@@ -53,10 +48,8 @@ public final class PdfVersionConverter {
         return FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, C_LONG_LAYOUT);
     }
 
-    // Thread-local buffer for the upcall to write into. Short-lived and always
-    // removed in finally; cold version-convert path only (not renders), so no
-    // per-thread footprint concern. ScopedValue would require restructuring the
-    // fixed native callback signature for no hot-path gain.
+    // Thread-local buffer for the upcall to write into. Short-lived and always removed in finally;
+    // cold version-convert path only (not renders), so no per-thread footprint concern. ScopedValue would require restructuring the fixed native callback signature for no hot-path gain.
     private static final ThreadLocal<ByteArrayOutputStream> WRITE_BUFFER = new ThreadLocal<>();
 
     /**
@@ -108,10 +101,8 @@ public final class PdfVersionConverter {
             MethodHandle writeBlockMH;
             FunctionDescriptor writeBlockDesc = writeBlockDescriptor();
             try {
-                // Carrier must match the native width: int on LLP64 (Windows),
-                // long on LP64. A hardcoded long would pass the ABI handshake
-                // (which accepts 4 or 8) but invoke the callback with an
-                // incompatible descriptor on Windows.
+                // Carrier must match the native width: int on LLP64 (Windows), long on LP64. A hardcoded
+                // long would pass the ABI handshake (which accepts 4 or 8) but invoke the callback with an incompatible descriptor on Windows.
                 if (C_LONG_LAYOUT.byteSize() == 4) {
                     writeBlockMH = MethodHandles.lookup().findStatic(
                             PdfVersionConverter.class, "writeBlockCallbackInt",
@@ -160,10 +151,8 @@ public final class PdfVersionConverter {
      */
     @SuppressWarnings("unused")
     private static int writeBlockCallback(MemorySegment pThis, MemorySegment pData, long size) {
-        // The upcall is registered against the FPDF_FILEWRITE struct we
-        // allocated, so the receiver is always that same struct. Verify it to
-        // guard against a mis-wired binding rather than writing to the caller's
-        // buffer unchecked.
+        // The upcall is registered against the FPDF_FILEWRITE struct we allocated, so the receiver is
+        // always that same struct; verify it to guard against a mis-wired binding rather than writing to the caller's buffer unchecked.
         if (pThis == null || pThis.equals(MemorySegment.NULL)) return 0;
         ByteArrayOutputStream baos = WRITE_BUFFER.get();
         if (baos == null || size <= 0 || pData == null) return 0;

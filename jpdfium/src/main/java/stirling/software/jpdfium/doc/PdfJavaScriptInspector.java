@@ -17,8 +17,7 @@ import java.util.List;
 /**
  * Inspect JavaScript actions in a PDF document.
  *
- * <p>Finds document-level JavaScript (open actions) and annotation-level scripts
- * (form field actions like keystroke, format, validate, calculate).
+ * <p>Finds document-level JavaScript (open actions) and annotation-level scripts (form field actions like keystroke, format, validate, calculate).
  */
 public final class PdfJavaScriptInspector {
 

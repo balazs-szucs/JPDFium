@@ -12,13 +12,7 @@ import java.util.Map;
 /**
  * Extracts tables from PDF pages using geometric clustering of text positions.
  *
- * <p>The algorithm works by:
- * <ol>
- *   <li>Extracting all words with bounding boxes from a page</li>
- *   <li>Detecting vertical column boundaries by clustering X positions</li>
- *   <li>Detecting horizontal row boundaries by clustering Y positions</li>
- *   <li>Assigning words to grid cells based on their position</li>
- * </ol>
+ * <p>Extracts all words with bounding boxes, detects column boundaries by clustering X positions and row boundaries by clustering Y positions, then assigns words to grid cells.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("report.pdf"))) {

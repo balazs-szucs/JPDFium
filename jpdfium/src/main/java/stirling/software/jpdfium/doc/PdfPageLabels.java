@@ -12,11 +12,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Read PDF page labels (the logical page numbers like i, ii, iii, 1, 2, 3
- * shown in viewers, distinct from physical page indices).
+ * Read PDF page labels (the logical page numbers like i, ii, iii, 1, 2, 3 shown in viewers, distinct from physical page indices).
  *
- * <p>Uses PDFium's {@code FPDF_GetPageLabel} to read labels defined by the
- * document's {@code /PageLabels} number tree.
+ * <p>Uses PDFium's {@code FPDF_GetPageLabel} to read labels defined by the document's {@code /PageLabels} number tree.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("book.pdf"))) {

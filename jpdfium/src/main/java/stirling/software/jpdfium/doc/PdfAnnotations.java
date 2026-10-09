@@ -17,8 +17,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Full CRUD operations for PDF annotations.
  *
- * <p>Supports reading, creating, modifying, and removing annotations on PDF pages.
- * Covers all 28 annotation types defined by the PDF spec.
+ * <p>Supports reading, creating, modifying, and removing annotations on PDF pages, covering all 28 annotation types defined by the PDF spec.
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(Path.of("annotated.pdf"))) {
@@ -193,22 +192,14 @@ public final class PdfAnnotations {
     }
 
     /**
-     * Crop-scope the page's annotations to {@code crop}: annotations outside
-     * the rectangle are removed, fully-inside ones are untouched. Straddling
-     * annotations without an appearance stream (links, popups) have their
-     * {@code /Rect} clipped; ones with an appearance keep {@code /Rect} so the
-     * viewer is not forced to rescale the appearance form (the page boxes clip
-     * them visually).
+     * Crop-scope the page's annotations to {@code crop}: outside annotations are removed, fully-inside ones untouched, and straddling ones clipped (appearance-bearing annotations keep {@code /Rect} so the viewer need not rescale the appearance form).
      *
      * <p>One confined arena for the whole pass, no per-annotation records.
      *
      * @param page raw FPDF_PAGE segment
      * @param crop crop rectangle in unrotated page coordinates
      * @return object numbers of the removed annotations
-     * @throws JPDFiumException if a removed annotation has no positive object
-     *     number: without an identity the form-field cleanup cannot tell a
-     *     removed widget from a surviving one and would keep a recoverable
-     *     value, so the crop fails instead of reporting success
+     * @throws JPDFiumException if a removed annotation has no positive object number: without an identity the form-field cleanup cannot tell a removed widget from a surviving one and would keep a recoverable value, so the crop fails instead of reporting success
      */
     public static int[] clipToRect(MemorySegment page, Rect crop) {
         int n = count(page);

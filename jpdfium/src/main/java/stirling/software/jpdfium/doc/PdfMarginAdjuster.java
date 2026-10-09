@@ -12,8 +12,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Add whitespace margins (padding) around existing page content.
  *
- * <p>The inverse of auto-crop: expands the page and shifts content inward to
- * create margins for binding, annotations, or print bleed.
+ * <p>The inverse of auto-crop: expands the page and shifts content inward to create margins for binding, annotations, or print bleed.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

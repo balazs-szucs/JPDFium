@@ -10,8 +10,7 @@ public record RenderResult(int width, int height, byte[] rgba) {
     /**
      * Converts the RGBA bytes into a {@link BufferedImage} of type {@link BufferedImage#TYPE_INT_ARGB}.
      *
-     * <p>Writes directly into the raster's backing {@link DataBufferInt} array, avoiding
-     * intermediate array allocations and {@link BufferedImage#setRGB} overhead.
+     * <p>Writes directly into the raster's backing {@link DataBufferInt} array, avoiding intermediate allocations and {@link BufferedImage#setRGB} overhead.
      */
     public BufferedImage toBufferedImage() {
         return toBufferedImage(true);
@@ -51,8 +50,7 @@ public record RenderResult(int width, int height, byte[] rgba) {
     /**
      * Converts the RGBA bytes into a {@link BufferedImage} with the specified {@link ColorType}.
      *
-     * <p>Fast-paths {@link ColorType#GRAY} and {@link ColorType#BINARY} by directly writing
-     * into the target raster byte buffers, avoiding intermediate RGB image allocations.
+     * <p>Fast-paths {@link ColorType#GRAY} and {@link ColorType#BINARY} by writing straight into the target raster byte buffers.
      *
      * @param colorType color type (RGB, ARGB, GRAY, BINARY)
      * @return BufferedImage

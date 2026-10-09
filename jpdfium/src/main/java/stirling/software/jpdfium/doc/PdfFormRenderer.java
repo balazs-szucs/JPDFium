@@ -19,11 +19,7 @@ import stirling.software.jpdfium.panama.RenderBindings;
 /**
  * Renders pages with their form widgets drawn on top.
  *
- * <p>{@link PdfPage#renderAt(int)} draws the page content and annotation appearance
- * streams, but widgets without an appearance stream (for example a form with
- * {@code /NeedAppearances true} that was never saved by a viewer) come out blank.
- * This renderer draws the page and then calls {@code FPDF_FFLDraw} with a form
- * fill environment, which builds and paints those widget appearances.
+ * <p>{@link PdfPage#renderAt(int)} draws page content and annotation appearance streams, but widgets without one (e.g. {@code /NeedAppearances true} never saved by a viewer) come out blank; this renderer draws the page then calls {@code FPDF_FFLDraw} with a form fill environment to build and paint them.
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(Path.of("form.pdf"))) {
@@ -96,9 +92,8 @@ public final class PdfFormRenderer {
                 throw new FormFillException("FORM_OnAfterLoadPage failed", t);
             }
             try {
-                // Page + FFLDraw centralized in the bridge: Skia-aware bitmap
-                // format, matrix rendering, unpremultiply, and
-                // FPDF_REVERSE_BYTE_ORDER handling all live in one place.
+                // Page + FFLDraw centralized in the bridge: Skia-aware bitmap format,
+                // matrix rendering, unpremultiply, and FPDF_REVERSE_BYTE_ORDER handling all live in one place.
                 JpdfiumLib.checkRenderIntoArgs(buffer, width, height);
                 int rc = JpdfiumH.jpdfium_render_page_form_into(
                         rawPage, env.formHandle(), buffer, buffer.byteSize(), width, height,

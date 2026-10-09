@@ -16,26 +16,8 @@ import java.util.List;
 import java.util.function.BiFunction;
 
 /**
- * PDF compression and file size reduction.
- *
- * <p>Combines compression strategies in an optimal pipeline:
- * <ol>
- *   <li><strong>Signed PDFs</strong>: documents containing digital signatures are
- *       returned byte-for-byte unchanged - any rewrite invalidates the signature.</li>
- *   <li><strong>Images</strong> (in-process): downsampling and recompression via
- *       {@link PdfImageOptimizer} (skipped for PDF/A documents)</li>
- *   <li><strong>qpdf</strong> (in-process FFM): structural optimization via object streams,
- *       cross-reference stream compression, and unreferenced object removal</li>
- *   <li><strong>PDFium</strong>: metadata stripping via {@link PdfSecurity}
- *       (skipped for PDF/A documents)</li>
- *   <li><strong>Rust/zopfli</strong> (optional opt-in): lopdf reloads the output
- *       and recompresses every FlateDecode stream with zopfli. Enabled via
- *       {@link CompressOptions.Builder#useZopfliDeflate(boolean)}.</li>
- * </ol>
- *
- * <p>The result is <strong>monotonic</strong>: it is never larger than the input,
- * and every skipped or downgraded step is reported in
- * {@link CompressResult#warnings()}.
+ * PDF compression and file size reduction. Combines strategies in one pipeline: signed PDFs are
+ * returned byte-for-byte unchanged; in-process image downsampling/recompression via {@link PdfImageOptimizer} (skipped for PDF/A); in-process qpdf structural optimization (object streams, xref compression, unreferenced-object removal); PDFium metadata stripping via {@link PdfSecurity} (skipped for PDF/A); and optional opt-in Rust/zopfli recompression of every FlateDecode stream via {@link CompressOptions.Builder#useZopfliDeflate(boolean)}. The result is <strong>monotonic</strong> - never larger than the input - and every skipped or downgraded step is reported in {@link CompressResult#warnings()}.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("large.pdf"))) {
@@ -62,9 +44,8 @@ public final class PdfCompressor {
     // Catalog /Metadata reference. XMP streams are often Flate-compressed, so a
     // raw scan can miss the claim; presence of this key triggers a decode+rescan.
     private static final byte[] METADATA_MARKER = "/Metadata".getBytes(StandardCharsets.US_ASCII);
-    // Signature-dictionary markers. /ByteRange is exclusive to signature
-    // dictionaries; PDFium's FPDF_GetSignatureCount can miss signatures that are
-    // not reachable through the AcroForm (observed on signed IRS forms).
+    // Signature-dictionary markers. /ByteRange is exclusive to signature dictionaries; PDFium's
+    // FPDF_GetSignatureCount can miss signatures not reachable through the AcroForm (observed on signed IRS forms).
     private static final byte[] BYTE_RANGE = "/ByteRange".getBytes(StandardCharsets.US_ASCII);
     private static final byte[][] SIG_MARKERS = {
             "/Type/Sig".getBytes(StandardCharsets.US_ASCII),
@@ -93,11 +74,8 @@ public final class PdfCompressor {
         List<String> actions = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
-        // Read the true original bytes once: needed for the signed/PDF-A gates,
-        // as the byte-for-byte starting point for a lossless pass, and as the
-        // monotonic baseline the result may never exceed. Prefer the open-time
-        // snapshot retained at the document boundary so the bytes can never come
-        // from a path replaced after the document was opened.
+        // Read the true original bytes once: needed for the signed/PDF-A gates, as the byte-for-byte
+        // starting point for a lossless pass, and as the monotonic baseline. Prefer the open-time snapshot retained at the document boundary so the bytes cannot come from a path replaced after open.
         Path sourcePath = doc.sourcePath();
         byte[] sourceBytes;
         boolean originalBytesKnown;
@@ -124,9 +102,8 @@ public final class PdfCompressor {
         int pdfiumSignatures = signatureCount(doc);
         boolean signed = pdfiumSignatures > 0 || looksSignedByBytes(sourceBytes);
         if (signed && originalBytesKnown && doc.structureEpoch() == 0) {
-            // The true original bytes are available and the document has not
-            // been structurally modified since it was opened, so return them
-            // byte-for-byte.
+            // The true original bytes are available and the document has not been structurally
+            // modified since it was opened, so return them byte-for-byte.
             String detail = pdfiumSignatures > 0
                     ? "%d digital signature(s)".formatted(pdfiumSignatures)
                     : "a digital signature";
@@ -139,36 +116,30 @@ public final class PdfCompressor {
         }
         if (signed) {
             if (originalBytesKnown) {
-                // The caller modified a signed document after opening it, so the
-                // open-time bytes no longer match the live document. Serialize the
-                // edits rather than silently discarding them; the signature is
-                // likely already invalid by then.
+                // The caller modified a signed document after opening it, so the open-time bytes no
+                // longer match the live document. Serialize the edits rather than silently discarding them; the signature is likely already invalid by then.
                 warnings.add("Document contains a digital signature and was modified after it "
                         + "was opened; the live document is serialized and the signature may "
                         + "already be invalid.");
             } else {
-                // Signed but the original bytes are unavailable (e.g. a stream/owned
-                // document opened before byte retention). Warn and skip every
-                // byte-changing pass so we do not invalidate the signature further.
+                // Signed but the original bytes are unavailable (e.g. a stream/owned document opened
+                // before byte retention). Warn and skip every byte-changing pass so we do not invalidate the signature further.
                 warnings.add("Document appears to contain a digital signature, but the original "
                         + "bytes are unavailable so the signature cannot be preserved; "
                         + "byte-changing compression passes are skipped.");
             }
         }
 
-        // 1. A PDF/A conformance claim pins the file's structure and colour
-        //    handling; lossy image passes and metadata removal would break it,
-        //    so preserve conformance instead.
+        // 1. A PDF/A conformance claim pins the file's structure and colour handling; lossy image
+        //    passes and metadata removal would break it, so preserve conformance instead.
         boolean pdfA = looksLikePdfA(sourceBytes);
         if (pdfA) {
             warnings.add("PDF/A conformance claim detected; preserving conformance "
                     + "(image downsampling and metadata removal disabled)");
         }
 
-        // Preserved documents (PDF/A, or a signed doc opened from memory) skip
-        // every lossy/mutating pass and get structural optimization only.
-        // EXACT mode forbids every lossy/mutating pass; PDF/A and signed
-        // documents are preserved for correctness, not size.
+        // Preserved documents (PDF/A, or a signed doc opened from memory) skip every lossy/mutating
+        // pass and get structural optimization only; EXACT mode forbids every lossy/mutating pass. PDF/A and signed documents are preserved for correctness, not size.
         PreservationMode mode = opts.preservationMode();
         boolean preserve = pdfA || signed || mode == PreservationMode.EXACT;
         boolean wantImagePass = !preserve && mode.lossyAllowed()
@@ -197,20 +168,14 @@ public final class PdfCompressor {
             }
         }
 
-        // 3. Native image pass: downsample images above the DPI threshold.
-        //    The pass is verified-and-rolled-back: for lossy modes with a finite
-        //    fidelity tolerance, the before/after pages are rendered at low DPI
-        //    and compared, and the pass is discarded when the mean absolute
-        //    per-channel difference exceeds the mode's tolerance. The pre-image
-        //    snapshot also lets a failed pass fall back to the pre-image bytes.
+        // 3. Native image pass: downsample images above the DPI threshold. The pass is
+        //    verified-and-rolled-back - for lossy modes with a finite fidelity tolerance the before/after pages are rendered at low DPI and compared, discarding the pass when the mean absolute per-channel difference exceeds tolerance; the pre-image snapshot also lets a failed pass fall back to the pre-image bytes.
         byte[] imageRollbackBytes = null;
         byte[] imagePostBytes = null;
         if (wantImagePass && PdfImageOptimizer.isSupported()) {
             boolean verify = mode.lossyAllowed() && mode.maxMeanAbsDiff() < 255.0;
-            // The pre-image captures every pass so far (e.g. metadata removal).
-            // The image pass runs on a working copy opened from that snapshot so
-            // a rejected pass can never leave the caller's live document holding
-            // images the result reports as rolled back.
+            // The pre-image captures every pass so far (e.g. metadata removal). The image pass runs
+            // on a working copy opened from that snapshot so a rejected pass can never leave the caller's live document holding images the result reports as rolled back.
             byte[] preImage = doc.saveBytes();
             int n = 0;
             try (PdfDocument working = PdfDocument.open(preImage)) {
@@ -247,9 +212,8 @@ public final class PdfCompressor {
             }
         }
 
-        // 4. Serialize once, then run the structural passes on the bytes.
-        //    Always serialize the live document so in-memory edits are never
-        //    dropped; the monotonic clamp below keeps the result <= baseline.
+        // 4. Serialize once, then run the structural passes on the bytes. Always serialize the live
+        //    document so in-memory edits are never dropped; the monotonic clamp below keeps the result <= baseline.
         byte[] resultBytes;
         if (imageRollbackBytes != null) {
             resultBytes = imageRollbackBytes;
@@ -272,9 +236,8 @@ public final class PdfCompressor {
                 warnings.add("qpdf stream pass did not reduce size; kept original bytes");
             }
         } else if (!signed && opts.removeUnusedObjects()) {
-            // Compact without restructuring object streams. Explicit flags are
-            // required: the all-DEFAULT form measured worse than the source on
-            // some inputs (inflating streams instead of recompressing them).
+            // Compact without restructuring object streams. Explicit flags are required: the
+            // all-DEFAULT form measured worse than the source on some inputs (inflating streams instead of recompressing them).
             byte[] opt = PdfOptimizer.optimize(resultBytes,
                     PdfOptimizer.RECOMPRESS_FLATE | PdfOptimizer.COMPRESS_STREAMS, 9,
                     PdfOptimizer.OBJECT_STREAMS_PRESERVE,
@@ -347,11 +310,8 @@ public final class PdfCompressor {
         }
     }
 
-    // PDF/A claim detection. XMP metadata streams are frequently Flate-compressed,
-    // so a raw scan can miss the pdfaid markers; when a /Metadata object is present,
-    // decode generalized filters (images stay encoded) and rescan. If the stream
-    // cannot be decoded, fail closed and report PDF/A so a conformance claim is never
-    // silently broken.
+    // PDF/A claim detection. XMP metadata streams are frequently Flate-compressed, so a raw scan can
+    // miss the pdfaid markers; when a /Metadata object is present, decode generalized filters (images stay encoded) and rescan. If the stream cannot be decoded, fail closed and report PDF/A so a conformance claim is never silently broken.
     private static boolean looksLikePdfA(byte[] pdf) {
         if (pdf == null) {
             return false;
@@ -415,11 +375,8 @@ public final class PdfCompressor {
         return -1;
     }
 
-    // Renders two documents at a low DPI and returns the largest per-page mean
-    // absolute per-channel difference. Used to verify (and roll back) the lossy
-    // image pass. Returns positive infinity when there is nothing to compare or
-    // rendering fails, so an unverifiable pass always fails safe (rolls back)
-    // rather than silently passing every tolerance.
+    // Renders two documents at a low DPI and returns the largest per-page mean absolute per-channel
+    // difference, used to verify (and roll back) the lossy image pass. Returns positive infinity when there is nothing to compare or rendering fails, so an unverifiable pass always rolls back rather than passing every tolerance.
     private static double maxPreviewMeanAbsDiff(byte[] before, byte[] after, int expectedPages) {
         if (before == null || after == null) {
             return Double.POSITIVE_INFINITY;

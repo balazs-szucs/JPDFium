@@ -12,8 +12,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Mirror (flip) PDF page content horizontally or vertically.
  *
- * <p>Uses a transform matrix applied via {@code FPDFPage_TransFormWithClip()}.
- * Useful for iron-on transfers, fixing face-down scans, or booklet backs.
+ * <p>Uses a transform matrix applied via {@code FPDFPage_TransFormWithClip()}, useful for iron-on transfers, fixing face-down scans, or booklet backs.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

@@ -17,13 +17,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Auto-crop / whitespace trimming for PDF pages.
  *
- * <p>Detects the actual content bounding box on each page and sets the CropBox
- * to remove excess whitespace/margins. Supports two detection methods:
- * <ul>
- *   <li><b>Text-based</b> (fast): scans character bounding boxes via {@code FPDFText_GetCharBox}</li>
- *   <li><b>Bitmap-based</b> (comprehensive): renders at low DPI and scans for non-white pixels,
- *       catching images, vectors, and text alike</li>
- * </ul>
+ * <p>Detects each page's content bounding box and sets the CropBox to remove excess whitespace/margins. Two methods: text-based ({@code FPDFText_GetCharBox}, fast) and bitmap-based (low-DPI render plus non-white pixel scan, catching images, vectors, and text).
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

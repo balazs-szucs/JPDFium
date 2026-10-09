@@ -9,8 +9,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for the FlashText keyword processor (O(n) dictionary NER matching).
  *
- * <p>Create a processor with {@link #create}, populate it with {@link #addKeyword},
- * run matches with {@link #find}, and free it with {@link #free}.
+ * <p>Create a processor with {@link #create}, populate with {@link #addKeyword}, match with {@link #find}, and free with {@link #free}.
  */
 public final class FlashTextLib {
 

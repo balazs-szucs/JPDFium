@@ -11,9 +11,7 @@ import stirling.software.jpdfium.panama.QpdfLib;
 /**
  * PDF stream optimization (object streams, cross-reference streams).
  *
- * <p>Two levels: full optimization (object streams + xref streams) and basic
- * compaction (removes unreferenced objects). Uses the bundled qpdf library
- * in-process (FFM), no external qpdf binary.
+ * <p>Two levels: full optimization (object streams + xref streams) and basic compaction (removes unreferenced objects). Uses the bundled in-process qpdf library (FFM), no external binary.
  */
 public final class PdfStreamOptimizer {
 

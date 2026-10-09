@@ -29,38 +29,22 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * FFM bindings for the in-process qpdf structural operations.
- * These drive the bundled qpdf library directly (no CLI subprocess).
- *
- * <p><strong>Concurrency:</strong> none of these methods enters the PDFium
- * domain. Every call owns a private {@link QpdfCall} confined
- * arena for all FFM argument/output storage, and the native bridge creates
- * independent {@code QPDF}/{@code QPDFWriter} instances per invocation, so
- * structural jobs overlap safely with each other and with PDFium work admitted
- * to the domain. A single input/output path must still not be used
- * concurrently by the caller.
- *
- * <p>File-backed variants ({@link #mergeFiles}, {@link #extractPagesToFile})
- * never publish a partial destination: the native writer targets a sibling
- * staging file and the result is moved into place only after the bridge
- * reports success and the staging file validates non-empty.
+ * FFM bindings for the in-process qpdf structural operations, driving the bundled qpdf library
+ * directly (no CLI subprocess). <strong>Concurrency:</strong> none of these methods enters the PDFium domain - every call owns a private {@link QpdfCall} confined arena and the native bridge creates independent {@code QPDF}/{@code QPDFWriter} instances per invocation, so structural jobs overlap safely with each other and with PDFium work; a single input/output path must still not be used concurrently by the caller. File-backed variants ({@link #mergeFiles}, {@link #extractPagesToFile}) never publish a partial destination: the native writer targets a sibling staging file moved into place only after success and a non-empty check.
  */
 public final class QpdfLib {
 
     private QpdfLib() {}
 
     /**
-     * Bound for concurrent QPDF jobs, unlimited by default. Set
-     * -Djpdfium.qpdf.maxConcurrency=N to bound workloads. Negative is
-     * invalid and rejected.
+     * Bound for concurrent QPDF jobs, unlimited by default. Set -Djpdfium.qpdf.maxConcurrency=N
+     * to bound workloads; negative is invalid and rejected.
      */
     private static volatile Semaphore QPDF_PERMITS = createPermits();
 
     /**
-     * The configured bound, tracked apart from live semaphore availability:
-     * while jobs are in flight {@code availablePermits()} reports fewer slots
-     * than were configured, and {@link #setMaxConcurrency} must still hand back
-     * the number the caller set so save-and-restore works.
+     * The configured bound, tracked apart from live semaphore availability: while jobs are in flight
+     * {@code availablePermits()} reports fewer slots than configured, and {@link #setMaxConcurrency} must still hand back the number the caller set so save-and-restore works.
      */
     private static volatile int QPDF_BOUND = configuredBound();
 
@@ -97,12 +81,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Acquire a slot when bounded; no-op when unlimited.
-     *
-     * <p>The returned semaphore is the one that granted the slot. Pass it back
-     * to {@link #releaseSlot}: the bound can be swapped while a job runs, and
-     * releasing to the new semaphore would inflate its limit while waiters
-     * stayed parked on the old one.
+     * Acquire a slot when bounded; no-op when unlimited. The returned semaphore is the one that
+     * granted the slot - pass it back to {@link #releaseSlot}, since the bound can be swapped while a job runs and releasing to the new semaphore would inflate its limit while waiters stayed parked on the old one.
      *
      * @return the semaphore holding the acquired slot, or null when unbounded
      */
@@ -300,13 +280,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Optimize a PDF file on disk via the bundled qpdf library, reading the
-     * input from disk and writing the result straight to disk. No document
-     * bytes cross the FFI boundary, so this stays flat in Java heap.
-     *
-     * <p>The native writer targets a sibling staging file; {@code output} is
-     * replaced only after success plus a non-empty staging check, so a failed
-     * optimize never leaves a partial destination behind.
+     * Optimize a PDF file on disk via the bundled qpdf library, reading from and writing straight to
+     * disk so no document bytes cross the FFI boundary (flat Java heap). The native writer targets a sibling staging file and {@code output} is replaced only after success plus a non-empty check, so a failed optimize never leaves a partial destination.
      *
      * @param input input PDF file path
      * @param output destination PDF file path
@@ -364,13 +339,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Merge multiple PDF files losslessly, reading inputs from disk and
-     * writing the result straight to disk. No document bytes cross the
-     * FFI boundary, so this stays flat in Java heap regardless of size.
-     *
-     * <p>The native writer targets a sibling staging file; {@code output} is
-     * replaced only after success plus a non-empty staging check, so a failed
-     * merge never leaves a partial destination behind.
+     * Merge multiple PDF files losslessly, reading inputs from and writing the result straight to
+     * disk so no document bytes cross the FFI boundary (flat Java heap regardless of size). The native writer targets a sibling staging file and {@code output} is replaced only after success plus a non-empty check, so a failed merge never leaves a partial destination.
      *
      * @param inputs input PDF file paths
      * @param output destination PDF file path
@@ -389,10 +359,8 @@ public final class QpdfLib {
             throw new JPDFiumException("qpdf merge interrupted while waiting for a job slot", e);
         }
         Path staging = null;
-        // Staging comes from OutputTransaction.begin so it sits beside the
-        // resolved target (never across a symlink filesystem boundary) with
-        // owner-only permissions; publication below keeps the existing
-        // commit, empty-file and budget checks.
+        // Staging comes from OutputTransaction.begin so it sits beside the resolved target (never
+        // across a symlink filesystem boundary) with owner-only permissions; publication keeps the commit, empty-file and budget checks.
         try (QpdfCall call = new QpdfCall();
                 OutputTransaction tx = OutputTransaction.begin(output)) {
             int count = inputs.size();
@@ -426,11 +394,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Extract specific pages (by zero-based index) from a file on disk,
-     * writing the result straight to disk without heap copies.
-     *
-     * <p>Same staging/publish contract as {@link #mergeFiles}: {@code output}
-     * is replaced only after a successful native write plus validation.
+     * Extract specific pages (by zero-based index) from a file on disk, writing the result straight
+     * to disk without heap copies. Same staging/publish contract as {@link #mergeFiles}: {@code output} is replaced only after a successful native write plus validation.
      *
      * @param input       input PDF file path
      * @param pageIndices zero-based page indices to extract
@@ -672,12 +637,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Refuse to publish an output that is still password protected.
-     *
-     * <p>Decryption that reports success while leaving {@code /Encrypt} in place
-     * is the worst possible outcome here: the caller believes the protection is
-     * gone. Opening the staged file with no password is the only check that
-     * proves it, and it costs one parse against a full qpdf rewrite.
+     * Refuse to publish an output that is still password protected. Decryption reporting success
+     * while leaving {@code /Encrypt} in place is the worst outcome - the caller believes the protection is gone; opening the staged file with no password is the only proof, costing one parse against a full qpdf rewrite.
      */
     private static void requireUnencrypted(Path staging) {
         try (PdfDocument probe = PdfDocument.open(staging)) {
@@ -718,10 +679,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Explicit commit boundary for cancellation vs publication. States:
-     * RUNNING → COMMITTING → COMMITTED or RUNNING → CANCELLED. Only the
-     * thread that wins COMMITTING may publish; a late cancellation loses.
-     * Thread interruption wakes waits but is not the commit state.
+     * Explicit commit boundary for cancellation vs publication. States: RUNNING -> COMMITTING ->
+     * COMMITTED or RUNNING -> CANCELLED; only the thread that wins COMMITTING may publish, a late cancellation loses, and thread interruption wakes waits but is not the commit state.
      */
     public static final class PublishCommit {
         public PublishCommit() {}
@@ -761,19 +720,16 @@ public final class QpdfLib {
     }
 
     /**
-     * Post-write acceptance check: rejects empty output and outputs over
-     * maxBytes. Bounds publication, not transient disk use during native
-     * write. Every production file operation publishes through the commit
-     * overload below so cancellation and publication share one state.
+     * Post-write acceptance check: rejects empty output and outputs over maxBytes. Bounds publication,
+     * not transient disk use during the native write; every production file operation publishes through the commit overload below so cancellation and publication share one state.
      */
     private static void publish(Path staging, Path output, long maxBytes) throws IOException {
         publish(staging, output, maxBytes, new PublishCommit());
     }
 
     /**
-     * Publish under an explicit commit: interruption fails fast, then only the
-     * thread that claims COMMITTING publishes. Cancellation after that point
-     * is too late to guarantee rollback.
+     * Publish under an explicit commit: interruption fails fast, then only the thread that claims
+     * COMMITTING publishes. Cancellation after that point is too late to guarantee rollback.
      */
     static void publish(Path staging, Path output, long maxBytes, PublishCommit commit)
             throws IOException {
@@ -806,11 +762,8 @@ public final class QpdfLib {
     }
 
     /**
-     * Atomic no-clobber publication via CREATE_NEW (O_EXCL). The destination
-     * is created exclusively and staging bytes are streamed into it, so a
-     * concurrent creator winning the race leaves existing bytes unchanged and
-     * this call fails with FileAlreadyExistsException. Costs a copy instead
-     * of a rename; replacement paths keep using atomic renames.
+     * Atomic no-clobber publication via CREATE_NEW (O_EXCL). The destination is created exclusively
+     * and staging bytes streamed in, so a concurrent creator winning the race leaves existing bytes unchanged and this call fails with FileAlreadyExistsException; costs a copy instead of a rename (replacement paths keep using atomic renames).
      */
     public static void publishNewFile(Path staging, Path output, long maxBytes) throws IOException {
         publishNewFile(staging, output, maxBytes, new PublishCommit());
@@ -838,9 +791,8 @@ public final class QpdfLib {
     }
 
     /**
- * A byte budget is either a positive bound or 0 (unbounded). A negative value
- * is a caller bug - most often a subtractive computation that underflowed - and
- * would silently turn an intended cap into no cap at all.
+ * A byte budget is either a positive bound or 0 (unbounded). A negative value is a caller bug -
+ * most often a subtractive computation that underflowed - and would silently turn an intended cap into no cap.
  */
 private static void requireNonNegativeBudget(long maxBytes) {
     if (maxBytes < 0) {
@@ -849,13 +801,8 @@ private static void requireNonNegativeBudget(long maxBytes) {
 }
 
 private static void publishNoClobber(Path staging, Path output) throws IOException {
-        // CREATE_NEW opens O_CREAT|O_EXCL atomically, so existence check and
-        // creation are one step with no precheck race. See Files CREATE_NEW:
-        // https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/Files.html
-        // Only this call can own the file once CREATE_NEW succeeds, so a failed
-        // copy must remove it: otherwise a truncated destination would both
-        // violate "never publish a partial destination" and make retries fail
-        // with FileAlreadyExistsException on the partial file.
+        // CREATE_NEW opens O_CREAT|O_EXCL atomically, so existence check and creation are one step
+        // with no precheck race (see https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/Files.html). Only this call can own the file once CREATE_NEW succeeds, so a failed copy must remove it: otherwise a truncated destination would violate "never publish a partial destination" and make retries fail with FileAlreadyExistsException.
         OutputStream out = Files.newOutputStream(
                 output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         boolean ok = false;

@@ -16,12 +16,7 @@ import stirling.software.jpdfium.model.FontName;
  * HeaderFooterApplier.apply(doc, hf);
  * }</pre>
  *
- * <p>Template variables supported in header/footer text:
- * <ul>
- *   <li>{@code {page}} - current page number (1-based)</li>
- *   <li>{@code {pages}} - total page count</li>
- *   <li>{@code {date}} - current date (ISO format)</li>
- * </ul>
+ * <p>Template variables in header/footer text: {@code {page}} (current page number, 1-based), {@code {pages}} (total page count), {@code {date}} (current date, ISO format).
  */
 public final class HeaderFooter {
 

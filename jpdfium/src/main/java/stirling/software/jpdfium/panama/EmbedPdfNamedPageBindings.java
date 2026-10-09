@@ -34,9 +34,7 @@ public final class EmbedPdfNamedPageBindings {
 
     /**
      * Read entry at index in named page tree.
-     * Signature: unsigned long EPDFDoc_GetNamedPageAt(FPDF_DOCUMENT document, int tree, int index,
-     *                                                 FPDF_WCHAR* buffer, unsigned long buflen,
-     *                                                 unsigned int* obj_num, int* kind)
+     * Signature: unsigned long EPDFDoc_GetNamedPageAt(FPDF_DOCUMENT document, int tree, int index, FPDF_WCHAR* buffer, unsigned long buflen, unsigned int* obj_num, int* kind)
      */
     public static final MethodHandle EPDFDoc_GetNamedPageAt = downcallOptional("EPDFDoc_GetNamedPageAt",
             FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS, JAVA_LONG, ADDRESS, ADDRESS));
@@ -63,8 +61,7 @@ public final class EmbedPdfNamedPageBindings {
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
 
     /**
-     * Get the indirect object number for a page by its zero-based page index.
-     * Returns 0 on failure or when the symbol is unavailable.
+     * Get the indirect object number for a page by its zero-based page index, or 0 on failure or when the symbol is unavailable.
      * Signature: unsigned int EPDFDoc_GetPageObjectNumberByIndex(FPDF_DOCUMENT document, int page_index)
      */
     public static final MethodHandle EPDFDoc_GetPageObjectNumberByIndex = downcallOptional(

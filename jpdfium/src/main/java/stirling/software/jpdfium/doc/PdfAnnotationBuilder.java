@@ -14,12 +14,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Builder for creating annotations on PDF pages.
  *
- * <p>Supports highlight, underline, strikeout, ink, square, circle, free text,
- * line, stamp, link, and redact annotations with color, border, opacity,
- * rotation, overlay text, and content control.
- *
- * <p>EmbedPDF properties (opacity, rotation, overlay text, border style,
- * appearance generation) are applied when set.
+ * <p>Supports highlight, underline, strikeout, ink, square, circle, free text, line, stamp, link, and redact annotations with color, border, opacity, rotation, overlay text, and content control; EmbedPDF properties (opacity, rotation, overlay text, border style, appearance generation) are applied when set.
  */
 public final class PdfAnnotationBuilder {
 

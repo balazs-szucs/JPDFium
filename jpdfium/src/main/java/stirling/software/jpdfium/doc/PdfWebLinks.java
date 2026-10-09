@@ -18,10 +18,7 @@ import java.util.function.UnaryOperator;
 /**
  * Detect, add, and remove web links on PDF pages.
  *
- * <p>
- * Text-based URL detection uses PDFium's FPDFLink_LoadWebLinks which finds
- * URLs in the text layer. Link annotations can be added and removed using
- * the annotation API.
+ * <p>Text-based URL detection uses PDFium's {@code FPDFLink_LoadWebLinks} to find URLs in the text layer; link annotations can be added and removed via the annotation API.
  */
 public final class PdfWebLinks {
 
@@ -96,12 +93,9 @@ public final class PdfWebLinks {
     }
 
     /**
-     * Add a link annotation with the given URI to a page, with customizable
-     * appearance.
+     * Add a link annotation with the given URI to a page, with customizable appearance.
      *
-     * <p>By default, creates a visible hyperlink with blue underline styling
-     * (similar to browser hyperlinks). Use the builderConsumer to customize
-     * colors, border style, width, and other annotation properties.
+     * <p>By default creates a visible blue-underlined hyperlink; use the builderConsumer to customize colors, border style, width, and other properties.
      *
      * @param rawPage         raw FPDF_PAGE
      * @param rect            rectangle where the link is placed (page coordinates)

@@ -16,8 +16,7 @@ import java.util.List;
 /**
  * Detect reading order of text blocks on a page.
  *
- * <p>Analyzes spatial layout of text lines to classify them into regions
- * (header, body, sidebar, footnote) and determine a logical reading order.
+ * <p>Analyzes spatial layout of text lines to classify them into regions (header, body, sidebar, footnote) and determine a logical reading order.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("complex-layout.pdf"))) {

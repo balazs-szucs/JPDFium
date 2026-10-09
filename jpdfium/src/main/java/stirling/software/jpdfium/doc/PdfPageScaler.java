@@ -12,9 +12,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Scale PDF page content to fit a target paper size.
  *
- * <p>Unlike simply changing the MediaBox (which clips), this transforms all page
- * objects with a scale matrix via {@code FPDFPage_TransFormWithClip()} and then
- * updates the MediaBox to the target dimensions.
+ * <p>Unlike simply changing the MediaBox (which clips), this transforms all page objects with a scale matrix via {@code FPDFPage_TransFormWithClip()} and then updates the MediaBox to the target dimensions.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("a4-doc.pdf"))) {

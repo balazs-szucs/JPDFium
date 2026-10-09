@@ -26,20 +26,8 @@ import java.util.regex.Pattern;
 /**
  * Unified PDF redaction service that applies {@link RedactOptions} to an entire document.
  *
- * <p>Orchestrates every redaction capability in a single pipeline:
- * <ol>
- *   <li>Font normalization (FreeType + HarfBuzz + ICU + qpdf)</li>
- *   <li>Text extraction (PDFium FPDFText_*)</li>
- *   <li>PII pattern matching (PCRE2 JIT - SSN, email, phone, credit card, ...)</li>
- *   <li>Named-entity recognition (FlashText NER)</li>
- *   <li>Semantic coreference expansion</li>
- *   <li>Glyph-level redaction (HarfBuzz ligature / BiDi / grapheme aware)</li>
- *   <li>Word-level redaction (Object Fission)</li>
- *   <li>Metadata redaction (XMP + /Info dictionary)</li>
- *   <li>Page flatten + optional image conversion</li>
- * </ol>
+ * <p>Runs font normalization, text extraction, PII pattern matching, NER, semantic coreference, glyph/word redaction, metadata redaction, and page flatten/image conversion in one pipeline.
  *
- * <p><b>Usage Example</b></p>
  * <pre>{@code
  * RedactOptions opts = RedactOptions.builder()
  *     .addWord("Confidential")
@@ -223,9 +211,8 @@ public final class PdfRedactor {
             MemorySegment premarshaledRegexes = null;
             int regexWordCount = 0;
             if (options.useRegex() && !options.words().isEmpty()) {
-                // Distinct count: the page sets are HashSets, so duplicates in
-                // the configured list must not inflate the count used to prove
-                // a page holds no extra PII/entity entries.
+                // Distinct count: page sets are HashSets, so duplicates in the configured
+                // list must not inflate the count used to prove a page holds no extra PII/entity entries.
                 String[] allWords =
                         new LinkedHashSet<>(options.words()).toArray(String[]::new);
                 regexWordCount = allWords.length;

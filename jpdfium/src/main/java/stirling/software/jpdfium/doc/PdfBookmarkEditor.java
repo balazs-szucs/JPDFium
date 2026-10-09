@@ -24,8 +24,7 @@ import java.util.regex.Pattern;
 /**
  * Create and set bookmarks (outlines) in a PDF document.
  *
- * <p>Constructs and appends an incremental update appendix containing the Outline hierarchy
- * and modified Catalog dictionary directly on the destination file or byte array.
+ * <p>Constructs and appends an incremental-update appendix containing the Outline hierarchy and modified Catalog dictionary directly on the destination file or byte array.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("report.pdf"))) {

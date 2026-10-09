@@ -13,12 +13,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for the EmbedPDF fork's text extraction and character geometry APIs.
  *
- * <p>These APIs provide:
- * <ul>
- *   <li>Full UTF-16LE text extraction preserving supplementary-plane emojis / surrogate pairs</li>
- *   <li>Single-call oriented glyph geometry (tight &amp; loose boxes and quads)</li>
- *   <li>Character-to-text offset mapping anchors</li>
- * </ul>
+ * <p>Provides full UTF-16LE extraction (surrogate pairs/emojis), single-call oriented glyph geometry (tight &amp; loose boxes and quads), and character-to-text offset mapping anchors.
  */
 public final class EmbedPdfTextBindings {
 

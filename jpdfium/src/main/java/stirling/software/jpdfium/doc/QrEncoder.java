@@ -6,17 +6,7 @@ import java.util.Arrays;
 /**
  * Production-grade QR Code encoder (versions 1-40, all modes).
  *
- * <p>Generates a boolean matrix where {@code true} = dark module.
- * Implements the QR Code specification (ISO 18004):
- * <ul>
- *   <li>Encoding modes: numeric, alphanumeric, byte, kanji</li>
- *   <li>Automatic mode selection based on content analysis</li>
- *   <li>Versions 1 through 40 (21x21 to 177x177 modules)</li>
- *   <li>All four error-correction levels (L/M/Q/H)</li>
- *   <li>Reed-Solomon error correction over GF(256)</li>
- *   <li>All 8 mask patterns with full penalty scoring (rules 1-4)</li>
- *   <li>Format and version information encoding</li>
- * </ul>
+ * <p>Generates a boolean matrix where {@code true} = dark module, implementing ISO 18004: numeric/alphanumeric/byte/kanji modes with automatic selection, versions 1-40 (21x21 to 177x177), all four error-correction levels (L/M/Q/H), Reed-Solomon over GF(256), and all 8 mask patterns with full penalty scoring (rules 1-4).
  */
 final class QrEncoder {
 

@@ -82,25 +82,8 @@ public final class PdfPageGeometry {
     }
 
     /**
-     * Hard crop: set all five page boxes to {@code rect} and physically remove
-     * everything outside it.
-     *
-     * <p>Text is split at character level (a glyph survives when its origin is
-     * inside the crop); straddling images keep their visible part and are
-     * pixel-erased outside, including images nested in Form XObjects (soft
-     * masks kept when the image can be rendered); fully outside paths,
-     * shadings and forms are removed.
-     * Text with a single survivor run is edited in place; a form child is
-     * first promoted to the page because PDFium regenerates a form stream
-     * only when a child is removed from it. Outside annotations are
-     * removed, straddling ones are clipped. Metadata, structure and signatures
-     * are untouched.
-     *
-     * <p>A post-pass audit fails loudly with
-     * {@link stirling.software.jpdfium.exception.RedactIncompleteException} or
-     * {@link stirling.software.jpdfium.exception.RedactUnverifiableException}
-     * when content survives or the audit cannot run. Incremental save is
-     * refused afterwards; a full save is required.
+     * Hard crop: set all five page boxes to {@code rect} and physically remove everything outside
+     * it. Text is split at character level (a glyph survives when its origin is inside); straddling images keep their visible part and are pixel-erased outside, including images nested in Form XObjects (soft masks kept when renderable); fully outside paths, shadings and forms are removed. Text with a single survivor run is edited in place, a form child is first promoted to the page, and outside/straddling annotations are removed/clipped. Metadata, structure and signatures are untouched. A post-pass audit fails loudly with {@link stirling.software.jpdfium.exception.RedactIncompleteException} or {@link stirling.software.jpdfium.exception.RedactUnverifiableException} when content survives or the audit cannot run; incremental save is refused afterwards (a full save is required).
      *
      * @param doc       open PDF document
      * @param pageIndex zero-based page index
@@ -175,10 +158,8 @@ public final class PdfPageGeometry {
     }
 
     /**
-     * Hard crop with a per-page rectangle: {@code rects.get(i)} applies to
-     * page {@code i}. {@code null} entries skip the corresponding page, so a
-     * single list can express "crop pages 0 and 2, leave page 1 untouched".
-     * Pages beyond the list's length are left unchanged.
+     * Hard crop with a per-page rectangle: {@code rects.get(i)} applies to page {@code i}, and
+     * {@code null} entries skip that page, so a single list can express "crop pages 0 and 2, leave page 1 untouched"; pages beyond the list's length are left unchanged.
      *
      * @param doc   open PDF document
      * @param rects per-page crop rectangles (x, y, width, height), may contain
@@ -208,9 +189,8 @@ public final class PdfPageGeometry {
     }
 
     /**
-     * A form field whose widgets were all removed by the crop has no visible
-     * representation, but its value still lives in /AcroForm. Clear those
-     * values so removing an outside widget does not leave the value recoverable.
+     * A form field whose widgets were all removed by the crop has no visible representation, but
+     * its value still lives in /AcroForm; clear those values so removing an outside widget does not leave the value recoverable.
      */
     private static void clearUnplacedFormFields(MemorySegment rawDoc, Set<Integer> removedWidgets) {
         if (removedWidgets.isEmpty()) return;
@@ -339,10 +319,8 @@ public final class PdfPageGeometry {
     }
 
     /**
-     * NaN/Inf coordinates make every geometry comparison silently false, so a
-     * non-finite crop rect could remove all content (or nothing) depending on
-     * how each comparison happens to fall out. Reject it up front - before the
-     * native call - so the failure is loud and deterministic.
+     * NaN/Inf coordinates make every geometry comparison silently false, so a non-finite crop rect
+     * could remove all content (or nothing) depending on how each comparison falls out; reject it up front, before the native call, so the failure is loud and deterministic.
      */
     private static void requireValidCrop(Rect rect) {
         if (rect == null

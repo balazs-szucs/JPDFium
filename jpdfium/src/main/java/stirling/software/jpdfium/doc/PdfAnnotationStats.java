@@ -15,8 +15,7 @@ import java.util.TreeMap;
 /**
  * Generate annotation statistics and summaries for a PDF document.
  *
- * <p>Provides counts by type, author listing, area calculations, and
- * a textual summary for audit purposes.
+ * <p>Provides counts by type, author listing, area calculations, and a textual summary for audit purposes.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("annotated.pdf"))) {

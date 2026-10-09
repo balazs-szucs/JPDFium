@@ -17,24 +17,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Semantic redaction using a context graph: text extraction, sentence tokenization,
- * dictionary NER, and coreference expansion.
+ * Semantic redaction using a context graph: text extraction, sentence tokenization, dictionary NER, and coreference expansion.
  *
- * <p>Redacting just the entity itself is not enough. If "John Smith" appears on page 1,
- * then "the patient" two sentences later refers to the same person. This class detects
- * and redacts coreferencing context within a configurable window.
+ * <p>Redacting an entity alone is not enough: if "John Smith" appears on page 1, "the patient" two sentences later may refer to the same person, so coreferencing context within a configurable window is detected and redacted. Pipeline: PDFium {@code FPDFText_*} extraction, ICU4C sentence tokenization, FlashText O(n) NER, PCRE2 structural PII, then coreference-window expansion.
  *
- * <p>Pipeline:
- * <ol>
- *   <li>Extract all text with PDFium's FPDFText_*</li>
- *   <li>ICU4C BreakIterator tokenizes into sentences</li>
- *   <li>FlashText trie-based NER finds known entities at O(n)</li>
- *   <li>PCRE2 pattern engine finds structural PII (dates, IDs, numbers)</li>
- *   <li>Coreference window: sentences adjacent to an entity match are flagged for
- *       contextual pronoun/reference redaction</li>
- * </ol>
- *
- * <p><b>Usage</b></p>
  * <pre>{@code
  * EntityRedactor redactor = EntityRedactor.builder()
  *     .addEntity("John Smith", "PERSON")

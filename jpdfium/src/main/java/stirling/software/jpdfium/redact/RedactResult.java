@@ -12,9 +12,7 @@ import java.util.List;
 /**
  * Result of a {@link PdfRedactor#redact} operation.
  *
- * <p>Contains the modified document, per-page statistics, and detailed
- * results from every stage of the redaction pipeline (font normalization,
- * PII patterns, NER entities, glyph-level redaction, metadata).
+ * <p>Contains the modified document, per-page statistics, and detailed results from every redaction stage (font normalization, PII patterns, NER entities, glyph-level redaction, metadata).
  *
  * @param fontNormalization Advanced stats (null/empty when the corresponding feature is disabled)
  */

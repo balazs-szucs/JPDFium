@@ -484,9 +484,7 @@ final class NativeCache {
     /**
      * Creates {@code dir} (with parents) and restricts it to the owner.
      *
-     * <p>Used for the natives download directory as well as the extracted-cache
-     * tree: both hold native code, and a shared location such as the system temp
-     * directory would otherwise hand it to every local user.
+     * <p>Used for the natives download directory and the extracted-cache tree: both hold native code, which a shared location such as the system temp directory would hand to every local user.
      */
     static void requirePrivateDirectory(Path dir) throws IOException {
         Files.createDirectories(dir);

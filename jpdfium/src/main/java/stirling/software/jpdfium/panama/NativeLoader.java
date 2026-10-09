@@ -24,9 +24,8 @@ public final class NativeLoader {
     private static volatile boolean loaded = false;
 
     /**
-     * Classpath for a Maven-downloaded natives jar. Consulted only when the
-     * application classpath lacks the resource, so bundled jars always win.
-     * Retained for the JVM lifetime: one jar per platform at most.
+     * Classpath for a Maven-downloaded natives jar, consulted only when the application classpath
+     * lacks the resource (bundled jars always win). Retained for the JVM lifetime: one jar per platform at most.
      */
     private static volatile ClassLoader supplementalLoader;
 
@@ -56,16 +55,14 @@ public final class NativeLoader {
                 loaded = true;
             } catch (UnsatisfiedLinkError e) {
                 loadError = classpathMiss;
-                // Carry both earlier failures: classpathMiss holds the suppressed
-                // version/repository/jar-validation error from the opt-in
-                // download, which is exactly what a caller needs to fix it.
+                // Carry both earlier failures: classpathMiss holds the suppressed version/repository/
+                // jar-validation error from the opt-in download, which is exactly what a caller needs to fix it.
                 NativeNotFoundException failure = new NativeNotFoundException(
                         detectPlatform() + ". Also tried System.loadLibrary(\"jpdfium\") and failed.");
                 failure.addSuppressed(classpathMiss);
                 failure.addSuppressed(e);
-                // Cache the complete failure, not classpathMiss: a later
-                // ensureLoaded() reports loadError, and that must carry the
-                // system-load error too.
+                // Cache the complete failure, not classpathMiss: a later ensureLoaded() reports
+                // loadError, and that must carry the system-load error too.
                 loadError = failure;
                 throw failure;
             }
@@ -77,12 +74,8 @@ public final class NativeLoader {
     }
 
     /**
-     * Handshakes the freshly loaded bridge: version, pointer width, unsigned
-     * long width, struct geometry, file-writer version, and feature identity
-     * must match this Java artifact. A bridge predating the probe surface or
-     * any probe is rejected loudly, silent pass would let an ancient native
-     * process documents with unchecked layout assumptions. Mismatched bridges
-     * fail the load.
+     * Handshakes the freshly loaded bridge: version, pointer width, unsigned long width, struct
+     * geometry, file-writer version, and feature identity must match this Java artifact. A bridge predating the probe surface or any probe is rejected loudly - a silent pass would let an ancient native process documents with unchecked layout assumptions; mismatched bridges fail the load.
      */
     private static void verifyBridgeAbi() {
         if (SymbolLookup.loaderLookup()
@@ -92,11 +85,8 @@ public final class NativeLoader {
                     "Native bridge predates ABI handshake (missing jpdfium_abi_version); "
                             + "rebuild natives for " + detectPlatform());
         }
-        // checkAbiCompatible() initializes JpdfiumLib, whose static initializer
-        // calls back into ensureLoaded(). Without this guard that re-enters
-        // tryLoadFromClasspath() and repeats extraction and System.load. `loaded`
-        // stays false until the handshake succeeds, so an ABI mismatch still
-        // leaves the loader correctly marked as not loaded.
+        // checkAbiCompatible() initializes JpdfiumLib, whose static initializer calls back into
+        // ensureLoaded(). Without this guard that re-enters tryLoadFromClasspath() and repeats extraction and System.load. `loaded` stays false until the handshake succeeds, so an ABI mismatch still leaves the loader marked not loaded.
         if (verifyingBridgeAbi) {
             return;
         }
@@ -109,9 +99,8 @@ public final class NativeLoader {
     }
 
     /**
-     * Fetches the platform natives jar when opted in, then loads from it.
-     * Returns false when downloads are disabled or the attempt fails, so the
-     * caller falls through to its original error with details attached.
+     * Fetches the platform natives jar when opted in, then loads from it. Returns false when downloads
+     * are disabled or the attempt fails, so the caller falls through to its original error with details attached.
      */
     private static boolean tryDownloadedLoad(NativeNotFoundException classpathMiss) {
         Path jar;
@@ -128,12 +117,8 @@ public final class NativeLoader {
             return true;
         } catch (IOException | NativeNotFoundException | NativeLoadException
                 | UnsatisfiedLinkError e) {
-            // Every failure mode of the downloaded bundle is recoverable here:
-            // a missing entry, a bad checksum, an incomplete manifest, or a
-            // missing transitive dependency. They must fall through to
-            // System.loadLibrary instead of escaping, because this runs inside
-            // ensureLoaded's catch block - an escape would skip the system-load
-            // fallback and never be cached as loadError.
+            // Every failure mode of the downloaded bundle is recoverable here: a missing entry, bad
+            // checksum, incomplete manifest, or missing transitive dependency. They must fall through to System.loadLibrary instead of escaping, because this runs inside ensureLoaded's catch block - an escape would skip the system-load fallback and never be cached as loadError.
             classpathMiss.addSuppressed(e);
             return false;
         }
@@ -142,12 +127,8 @@ public final class NativeLoader {
     /** Points resource lookup at a downloaded natives jar. */
     static void installSupplementalLoader(Path jar) throws IOException {
         try {
-            // Null parent: URLClassLoader would otherwise delegate to the app
-            // loader first and could return classpath manifests/binaries
-            // alongside the downloaded bridge, mixing two bundles in one load
-            // attempt (checksum mismatch or cross-bundle dependencies).
-            // The downloaded jar holds only natives resources, so isolation
-            // is both safe and required for single-origin loading.
+            // Null parent: URLClassLoader would otherwise delegate to the app loader first and could
+            // return classpath manifests/binaries alongside the downloaded bridge, mixing two bundles in one load attempt (checksum mismatch or cross-bundle dependencies). The downloaded jar holds only natives resources, so isolation is both safe and required for single-origin loading.
             supplementalLoader = new URLClassLoader(new URL[]{jar.toUri().toURL()}, null);
         } catch (MalformedURLException e) {
             throw new NativeLoadException("Downloaded natives jar path is not a URL.", e);
@@ -155,10 +136,8 @@ public final class NativeLoader {
     }
 
     /**
-     * Test-only reset for the downloaded-jar loader: closes the jar (releasing
-     * the file lock that would otherwise pin temp directories on Windows) and
-     * clears the field so later tests resolve resources from the classpath
-     * again. Production never resets: one jar per platform per JVM lifetime.
+     * Test-only reset for the downloaded-jar loader: closes the jar (releasing the file lock that
+     * would otherwise pin temp directories on Windows) and clears the field so later tests resolve resources from the classpath again. Production never resets: one jar per platform per JVM lifetime.
      */
     static void resetSupplementalLoaderForTests() throws IOException {
         ClassLoader installed = supplementalLoader;
@@ -174,10 +153,8 @@ public final class NativeLoader {
     }
 
     /**
-     * Single-origin lookup for one load attempt: when {@code requireSupplemental}
-     * is true, only the downloaded jar is consulted and classpath resources are
-     * never mixed in. The whole {@code tryLoadFromClasspath} attempt passes the
-     * same flag so manifests, checksums, and binaries come from one bundle.
+     * Single-origin lookup for one load attempt: when {@code requireSupplemental} is true, only the
+     * downloaded jar is consulted and classpath resources are never mixed in. The whole {@code tryLoadFromClasspath} attempt passes the same flag so manifests, checksums, and binaries come from one bundle.
      */
     static URL findResource(String absolutePath, boolean requireSupplemental) {
         String stripped = absolutePath.startsWith("/") ? absolutePath.substring(1) : absolutePath;
@@ -212,10 +189,8 @@ public final class NativeLoader {
 
         if (findResource(resourceBase + bridgeName) == null)
             throw new NativeNotFoundException(platform);
-        // Single-origin attempt: if the bridge resolved from the downloaded
-        // jar, every other resource (manifests, checksums, binaries) must come
-        // from that same jar. Mixing classpath manifests with a downloaded
-        // bridge would reject valid downloads or load cross-bundle deps.
+        // Single-origin attempt: if the bridge resolved from the downloaded jar, every other resource
+        // (manifests, checksums, binaries) must come from that same jar. Mixing classpath manifests with a downloaded bridge would reject valid downloads or load cross-bundle deps.
         boolean requireSupplemental = supplementalLoader != null
                 && supplementalLoader.getResource(
                         (resourceBase + bridgeName).substring(1)) != null;
@@ -237,11 +212,8 @@ public final class NativeLoader {
                     }
                 }
             } else if (!libs.isEmpty()) {
-                // Fail closed: a manifest listing libraries without hashes would
-                // otherwise be extracted and loaded without verification.
-                // (A missing manifest detects corruption or cache substitution
-                // relative to the published artifact; it cannot attest a
-                // wholly substituted artifact whose hashes were replaced too.)
+                // Fail closed: a manifest listing libraries without hashes would otherwise be
+                // extracted and loaded without verification. (A missing manifest detects corruption or cache substitution relative to the published artifact; it cannot attest a wholly substituted artifact whose hashes were replaced too.)
                 failClosedOnMissingChecksums(platform);
             }
             if (!"false".equalsIgnoreCase(System.getProperty(NativeCache.SWEEP_PROPERTY))) {
@@ -273,21 +245,8 @@ public final class NativeLoader {
                 }
             }
 
-            // On Linux/macOS, RUNPATH=$ORIGIN in pdfium.so/.dylib makes the
-            // dynamic linker find its sibling component libs in the same dir.
-            // Windows has no equivalent - LoadLibrary doesn't search the
-            // loaded DLL's own directory. So pre-load every dependency by
-            // absolute path here. Once a DLL is loaded by name, subsequent
-            // references by name (from pdfium.dll's import table) resolve
-            // against the already-loaded module instead of re-searching disk.
-            //
-            // Multi-pass: deps have their own inter-dependencies and we don't
-            // know the topological order at runtime. Keep retrying failed
-            // loads until either all succeed or a pass makes no progress.
-            // Pre-load bundled dependencies in tmpDir before loading pdfium and bridge.
-            // On Windows this ensures LoadLibrary finds sibling DLLs.
-            // On Linux/macOS, RUNPATH=$ORIGIN / @loader_path resolves sibling dependencies
-            // hermetically; preloading via System.load causes host symbol collisions (e.g. ICU).
+            // On Linux/macOS, RUNPATH=$ORIGIN in pdfium.so/.dylib lets the dynamic linker find
+            // sibling component libs in the same dir; Windows has no equivalent (LoadLibrary doesn't search the loaded DLL's own directory), so pre-load every dependency by absolute path here - once a DLL is loaded by name, pdfium.dll's import table resolves against the already-loaded module. Multi-pass because deps have inter-dependencies with unknown topological order: retry failed loads until all succeed or a pass makes no progress. On Linux/macOS the RUNPATH/@loader_path resolves siblings hermetically; preloading via System.load causes host symbol collisions (e.g. ICU).
             boolean isWindows =
                     System.getProperty("os.name").toLowerCase().contains("win");
             if (isWindows && !libs.isEmpty()) {
@@ -331,9 +290,8 @@ public final class NativeLoader {
     }
 
     /**
-     * Fails closed when a natives jar ships libraries without an integrity manifest,
-     * unless the {@code jpdfium.natives.allowUnsigned} system property opts out
-     * (local development against hand-built jars only - never in production).
+     * Fails closed when a natives jar ships libraries without an integrity manifest, unless the
+     * {@code jpdfium.natives.allowUnsigned} system property opts out (local development against hand-built jars only - never in production).
      */
     // Package-private so the fail-closed contract is directly testable.
     static void failClosedOnMissingChecksums(String platform) {
@@ -385,12 +343,8 @@ public final class NativeLoader {
                 remaining.add(lib);
             }
         }
-        // Windows looks for deps in the app dir, System32 and PATH, not in
-        // the extract dir. Sort leaves first so bundled copies are already
-        // loaded when consumers need them. Wrong order crashed windows-arm64
-        // with 0xC0000139 when harfbuzz-ng picked up the OS icuuc.dll.
-        // Tiers: 0 = CRT + leaves, 1 = needs tier 0, 2 = freetype/qpdf,
-        // 3 = harfbuzz, 4 = harfbuzz-subset.
+        // Windows looks for deps in the app dir, System32 and PATH, not the extract dir. Sort leaves
+        // first so bundled copies are already loaded when consumers need them; wrong order crashed windows-arm64 with 0xC0000139 when harfbuzz-ng picked up the OS icuuc.dll. Tiers: 0 = CRT + leaves, 1 = needs tier 0, 2 = freetype/qpdf, 3 = harfbuzz, 4 = harfbuzz-subset.
         remaining.sort((a, b) -> {
             int ta = windowsLoadTier(a);
             int tb = windowsLoadTier(b);
@@ -410,9 +364,8 @@ public final class NativeLoader {
                 }
             }
             if (failed.size() == remaining.size()) {
-                // No progress this pass - remaining libs likely depend on
-                // something not in the manifest (e.g. a system DLL we can't
-                // help with). Let pdfium/bridge load surface the real error if any.
+                // No progress this pass - remaining libs likely depend on something not in the
+                // manifest (e.g. a system DLL we can't help with). Let pdfium/bridge load surface the real error if any.
                 break;
             }
             remaining = failed;
@@ -517,10 +470,8 @@ public final class NativeLoader {
                 // Directory missing or unreadable; try the next one
             }
         }
-        // Fallback: inspect /proc/self/maps. A musl-linked JVM (Alpine) maps the
-        // musl loader (ld-musl-<arch>.so.1) into its address space; glibc systems
-        // never do. File read only - this layer must not spawn external processes
-        // (see VerificationToolsAreTestOnlyTest).
+        // Fallback: inspect /proc/self/maps. A musl-linked JVM (Alpine) maps the musl loader
+        // (ld-musl-<arch>.so.1) into its address space; glibc systems never do. File read only - this layer must not spawn external processes (see VerificationToolsAreTestOnlyTest).
         try {
             return Files.readString(Path.of("/proc/self/maps")).contains("ld-musl");
         } catch (IOException | RuntimeException _) {

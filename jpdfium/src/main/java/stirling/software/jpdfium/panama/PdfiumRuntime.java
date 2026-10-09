@@ -18,25 +18,8 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
- * The single execution domain for every PDFium call in this process.
- *
- * <p>Upstream PDFium shares mutable state (font manager and cache, page
- * module, parser tables, last-error slot) across all documents, so every
- * entry point serializes here. One private lock is the only serializer and
- * no call site locks itself. Admission runs inside the lock, so the check
- * against {@link #shutdown} is atomic.
- *
- * <p>The lock is reentrant: nested calls on an admitted thread continue
- * inline with no re-admission. This centralized synchronous domain is the
- * end-game architecture. Parallel PDFium, if ever required, means bounded
- * worker processes, never removing serialization or per-document locks.
- *
- * <p>Lifecycle: {@code RUNNING -> QUIESCING -> DESTROYING -> STOPPED}, plus
- * terminal {@code FAILED}. There is no queue. Admission table: new ordinary
- * work needs {@code RUNNING}; nested continuation needs the same
- * {@link Context}; teardown of tracked resources allows {@code QUIESCING};
- * destruction runs only via the controlled shutdown transition. Native
- * callbacks must not call back into the domain.
+ * The single execution domain for every PDFium call in this process. Upstream PDFium shares mutable
+ * state (font manager/cache, page module, parser tables, last-error slot) across all documents, so every entry point serializes here through one private reentrant lock with no call-site locking; admission runs inside the lock so the {@link #shutdown} check is atomic, and nested calls on an admitted thread continue inline with no re-admission. Lifecycle: {@code RUNNING -> QUIESCING -> DESTROYING -> STOPPED}, plus terminal {@code FAILED}; there is no queue. Admission: new ordinary work needs {@code RUNNING}, nested continuation needs the same {@link Context}, teardown of tracked resources allows {@code QUIESCING}, and destruction runs only via the controlled shutdown transition. Native callbacks must not call back into the domain.
  */
 public final class PdfiumRuntime {
 
@@ -88,10 +71,8 @@ public final class PdfiumRuntime {
     private static final AtomicReference<State> STATE =
             new AtomicReference<>(State.RUNNING);
 
-    // Live-resource registry: incremented only after the native create succeeds,
-    // decremented exactly once per close. Shutdown refuses to destroy while any
-    // count is nonzero, so PDFium is never torn down under live documents,
-    // pages, or progressive sessions.
+    // Live-resource registry: incremented only after the native create succeeds, decremented exactly
+    // once per close. Shutdown refuses to destroy while any count is nonzero, so PDFium is never torn down under live documents, pages, or progressive sessions.
     private static final AtomicLong LIVE_DOCUMENTS = new AtomicLong();
     private static final AtomicLong LIVE_PAGES = new AtomicLong();
     private static final AtomicLong LIVE_SESSIONS = new AtomicLong();
@@ -318,12 +299,8 @@ public final class PdfiumRuntime {
     }
 
     /**
-     * Refuse teardown once destruction has begun or completed. Only ever
-     * called with the domain already held. A close after {@link State#STOPPED}
-     * can only be harmless when its resource was already retired, in which
-     * case the wrapper-level idempotence guard returns before reaching here,
-     * so reaching here means an accounting defect, and failing loudly is
-     * correct.
+     * Refuse teardown once destruction has begun or completed; only ever called with the domain held.
+     * A close after {@link State#STOPPED} can only be harmless when its resource was already retired (the wrapper-level idempotence guard returns first), so reaching here means an accounting defect and failing loudly is correct.
      */
     private static void ensureNotDestroyedInside() {
         State state = STATE.get();
@@ -451,11 +428,8 @@ public final class PdfiumRuntime {
         return LIVE_SESSIONS.get();
     }
 
-    // The counters are accounting, not a complete ownership registry: they
-    // prove creation/retirement pair up and name what blocks shutdown, but
-    // cannot identify which resource leaked. Registration runs inside the same
-    // domain operation as the native create; retirement inside the same
-    // domain operation as the native destroy.
+    // The counters are accounting, not a complete ownership registry: they prove creation/retirement
+    // pair up and name what blocks shutdown, but cannot identify which resource leaked. Registration runs inside the same domain operation as the native create; retirement inside the same as the native destroy.
     static void documentOpened() {
         LIVE_DOCUMENTS.incrementAndGet();
     }
@@ -510,9 +484,8 @@ public final class PdfiumRuntime {
     }
 
     /**
-     * Package-private for the deprecated compatibility facade in this package
-     * only: it is the one caller that must acquire and release the domain
-     * across separate statements. Everything else goes through {@code execute}.
+     * Package-private for the deprecated compatibility facade in this package only: it is the one
+     * caller that must acquire and release the domain across separate statements. Everything else goes through {@code execute}.
      */
     static void acquire() {
         long t0 = TELEMETRY_TIMING ? System.nanoTime() : 0;
@@ -623,15 +596,11 @@ public final class PdfiumRuntime {
         }
     }
 
-    // Combinator entry records before authorizing (tryFinally cleanup is
-    // unconditional); leaf entry authorizes before recording (rejection never
-    // reaches the caller finally). Opposite orderings, both deliberate.
+    // Combinator entry records before authorizing (tryFinally cleanup is unconditional); leaf entry
+    // authorizes before recording (rejection never reaches the caller finally). Opposite orderings, both deliberate.
     private static void enterChecked() {
-        // Order is inverted relative to enterLeaf, deliberately. The tryFinally
-        // cleanup runs even when this entry throws, so the obligation must
-        // already be recorded for exit() to find. Recording after the check
-        // makes cleanup fail with "exit without a matching entry", and
-        // tryFinally lets a cleanup failure REPLACE the real rejection.
+        // Order is inverted relative to enterLeaf, deliberately. The tryFinally cleanup runs even if
+        // this entry throws, so the obligation must already be recorded for exit() to find; recording after the check makes cleanup fail with "exit without a matching entry" and tryFinally lets a cleanup failure REPLACE the real rejection.
         if (nested()) {
             recordEntry(ENTRY_STATE.get(), false);
             requireOrdinaryContext();
@@ -642,9 +611,8 @@ public final class PdfiumRuntime {
         try {
             ensureRunningInside();
         } catch (Throwable t) {
-            // The tryFinally cleanup calls exit(), which sees the lock flag and
-            // leaves exactly once; only drop the context here so no stale
-            // admission outlives the throw.
+            // The tryFinally cleanup calls exit(), which sees the lock flag and leaves exactly once;
+            // only drop the context here so no stale admission outlives the throw.
             OWNER_CONTEXT.set(Context.NONE);
             throw t;
         }
@@ -654,16 +622,13 @@ public final class PdfiumRuntime {
         releaseEntry();
     }
 
-    // Closure-free admission: a capturing lambda costs 24 B/op until C2
-    // scalar-replaces it, so hot leaves carry the admission with no object.
-    // Caller pairs every enterLeaf with exitLeaf in a finally block.
+    // Closure-free admission: a capturing lambda costs 24 B/op until C2 scalar-replaces it, so hot
+    // leaves carry the admission with no object. Caller pairs every enterLeaf with exitLeaf in a finally block.
     /** Admission for a leaf downcall that cannot allocate a closure. */
     static void enterLeaf() {
         if (nested()) {
-            // Nested continuation shares the outer admission, so it must not
-            // release on the way out. Authorize BEFORE recording: recording
-            // first would leave an entry no caller finally can clear, because a
-            // rejected nested admission never reaches its exitLeaf.
+            // Nested continuation shares the outer admission, so it must not release on the way out.
+            // Authorize BEFORE recording: recording first would leave an entry no caller finally can clear, because a rejected nested admission never reaches its exitLeaf.
             requireOrdinaryContext();
             recordEntry(ENTRY_STATE.get(), false);
             return;
@@ -673,10 +638,8 @@ public final class PdfiumRuntime {
         try {
             ensureRunningInside();
         } catch (Throwable t) {
-            // The caller's finally block is attached after this method returns,
-            // so a rejected admission never reaches exitLeaf(). Release here
-            // instead, or the domain stays locked forever and the next
-            // acquisition blocks indefinitely.
+            // The caller's finally block is attached after this method returns, so a rejected admission
+            // never reaches exitLeaf(). Release here instead, or the domain stays locked forever and the next acquisition blocks indefinitely.
             OWNER_CONTEXT.set(Context.NONE);
             releaseEntry();
             throw t;

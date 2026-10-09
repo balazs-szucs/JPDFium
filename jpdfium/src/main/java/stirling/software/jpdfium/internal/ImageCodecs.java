@@ -27,12 +27,9 @@ import stirling.software.jpdfium.model.ImageFormat;
 import stirling.software.jpdfium.spi.ImageCodec;
 
 /**
- * Image encode/decode facade. Prefers the registered {@link ImageCodec}
- * (libvips when {@code jpdfium-vips} is on the classpath) and falls back to
- * {@code javax.imageio} when no codec is present or a format is unsupported.
+ * Image encode/decode facade. Prefers the registered {@link ImageCodec} (libvips when {@code jpdfium-vips} is on the classpath) and falls back to {@code javax.imageio} when no codec is present or a format is unsupported.
  *
- * <p>Frames use the bridge layout: 8-byte little-endian {@code [width][height]}
- * header followed by straight R,G,B,A pixels.
+ * <p>Frames use the bridge layout: 8-byte little-endian {@code [width][height]} header followed by straight R,G,B,A pixels.
  */
 public final class ImageCodecs {
 
@@ -278,10 +275,8 @@ public final class ImageCodecs {
     private static byte[] encodeFallbackView(RenderedPageView view, ImageFormat format, int quality) throws IOException {
         int width = view.width();
         int height = view.height();
-        // Fallback ImageIO path requires tight pixels: a padded stride would
-        // otherwise smuggle padding bytes as pixels. Compact row-by-row when
-        // the producer used padding (currently all producers are tight, but
-        // the contract allows padding).
+        // Fallback ImageIO path requires tight pixels; compact row-by-row when the
+        // producer used padding (all producers are currently tight, but padded strides are allowed).
         byte[] pixels;
         if (view.isTight()) {
             pixels = new byte[(int) view.pixels().byteSize()];

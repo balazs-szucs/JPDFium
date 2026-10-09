@@ -9,24 +9,12 @@ import java.util.regex.Pattern;
 /**
  * XMP metadata and /Info dictionary redaction.
  *
- * <p>Redacting visible text is not enough - PDF metadata often echoes the same PII.
- * Common metadata fields that leak sensitive information:
- * <ul>
- *   <li>{@code <xmp:Author>} / {@code /Author} - document author name</li>
- *   <li>{@code <dc:creator>} / {@code /Creator} - creating application/user</li>
- *   <li>{@code <pdf:Producer>} / {@code /Producer} - PDF generation tool</li>
- *   <li>{@code <dc:description>} / {@code /Subject} - document description</li>
- *   <li>{@code <dc:title>} / {@code /Title} - document title with PII</li>
- *   <li>{@code <pdf:Keywords>} / {@code /Keywords} - keyword metadata</li>
- * </ul>
+ * <p>Visible text redaction is not enough - metadata often echoes the same PII in fields such as {@code <xmp:Author>}/{@code /Author}, {@code <dc:creator>}/{@code /Creator}, {@code <pdf:Producer>}/{@code /Producer}, {@code <dc:description>}/{@code /Subject}, {@code <dc:title>}/{@code /Title}, and {@code <pdf:Keywords>}/{@code /Keywords}. Uses pugixml for XMP parsing and qpdf for /Info manipulation.
  *
- * <p>Uses pugixml for XMP parsing and qpdf for /Info dictionary manipulation.
- *
- * <p><b>Usage</b></p>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {
  *     int fieldsRedacted = XmpRedactor.redactPatterns(doc,
- *         "john\\.doe@example\\.com", "John Doe", "\\d{3}-\\d{2}-\\d{4}");
+ *         "john\.doe@example\.com", "John Doe", "\d{3}-\d{2}-\d{4}");
  *
  *     XmpRedactor.stripKeys(doc, "Author", "Creator", "Producer");
  *     doc.save(outputPath);

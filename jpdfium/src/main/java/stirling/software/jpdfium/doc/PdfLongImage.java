@@ -16,8 +16,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Render all pages of a PDF as one continuous vertical image.
  *
- * <p>Stitches page renders top-to-bottom into a single tall PNG/JPEG.
- * Optionally adds a separator line between pages.
+ * <p>Stitches page renders top-to-bottom into a single tall PNG/JPEG, optionally adding a separator line between pages.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

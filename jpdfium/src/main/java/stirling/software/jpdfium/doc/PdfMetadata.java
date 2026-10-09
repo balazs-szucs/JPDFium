@@ -13,11 +13,9 @@ import java.util.Optional;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * Read and query PDF document metadata: title, author, subject, keywords,
- * creator, producer, creation date, and modification date.
+ * Read and query PDF document metadata: title, author, subject, keywords, creator, producer, creation date, and modification date.
  *
- * <p>All metadata values are extracted via PDFium's {@code FPDF_GetMetaText}
- * using the double-call buffer pattern.
+ * <p>All values are extracted via PDFium's {@code FPDF_GetMetaText} using the double-call buffer pattern.
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(Path.of("input.pdf"))) {
@@ -164,9 +162,8 @@ public final class PdfMetadata {
             MemorySegment bufferSegment = arena.allocate(needed);
             boolean fillOk = PdfiumRuntime.execute(() -> {
                 try {
-                    // FPDF_GetPageLabel returns the length it stored, or -1 on
-                    // failure. A negative result means the buffer was never
-                    // written, so decoding it would read uninitialized memory.
+                    // FPDF_GetPageLabel returns the stored length, or -1 on failure.
+                    // A negative result means the buffer was never written, so decoding it would read uninitialized memory.
                     long written = (long) DocBindings.FPDF_GetPageLabel.invokeExact(rawDocSegment, pageIndex, bufferSegment, needed);
                     return written >= 0;
                 } catch (Throwable t) {

@@ -12,9 +12,7 @@ import java.util.Set;
 /**
  * Selectively flatten specific annotation types while keeping others interactive.
  *
- * <p>Unlike {@code FPDFPage_Flatten()} which bakes ALL annotations, this walks
- * annotations by type and only flattens matching ones by removing the annotation
- * and generating content.
+ * <p>Unlike {@code FPDFPage_Flatten()} which bakes ALL annotations, this walks annotations by type and flattens only matching ones by removing the annotation and generating content.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("annotated.pdf"))) {

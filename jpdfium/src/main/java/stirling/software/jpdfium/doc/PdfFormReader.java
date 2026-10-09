@@ -19,8 +19,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Read form fields from widget annotations.
  *
- * <p>Requires a FORMHANDLE obtained via FPDFDOC_InitFormFillEnvironment.
- * Each widget annotation is inspected for field type, name, value, options, etc.
+ * <p>Requires a FORMHANDLE obtained via FPDFDOC_InitFormFillEnvironment; each widget annotation is inspected for field type, name, value, options, etc.
  */
 public final class PdfFormReader {
 

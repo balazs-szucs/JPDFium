@@ -12,19 +12,8 @@ import java.util.Map;
 /**
  * Unified configuration for all PDF redaction operations.
  *
- * <p>Covers every redaction capability in a single builder:
- * <ul>
- *   <li>Word / regex list redaction (Object Fission)</li>
- *   <li>PCRE2 JIT PII pattern matching (SSN, email, phone, credit card, ...)</li>
- *   <li>Named-entity recognition (FlashText NER)</li>
- *   <li>Glyph-level redaction (HarfBuzz ligature / BiDi / grapheme aware)</li>
- *   <li>Font normalization (/ToUnicode + /W repair)</li>
- *   <li>XMP / /Info metadata redaction</li>
- *   <li>Semantic coreference expansion</li>
- *   <li>Convert-to-image (maximum security)</li>
- * </ul>
+ * <p>Covers word/regex redaction, PCRE2 JIT PII patterns, FlashText NER, glyph-level redaction, font normalization, XMP//Info metadata redaction, semantic coreference, and convert-to-image.
  *
- * <p><b>Usage Example</b></p>
  * <pre>{@code
  * RedactOptions opts = RedactOptions.builder()
  *     .addWord("Confidential")

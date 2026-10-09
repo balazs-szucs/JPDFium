@@ -12,8 +12,7 @@ import java.lang.foreign.MemorySegment;
 /**
  * Replace image objects in PDF pages with new image data.
  *
- * <p>Finds image objects by index or all images on a page, and replaces
- * their bitmap data using {@code FPDFImageObj_SetBitmap}.
+ * <p>Finds image objects by index or all images on a page and replaces their bitmap data using {@code FPDFImageObj_SetBitmap}.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("with-images.pdf"))) {

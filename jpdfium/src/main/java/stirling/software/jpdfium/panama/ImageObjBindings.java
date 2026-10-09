@@ -26,10 +26,8 @@ public final class ImageObjBindings {
     }
 
     /**
-     * Layout of FPDF_IMAGEOBJ_METADATA struct:
-     * { unsigned int width, height, bits_per_pixel; int colorspace; int marked_content_id; }
-     * Note: float horizontal_dpi, vertical_dpi also present in newer versions.
-     * Total size is padded to 32 bytes to be safe.
+     * Layout of FPDF_IMAGEOBJ_METADATA struct: { unsigned int width, height, bits_per_pixel; int colorspace; int marked_content_id; }.
+     * Newer versions also add float horizontal_dpi, vertical_dpi; total size is padded to 32 bytes to be safe.
      */
     public static final StructLayout IMAGE_METADATA_LAYOUT = MemoryLayout.structLayout(
             JAVA_INT.withName("width"),

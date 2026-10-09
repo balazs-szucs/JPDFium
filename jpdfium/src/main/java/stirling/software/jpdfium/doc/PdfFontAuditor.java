@@ -19,9 +19,7 @@ import java.util.TreeSet;
 /**
  * Audit fonts used in a PDF document.
  *
- * <p>Enumerates every distinct font referenced by text objects on each page,
- * reporting the font name, family, weight, flags, embedding status, italic
- * angle, and font data size.
+ * <p>Enumerates every distinct font referenced by text objects on each page, reporting name, family, weight, flags, embedding status, italic angle, and font data size.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("input.pdf"))) {

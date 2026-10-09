@@ -35,18 +35,8 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /**
- * Thin Java-friendly wrapper around the jextract-generated {@link JpdfiumH}.
- * Handles NativeLoader bootstrap, Arena lifecycle, String/MemorySegment conversion,
- * and result-code to exception translation.
- *
- * <p>PDFium keeps process-wide mutable state, so it is not thread-safe even across
- * independent documents. Every method here submits to {@link PdfiumRuntime}, which
- * makes concurrent calls safe. A single document handle must still not be accessed
- * concurrently - the domain prevents native corruption, not logical interleaving.
- *
- * <p>Advanced feature bindings are split into focused companion classes:
- * {@link Pcre2Lib}, {@link FlashTextLib}, {@link FontLib},
- * {@link GlyphLib}, {@link XmpLib}, {@link IcuLib}.
+ * Thin Java-friendly wrapper around the jextract-generated {@link JpdfiumH}, handling NativeLoader
+ * bootstrap, Arena lifecycle, String/MemorySegment conversion, and result-code to exception translation. Every method submits to {@link PdfiumRuntime}, making concurrent calls safe (PDFium keeps process-wide mutable state), but a single document handle must still not be accessed concurrently - the domain prevents native corruption, not logical interleaving. Advanced feature bindings live in {@link Pcre2Lib}, {@link FlashTextLib}, {@link FontLib}, {@link GlyphLib}, {@link XmpLib}, and {@link IcuLib}.
  */
 public final class JpdfiumLib {
 
@@ -71,11 +61,8 @@ public final class JpdfiumLib {
     public static final int POSITION_BOTTOM_CENTER = 7;
     public static final int POSITION_BOTTOM_RIGHT  = 8;
 
-    // Shared scratch outputs for leaf downcalls. Every access runs inside the
-    // PdfiumRuntime domain, which is reentrant: a value must be consumed before
-    // any reentrant call that reuses the same slot. Distinct slots (INT vs FLOAT
-    // vs ADDR) may nest; the same slot must never be live across a nested
-    // JpdfiumLib call.
+    // Shared scratch outputs for leaf downcalls. Every access runs inside the reentrant PdfiumRuntime
+    // domain: a value must be consumed before any reentrant call reuses the same slot. Distinct slots may nest; the same slot must never be live across a nested call.
     private static final Arena GLOBAL = Arena.global();
     private static final MemorySegment INT_SCRATCH    = GLOBAL.allocate(JAVA_INT);
     private static final MemorySegment INT2_SCRATCH   = GLOBAL.allocate(JAVA_INT);
@@ -92,10 +79,8 @@ public final class JpdfiumLib {
 
     static {
         NativeLoader.ensureLoaded();
-        // Renderer selection is fixed for the JVM lifetime. Skia is the default
-        // when the native build includes it; -Djpdfium.renderer=agg (or
-        // JPDFIUM_RENDERER=agg) forces the legacy AGG backend, =skia forces
-        // Skia with an AGG fallback on builds that lack it.
+        // Renderer selection is fixed for the JVM lifetime. Skia is the default when the native build
+        // includes it; -Djpdfium.renderer=agg (or JPDFIUM_RENDERER=agg) forces the legacy AGG backend, =skia forces Skia with an AGG fallback.
         String renderer = System.getProperty(
                 "jpdfium.renderer", System.getenv().getOrDefault("JPDFIUM_RENDERER", ""));
         int rc;
@@ -112,10 +97,8 @@ public final class JpdfiumLib {
             rc = JpdfiumH.jpdfium_init();
         }
         if (rc != OK) throw new JPDFiumException("jpdfium_init failed: " + rc);
-        // JVM-exit teardown quiesces first, then destroys only when no live
-        // resources remain (the OS reclaims the rest). Never force-destroys an
-        // active library for cosmetic teardown.
-        // Platform thread required: virtual threads cannot be shutdown hooks.
+        // JVM-exit teardown quiesces first, then destroys only when no live resources remain (the OS
+        // reclaims the rest); never force-destroy an active library for cosmetic teardown. Platform thread required: virtual threads cannot be shutdown hooks.
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(PdfiumRuntime::shutdownOnJvmExit));
     }
 
@@ -156,9 +139,8 @@ public final class JpdfiumLib {
     /** Expected {@code offsetof(FS_RECTF, right)}. */
     public static final long EXPECTED_RECTF_RIGHT_OFFSET = 8;
     /**
-     * Expected {@code sizeof(FPDF_FILEWRITE)}: {@code int version} plus a
-     * function pointer (with padding on 64-bit). Must match the
-     * {@code FPDF_FILEWRITE_LAYOUT} used for the save-with-version upcall.
+     * Expected {@code sizeof(FPDF_FILEWRITE)}: {@code int version} plus a function pointer, with
+     * padding on 64-bit; must match the {@code FPDF_FILEWRITE_LAYOUT} used for the save-with-version upcall.
      */
     public static final long EXPECTED_FILEWRITE_SIZE = 16;
     /** Query ids mirroring {@code JPDFIUM_ABI_QUERY_*}. */
@@ -176,26 +158,8 @@ public final class JpdfiumLib {
     public static final int ABI_Q_HAS_QPDF = 11;
 
     /**
-     * ABI probes used by the loader, deliberately outside the execution domain.
-     *
-     * <p>{@link NativeLoader} verifies the ABI while loading the library, and
-     * {@code JpdfiumLib}'s own class initializer calls
-     * {@code NativeLoader.ensureLoaded()}. If these probes went through
-     * {@link PdfiumRuntime}, two things break:
-     *
-     * <ul>
-     *   <li>QPDF stops being independent of PDFium. {@code QpdfLib}'s first use
-     *       resolves a symbol, which loads the library, which probes the ABI
-     *       through the domain - so a QPDF operation blocks whenever any thread
-     *       holds the domain, which is the opposite of the intended split.</li>
-     *   <li>A class-initialization cycle: loader waits on {@code JpdfiumLib}
-     *       while {@code JpdfiumLib}'s initializer waits on the loader.</li>
-     * </ul>
-     *
-     * <p>Safe because these are constant getters that touch no document, page
-     * or mutable state. They read the same values the domain-guarded
-     * {@link #abiVersion()} and {@link #abiQuery(int)} do; the domain adds
-     * nothing to a constant read.
+     * ABI probes used by the loader, deliberately outside the execution domain. {@link NativeLoader}
+     * verifies the ABI while loading, and this class's initializer calls {@code NativeLoader.ensureLoaded()}; routing the probes through {@link PdfiumRuntime} would break QPDF independence (a symbol resolution would block on the domain) and create a loader/class-initialization cycle. Safe because these constant getters touch no mutable state and read the same values as {@link #abiVersion()}/{@link #abiQuery(int)}.
      */
     static int abiVersionUnguarded() {
         return JpdfiumH.jpdfium_abi_version();
@@ -207,16 +171,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Verifies the packaged Java/native combination against every exposed ABI
-     * probe: version, pointer width, {@code unsigned long} width (platform
-     * dependent in {@code FPDF_FILEACCESS}/{@code FPDF_FILEWRITE}), PDFium
-     * struct geometry, {@code FPDF_FILEWRITE} version (must be 1 per
-     * {@code fpdf_save.h}), and feature/build identity (Skia/QPDF presence).
-     *
-     * <p>Called by {@link NativeLoader} during loading, so it uses the
-     * unguarded probes: see {@link #abiVersionUnguarded()} for why acquiring the
-     * execution domain here would be wrong. A mismatch fails before any
-     * document is processed.
+     * Verifies the packaged Java/native combination against every exposed ABI probe: version,
+     * pointer width, {@code unsigned long} width (platform-dependent in {@code FPDF_FILEACCESS}/{@code FPDF_FILEWRITE}), PDFium struct geometry, {@code FPDF_FILEWRITE} version (1 per {@code fpdf_save.h}), and feature/build identity (Skia/QPDF presence). Called by {@link NativeLoader} during loading, so it uses the unguarded probes (see {@link #abiVersionUnguarded()}); a mismatch fails before any document is processed.
      *
      * @throws JPDFiumException on any mismatch, naming the offending component
      */
@@ -266,12 +222,8 @@ public final class JpdfiumLib {
             throw new JPDFiumException("Unsupported FS_RECTF.right offset " + rightOff + " (expected "
                     + EXPECTED_RECTF_RIGHT_OFFSET + " on " + NativeLoader.detectPlatform() + ")");
         }
-        // Unsigned long is platform-dependent (LP64 vs LLP64): PDFium uses it
-        // in FPDF_FILEACCESS/FPDF_FILEWRITE and signature string lengths. The
-        // probe must equal the host canonical C long width that the Java FFM
-        // mappings assume (see PdfVersionConverter): accepting either width
-        // would pass a bridge whose C layouts disagree with this JVM, and the
-        // callback would then read a truncated or over-wide size on Windows.
+        // Unsigned long is platform-dependent (LP64 vs LLP64): PDFium uses it in FPDF_FILEACCESS/
+        // FPDF_FILEWRITE and signature string lengths, and the probe must equal the host canonical C long width the Java FFM mappings assume; accepting either would pass a bridge whose layouts disagree and read a truncated/over-wide size.
         long expectedUlong = Linker.nativeLinker().canonicalLayouts().get("long").byteSize();
         if (ulongSize != expectedUlong) {
             throw new JPDFiumException("Unsupported native unsigned long width " + ulongSize
@@ -302,10 +254,8 @@ public final class JpdfiumLib {
                     + " (expected " + EXPECTED_FILEWRITE_SIZE + " on "
                     + NativeLoader.detectPlatform() + ")");
         }
-        // Feature identity is informational at handshake time (Skia/QPDF
-        // absence surfaces as ERR_NOT_FOUND or renderer fallback at use time),
-        // but unknown probe values (-1) mean an old bridge that predates the
-        // probe and must be rejected.
+        // Feature identity is informational at handshake time (Skia/QPDF absence surfaces as
+        // ERR_NOT_FOUND or renderer fallback at use time), but unknown probe values (-1) mean an old bridge predating the probe and must be rejected.
         if (hasSkia < 0 || hasSkia > 1 || hasQpdf < 0 || hasQpdf > 1) {
             throw new JPDFiumException("Unsupported feature-identity probe hasSkia=" + hasSkia
                     + " hasQpdf=" + hasQpdf + " on " + NativeLoader.detectPlatform()
@@ -314,9 +264,8 @@ public final class JpdfiumLib {
     }
 
     static void checkAbiCompatible(int version, long ptrSize, long rectfSize, long rightOff) {
-        // Backwards-compatible 4-tuple for older tests: expand with live
-        // probes for the remaining fields so old call sites still verify the
-        // full surface.
+        // Backwards-compatible 4-tuple for older tests: expand with live probes for the remaining
+        // fields so old call sites still verify the full surface.
         checkAbiCompatible(version, ptrSize, rectfSize, rightOff, abiQueryUnguarded(3),
                 abiQueryUnguarded(4), abiQueryUnguarded(5), abiQueryUnguarded(6),
                 abiQueryUnguarded(7), abiQueryUnguarded(8), abiQueryUnguarded(9),
@@ -343,12 +292,8 @@ public final class JpdfiumLib {
     }
 
     private static float pageWidth0(long page) {
-        // Binding selected BEFORE invocation, never as a fallback. The earlier
-        // shape wrapped the fast call in try/catch and re-invoked through
-        // JpdfiumH when it threw, which meant an ordinary native error code
-        // (check -> JPDFiumException, not an Error) silently ran the same
-        // operation a second time and reported the second result. See
-        // pageWidth0Fast for why that matters.
+        // Binding selected BEFORE invocation, never as a fallback. The earlier shape wrapped the fast
+        // call in try/catch and re-invoked through JpdfiumH on throw, so an ordinary native error code (check -> JPDFiumException) silently ran the same operation twice and reported the second result; see pageWidth0Fast.
         MethodHandle fast = FastLinks.PAGE_WIDTH;
         if (fast != null) {
             return pageWidth0Fast(fast, page);
@@ -358,11 +303,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Direct-handle path for a geometry query. A failure here is the operation's
-     * own outcome and must surface unchanged: {@link #check} throws
-     * {@link JPDFiumException} for a non-OK return code, and that must not be
-     * mistaken for "the fast binding is unusable, retry slowly". Only a JVM
-     * fatal error is rethrown as-is; nothing falls back to a second invocation.
+     * Direct-handle path for a geometry query. A failure is the operation's own outcome and must
+     * surface unchanged: {@link #check} throws {@link JPDFiumException} for a non-OK code, which must not be mistaken for "fast binding unusable, retry slowly". Only a JVM fatal error is rethrown as-is.
      */
     private static float pageWidth0Fast(MethodHandle fast, long page) {
         try {
@@ -439,15 +381,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Open a document from a memory segment without an intermediate heap copy.
-     *
-     * <p>Ownership proof: {@code jpdfium_doc_open_bytes} in
-     * {@code native/bridge/src/jpdfium_document.cpp} does
-     * {@code malloc(len)} plus {@code memcpy} synchronously and transfers the
-     * copy into {@code DocCore} (freed by its deleter in
-     * {@code jpdfium_internal.h}). Upstream {@code FPDF_LoadMemDocument} keeps
-     * only the bridge copy, so the caller segment must stay valid for the call
-     * only. Peak Java heap cost is zero beyond the call.
+     * Open a document from a memory segment without an intermediate heap copy. Ownership proof:
+     * {@code jpdfium_doc_open_bytes} does {@code malloc(len)} + {@code memcpy} synchronously and transfers the copy into {@code DocCore} (freed by its deleter), and upstream {@code FPDF_LoadMemDocument} keeps only that bridge copy, so the caller segment must stay valid for the call only; peak Java heap cost is zero.
      */
     public static long docOpenSegment(MemorySegment data, long len) {
         return PdfiumRuntime.executeLong(() -> {
@@ -488,10 +423,8 @@ public final class JpdfiumLib {
     }
 
     public static int docPageCount(long doc) {
-        // Leaf admission rather than executeInt: this runs in tight document
-        // loops, and a captured lambda stays a 24-byte allocation per call
-        // until C2 compiles this method, which breaks the zero-allocation
-        // budget. Same admission semantics, no closure on the stack.
+        // Leaf admission rather than executeInt: this runs in tight document loops, and a captured
+        // lambda would stay a 24-byte allocation per call until C2 compiles the method, breaking the zero-allocation budget. Same admission semantics, no closure on the stack.
         PdfiumRuntime.enterLeaf();
         try {
             // Binding chosen before invocation; see pageWidth0 for why a fast
@@ -522,11 +455,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Optional streaming file-save entry point
-     * ({@code jpdfium_doc_save_to_file}): writes PDFium output straight to a
-     * native {@code FILE*} via {@code FPDF_FILEWRITE} with an in-callback byte
-     * budget, so large saves never materialize a document-sized native vector.
-     * Admitted to the PDFium domain like every other document save.
+     * Optional streaming file-save entry point ({@code jpdfium_doc_save_to_file}): writes PDFium
+     * output straight to a native {@code FILE*} via {@code FPDF_FILEWRITE} with an in-callback byte budget, so large saves never materialize a document-sized native vector; admitted to the PDFium domain like every other save.
      */
     private static final MethodHandle SAVE_TO_FILE_HANDLE = Symbols.downcallOptional(
             "jpdfium_doc_save_to_file",
@@ -536,10 +466,8 @@ public final class JpdfiumLib {
     static final int SAVE_TRANSFER_BYTES = 256 * 1024;
 
     /**
-     * Low-level guarded save to an exact filesystem path (no staging, no
-     * move). Prefers the streaming native entry point when the loaded bridge
-     * exports it; otherwise falls back to the buffered {@code jpdfium_doc_save}
-     * plus a post-hoc size/cap check.
+     * Low-level guarded save to an exact filesystem path (no staging, no move). Prefers the streaming
+     * native entry point when the loaded bridge exports it; otherwise falls back to the buffered {@code jpdfium_doc_save} plus a post-hoc size/cap check.
      */
     public static void docSaveNative(long doc, String absPath, long maxBytes) {
         try (Arena a = Arena.ofConfined()) {
@@ -581,9 +509,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Transactional file save: stream to a sibling staging file under the
-     * PDFium guard, then atomically publish. A failed save never replaces or
-     * leaves a partial destination behind.
+     * Transactional file save: stream to a sibling staging file under the PDFium guard, then
+     * atomically publish. A failed save never replaces or leaves a partial destination behind.
      */
     public static void docSaveToFile(long doc, Path destination, SaveOptions options) {
         SaveOptions opts = options == null ? SaveOptions.fast() : options;
@@ -600,9 +527,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Save to an owned temporary file and hand the path to the caller (who
-     * owns deletion). Backs {@code saveToTempFile()} and the channel-spool
-     * path without ever exposing a staging file as a successful result.
+     * Save to an owned temporary file and hand the path to the caller (who owns deletion). Backs
+     * {@code saveToTempFile()} and the channel-spool path without ever exposing a staging file as a result.
      */
     public static Path docSaveToTempFile(long doc, SaveOptions options) {
         SaveOptions opts = options == null ? SaveOptions.fast() : options;
@@ -652,16 +578,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Streams saved document bytes to a channel with bounded memory.
-     *
-     * <p>Two stages: (1) PDFium serializes via {@code FPDF_FILEWRITE} to an
-     * owned native temp file inside the execution domain; (2) the domain is
-     * released and the temp file is transferred in {@code 256 KiB} chunks, so
-     * a slow, throwing, or partially-writing channel never stalls unrelated
-     * PDFium work and neither a document-sized native buffer nor a Java
-     * {@code byte[]} is ever materialized. The temp file is deleted on success
-     * and on every failure path; the caller's channel exception (if any) is
-     * preserved.
+     * Streams saved document bytes to a channel with bounded memory. Two stages: PDFium serializes
+     * via {@code FPDF_FILEWRITE} to an owned temp file inside the domain, then the domain is released and the file is transferred in {@code 256 KiB} chunks, so a slow/throwing channel never stalls unrelated PDFium work and no document-sized native or Java buffer is materialized. The temp file is deleted on every path and the caller's channel exception is preserved.
      */
     public static void docSaveTo(long doc, WritableByteChannel channel) throws IOException {
         docSaveTo(doc, channel, SaveOptions.fast());
@@ -702,21 +620,15 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Ordered teardown, leaf first: callers close pages/progressive/text state
-     * before the document, and documents before library shutdown. A second
-     * close is a no-op at the wrapper layer; the native close itself runs in
-     * the execution domain like every other PDFium call.
+     * Ordered teardown, leaf first: callers close pages/progressive/text state before the document,
+     * and documents before library shutdown. A second close is a no-op at the wrapper layer; the native close runs in the execution domain.
      *
-     * @param doc handle previously returned by a {@code JpdfiumLib} open/create
-     *     wrapper. Raw {@link JpdfiumH} handles bypass lifecycle accounting and
-     *     must not be closed here: doing so would consume a live document's
-     *     count (see {@link JpdfiumH}).
+     * @param doc handle previously returned by a {@code JpdfiumLib} open/create wrapper. Raw {@link JpdfiumH} handles bypass lifecycle accounting and must not be closed here: doing so would consume a live document's count.
      */
     public static void docClose(long doc) {
         PdfiumRuntime.executeTeardown(() -> {
-            // Binding selected before invocation. A cleanup handle that threw
-            // and then fell back would risk closing the same native document
-            // twice - exactly the corruption this wrapper exists to prevent.
+            // Binding selected before invocation. A cleanup handle that threw and then fell back would
+            // risk closing the same native document twice - exactly the corruption this wrapper prevents.
             MethodHandle fast = FastLinks.DOC_CLOSE;
             if (fast != null) {
                 try {
@@ -756,11 +668,8 @@ public final class JpdfiumLib {
     public record PageInfo(float width, float height) {}
 
     /**
-     * Coarse page-geometry query: width plus height in one native validation
-     * ({@code jpdfium_page_info}) instead of two leaf dispatches. Prefer this
-     * (and its future siblings) over pairing {@link #pageWidth} with
-     * {@link #pageHeight} on hot paths. Falls back to batched leaves on older
-     * bridges that predate the coarse entry.
+     * Coarse page-geometry query: width plus height in one native validation ({@code jpdfium_page_info})
+     * instead of two leaf dispatches. Prefer this over pairing {@link #pageWidth} with {@link #pageHeight} on hot paths; falls back to batched leaves on older bridges.
      */
     public static PageInfo pageInfo(long page) {
         return PdfiumRuntime.executeBatch(() -> {
@@ -815,9 +724,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Validates the caller-owned render buffer contract (address, storage, scope,
-     * dimensions, overflow-safe math, pixel budget, padded-row capacity).
-     * Public so {@code PdfPage} shares this single enforcement point.
+     * Validates the caller-owned render buffer contract (address, storage, scope, dimensions,
+     * overflow-safe math, pixel budget, padded-row capacity). Public so {@code PdfPage} shares this enforcement point.
      */
     public static void checkRenderIntoArgs(MemorySegment targetBitmap, int width, int height) {
         if (targetBitmap == null) {
@@ -855,11 +763,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Returns the render-pixel budget ({@code jpdfium.maxRenderPixels},
-     * default 0 = unlimited). Set to a finite value for untrusted documents;
-     * negative is invalid and rejected. Read per call so tests
-     * can adjust it at runtime; each operation captures the value once at
-     * entry and uses that snapshot throughout.
+     * Returns the render-pixel budget ({@code jpdfium.maxRenderPixels}, default 0 = unlimited). Set a
+     * finite value for untrusted documents; negative is invalid and rejected. Read per call (captured once per operation) so tests can adjust it at runtime.
      */
     public static long maxRenderPixels() {
         long v = Long.getLong("jpdfium.maxRenderPixels", DEFAULT_MAX_RENDER_PIXELS);
@@ -871,11 +776,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Post-generation save-result acceptance limit ({@code jpdfium.maxSaveResultBytes},
-     * 0 = disabled). It bounds the Java copy, channel write, and reinterpretation,
-     * not the transient native snapshot, which already exists when checked.
-     * A negative value is a configuration bug (most often an underflowed
-     * subtraction) and would otherwise silently disable the cap.
+     * Post-generation save-result acceptance limit ({@code jpdfium.maxSaveResultBytes}, 0 = disabled).
+     * It bounds the Java copy, channel write, and reinterpretation, not the transient native snapshot, which already exists when checked; a negative value is a configuration bug (often an underflowed subtraction) that would otherwise silently disable the cap.
      */
     public static long maxSaveResultBytes() {
         long v = Long.getLong("jpdfium.maxSaveResultBytes", 0);
@@ -897,10 +799,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Validates a native pointer/length output pair before reinterpretation.
-     * Zero length permits a null pointer; positive lengths require a nonzero
-     * native address, so a native error path returning success with an invalid
-     * pair fails here instead of inside {@code reinterpret}.
+     * Validates a native pointer/length output pair before reinterpretation. Zero length permits a
+     * null pointer; positive lengths require a nonzero address, so an error path returning success with an invalid pair fails here instead of inside {@code reinterpret}.
      */
     static long checkNativeBuffer(MemorySegment ptr, long len, String ctx, boolean applySaveCap) {
         if (len < 0) {
@@ -939,9 +839,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Whether this native build exports the Rust SVG rasterizer. The stub
-     * bridge used by the availability probe does not, so callers that require
-     * resvg should skip rather than fail there.
+     * Whether this native build exports the Rust SVG rasterizer. The availability-probe stub bridge
+     * does not, so callers that require resvg should skip rather than fail there.
      */
     public static boolean isSvgRasterizerAvailable() {
         if (RustBindings.jpdfium_has_rust == null) {
@@ -955,9 +854,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * A native straight-RGBA SVG raster. The buffer lives in native memory
-     * until {@link #close()}; consumers that can take a {@link MemorySegment}
-     * (libvips) avoid the Java-heap copy entirely.
+     * A native straight-RGBA SVG raster. The buffer lives in native memory until {@link #close()};
+     * consumers that can take a {@link MemorySegment} (libvips) avoid the Java-heap copy entirely.
      */
     public static final class SvgRaster implements AutoCloseable {
         private final MemorySegment pixels;
@@ -1019,9 +917,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Rasterize an SVG document to straight RGBA with the Rust resvg renderer.
-     * This copies the pixels onto the Java heap; the vips path uses
-     * {@link #svgToNative} to stay zero-copy.
+     * Rasterize an SVG document to straight RGBA with the Rust resvg renderer. Copies the pixels onto
+     * the Java heap; the vips path uses {@link #svgToNative} to stay zero-copy.
      *
      * @param svg    SVG bytes
      * @param width  target box width in pixels, or 0 for the natural size
@@ -1035,11 +932,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Fast path that returns a heap {@link RenderResult}. Avoids the
-     * {@link RenderedPageView} wrapper (object + {@link AtomicBoolean}
-     * + cleanup lambda) so the common {@code page.renderAt()} call stays allocation-lean;
-     * this is the path the JMH FFM benchmarks gate on. Zero-copy consumers that need the
-     * native pixel buffer (e.g. the Vips encoder) should call {@link #renderPageView}.
+     * Fast path that returns a heap {@link RenderResult}. Avoids the {@link RenderedPageView} wrapper
+     * (object + {@link AtomicBoolean} + cleanup lambda) so the common {@code page.renderAt()} call stays allocation-lean - the path the JMH FFM benchmarks gate on. Zero-copy consumers needing the native buffer should call {@link #renderPageView}.
      */
     public static RenderResult renderPage(long page, int dpi) {
         return renderPage(page, dpi, false, 0);
@@ -1153,10 +1047,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Segment-taking render path: reuses the caller's cached raw-page view instead of
-     * wrapping the handle per call ({@code MemorySegment.ofAddress} allocates a heap
-     * object, which only escape analysis could remove). Certified zero-alloc callers
-     * must use this overload with a cached segment.
+     * Segment-taking render path: reuses the caller's cached raw-page view instead of wrapping the
+     * handle per call ({@code MemorySegment.ofAddress} allocates a heap object). Certified zero-alloc callers must use this overload with a cached segment.
      */
     public static void renderPageIntoSegment(MemorySegment rawPage, MemorySegment targetBitmap,
                                       int width, int height, int flags) {
@@ -1265,14 +1157,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Hard crop: physically remove everything outside the crop rectangle.
-     * Straddling text is split per character, straddling images are
-     * pixel-erased outside (soft masks kept when the image can be rendered,
-     * nested images promoted),
-     * fully outside objects are removed. A post-pass audit returns
-     * {@code JPDFIUM_ERR_REDACT_INCOMPLETE} or
-     * {@code JPDFIUM_ERR_REDACT_UNVERIFIABLE} when content survives or the
-     * audit cannot run.
+     * Hard crop: physically removes everything outside the crop rectangle - straddling text is split
+     * per character, straddling images are pixel-erased outside (soft masks kept when renderable, nested images promoted), and fully outside objects are removed. A post-pass audit returns {@code JPDFIUM_ERR_REDACT_INCOMPLETE} or {@code JPDFIUM_ERR_REDACT_UNVERIFIABLE} when content survives or the audit cannot run.
      *
      * @param page bridge page handle
      * @param x    crop rect left (PDF points)
@@ -1463,9 +1349,8 @@ public final class JpdfiumLib {
     }
 
     /**
-     * Commit phase: burn all REDACT annotations on the page via Object Fission.
-     * Permanently removes content, paints fill rects, removes the annotations.
-     * The document handle remains valid - no reload required.
+     * Commit phase: burn all REDACT annotations on the page via Object Fission, permanently removing
+     * content, painting fill rects, and removing the annotations; the document handle stays valid (no reload).
      *
      * @return the number of REDACT annotations that were committed
      */

@@ -15,8 +15,7 @@ import java.util.List;
 /**
  * List and lookup named destinations in a PDF document.
  *
- * <p>Named destinations are bookmark-like references that allow jumping to
- * a specific page/location by name.
+ * <p>Named destinations are bookmark-like references that allow jumping to a specific page/location by name.
  */
 public final class PdfNamedDestinations {
 

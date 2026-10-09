@@ -57,9 +57,8 @@ final class PageTextScratchBuffer implements AutoCloseable {
             long requiredBytes = (long) (charCount + 1) * 2;
             if (requiredBytes > nativeBufCapacity) {
                 nativeBufCapacity = Math.max(requiredBytes, nativeBufCapacity * 2);
-                // Grow in a fresh arena and release the previous one: a
-                // confined arena frees only on close, so re-allocating inside
-                // it would retain every superseded buffer until close().
+                // Grow in a fresh arena and release the previous one: a confined arena
+                // frees only on close, so re-allocating inside it would retain every superseded buffer.
                 Arena grown = Arena.ofConfined();
                 MemorySegment replacement = grown.allocate(nativeBufCapacity);
                 arena.close();

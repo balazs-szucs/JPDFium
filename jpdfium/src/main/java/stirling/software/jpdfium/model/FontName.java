@@ -3,8 +3,7 @@ package stirling.software.jpdfium.model;
 /**
  * Standard PDF base fonts.
  *
- * <p>These 14 fonts are guaranteed to be available in all PDF viewers
- * per the PDF specification.
+ * <p>These 14 fonts are guaranteed to be available in all PDF viewers per the PDF specification.
  */
 public enum FontName {
 

@@ -55,15 +55,9 @@ import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 
 /**
- * Command-line interface for JPDFium, also compiled as a standalone GraalVM
- * native binary ({@code jpdfium <operation> <args...>}).
+ * Command-line interface for JPDFium, also compiled as a standalone GraalVM native binary ({@code jpdfium <operation> <args...>}).
  *
- * <p>Operations are registered in {@link #OPS} and {@link #printHelp()} is
- * generated from the same table, so help can never drift from the dispatch.
- *
- * <p>Exit codes: 0 success, 1 processing failure, 2 usage error, 70 fatal VM
- * error. {@code help} and unknown-operation diagnostics never touch the native
- * library so they are instant in the compiled binary.
+ * <p>Operations are registered in {@link #OPS} and {@link #printHelp()} is generated from the same table, so help can never drift from the dispatch; exit codes are 0 success, 1 processing failure, 2 usage error, 70 fatal VM error, and {@code help}/unknown-operation diagnostics never touch the native library so they are instant in the compiled binary.
  */
 public final class JpdfiumCli {
 

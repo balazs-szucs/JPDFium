@@ -8,10 +8,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Structured text search across PDF pages.
- * Provides match results with positional information.
+ * Structured text search across PDF pages, providing match results with positional information.
  *
- * <p><b>Usage Example</b></p>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("document.pdf"))) {
  *     List<SearchMatch> matches = PdfTextSearcher.search(doc, "Hello");
@@ -57,11 +55,9 @@ public final class PdfTextSearcher {
     }
 
     /**
-     * Parse match results from the native JSON format.
-     * Format: [{"start":0,"len":3}, ...]
+     * Parse match results from the native JSON format: {@code [{"start":0,"len":3}, ...]}.
      *
-     * <p>Single index-based sweep: no {@code String.split} or per-field substring
-     * allocation beyond the value span handed to {@code Integer.parseInt}.
+     * <p>Single index-based sweep: no {@code String.split} or per-field substring allocation beyond the value span handed to {@code Integer.parseInt}.
      */
     static List<SearchMatch> parseMatchesJson(String json, int pageIndex) {
         List<SearchMatch> matches = new ArrayList<>();

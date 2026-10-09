@@ -20,8 +20,7 @@ import java.util.List;
 /**
  * Factory for creating, loading, and saving {@link PdfDocument} instances.
  *
- * <p>Provides unified load and save operations across memory buffers, streams,
- * files, and image sources for web applications and pipeline services.
+ * <p>Provides unified load and save operations across memory buffers, streams, files, and image sources for web applications and pipeline services.
  */
 public final class PdfDocumentFactory {
 

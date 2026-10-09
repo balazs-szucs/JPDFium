@@ -10,11 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Native Image Sample Application Runner and Verification Suite.
- * Executed as a standalone GraalVM Native Image binary in CI to verify that
- * all major PDFium operations (rendering, text extraction, redaction, flattening,
- * page geometry, merging, splitting, repair, and document serialization)
- * execute natively and produce valid, verified PDF outputs.
+ * Native Image sample application runner and verification suite.
+ *
+ * <p>Runs as a standalone GraalVM native binary in CI to verify that all major PDFium operations (rendering, text extraction, redaction, flattening, page geometry, merging, splitting, repair, and document serialization) execute natively and produce valid, verified PDF outputs.
  */
 public class GraalVmSmokeApp {
 

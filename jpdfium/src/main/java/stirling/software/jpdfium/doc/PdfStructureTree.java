@@ -15,9 +15,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Navigate the tagged structure tree of a PDF page.
  *
- * <p>The structure tree provides accessibility information (tags) that describe
- * the logical reading order and document semantics (paragraphs, headings,
- * tables, etc.).
+ * <p>The structure tree provides accessibility tags describing logical reading order and document semantics (paragraphs, headings, tables, etc.).
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(path);

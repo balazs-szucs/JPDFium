@@ -13,20 +13,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * Hand-linked direct downcall method handles for hot leaf native operations.
  *
- * <p>Handles marked critical use {@code Linker.Option.critical(false)} when
- * the {@code jpdfium.ffm.critical} system property is {@code true} (the
- * default); any failure falls back to a plain downcall in {@link #link}.
- * Every signature here already has a foreign entry in
- * {@code reachability-metadata.json}, which is what keeps GraalVM
- * native-image working since the whole {@code panama} package is
- * {@code initialize-at-run-time} and every handle is created at image
- * runtime. Resource-cleanup handles ({@code DOC_CLOSE}, {@code PAGE_CLOSE},
- * {@code FLASHTEXT_FREE}) always use plain downcalls because cleanup work
- * does not satisfy the short-call contract.
- *
- * <p>These direct handles are not wrapped by combinators; callers must invoke
- * them from inside the {@link PdfiumRuntime} execution domain
- * ({@code execute}/{@code executeTeardown}).
+ * <p>Handles marked critical use {@code Linker.Option.critical(false)} when {@code jpdfium.ffm.critical} is true (default); any failure falls back to a plain downcall in {@link #link}. Every signature has a foreign entry in {@code reachability-metadata.json} to keep GraalVM native-image working. Resource-cleanup handles ({@code DOC_CLOSE}, {@code PAGE_CLOSE}, {@code FLASHTEXT_FREE}) always use plain downcalls. Callers must invoke these from inside the {@link PdfiumRuntime} execution domain ({@code execute}/{@code executeTeardown}).
  */
 public final class FastLinks {
 
@@ -47,12 +34,7 @@ public final class FastLinks {
     public static final MethodHandle FONT_FREE_INFO;
     public static final MethodHandle PAGE_FLATTEN;
 
-    // Critical-suitability audit: critical downcalls must be short in all cases
-    // and never call back into Java, lock, or run variable-length PDFium work.
-    // Eligible here are trivial getters (page count/dimensions), plain free()s,
-    // and small fixed-struct releases. Rendering, parsing, saving, redaction,
-    // text extraction, flattening, and all cleanup that walks heap state stay
-    // plain - they go through the guarded JpdfiumH bindings, never this table.
+    // Critical-suitability audit: critical downcalls must be short and never call back into Java, lock, or run variable-length work. Eligible: trivial getters, plain free()s, small fixed-struct releases; rendering/parsing/saving/redaction/cleanup stay plain.
     static {
         DOC_PAGE_COUNT  = link("jpdfium_doc_page_count", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS), true);
         PAGE_WIDTH      = link("jpdfium_page_width", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS), true);

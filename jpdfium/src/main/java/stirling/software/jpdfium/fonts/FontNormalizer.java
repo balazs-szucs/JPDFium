@@ -9,24 +9,15 @@ import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 
 /**
- * Font normalization pipeline - fixes broken fonts that cause auto-redact failures,
- * garbled text extraction, and corrupted rendering after edits.
+ * Font normalization pipeline that fixes broken fonts causing auto-redact failures, garbled extraction, and corrupted rendering after edits (broken fonts are the #1 reason auto-redact misses characters).
  *
- * <p>Broken fonts are the #1 reason auto-redact misses characters. The pipeline:
+ * <p>Stages use strictly MIT-compatible natives: FreeType (FTL/MIT) for extract/classify/width repair/Type1, HarfBuzz hb-subset (MIT) for subset/layout/CFF2, ICU4C for Unicode normalization, and qpdf (Apache 2.0) for stream replacement/incremental save/font dict edit.
+ *
  * <pre>
  * Extract font -> Classify type -> Repair CMap ->
  * Re-subset -> Normalize to OTF/CFF -> Re-embed -> Repair /W table
  * </pre>
  *
- * <p>Each stage uses a strictly MIT-compatible native library:
- * <ul>
- *   <li><strong>FreeType</strong> (FTL/MIT) - extract, classify, width repair, Type1 parse</li>
- *   <li><strong>HarfBuzz hb-subset</strong> (MIT) - subset, layout table preservation, CFF2 output</li>
- *   <li><strong>ICU4C</strong> (Unicode License) - Unicode normalization (NFC/NFD) before CMap generation</li>
- *   <li><strong>qpdf</strong> (Apache 2.0) - stream replacement, incremental save, font dict edit</li>
- * </ul>
- *
- * <p><b>Usage</b></p>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {
  *     for (int i = 0; i < doc.pageCount(); i++) {
@@ -91,11 +82,8 @@ public final class FontNormalizer {
     }
 
     /**
-     * Fix /ToUnicode CMap for all fonts on a page.
-     *
-     * <p>Wrong ToUnicode causes wrong text extraction, which causes patterns to miss,
-     * which causes redact to silently fail. Uses FreeType to walk the font's internal
-     * cmap table and generate a correct GID-&gt;Unicode map.
+     * Fix /ToUnicode CMap for all fonts on a page. Wrong ToUnicode causes wrong text extraction, so
+     * patterns miss and redact silently fails; uses FreeType to walk the font's internal cmap table and generate a correct GID-&gt;Unicode map.
      *
      * @param doc       open PDF document
      * @param pageIndex zero-based page index
@@ -136,10 +124,8 @@ public final class FontNormalizer {
     }
 
     /**
-     * Re-subset a font using HarfBuzz hb-subset, retaining only the given codepoints.
-     *
-     * <p>Use {@code retainGids=true} to keep original glyph IDs so existing content streams
-     * continue to reference correct glyphs after subsetting.
+     * Re-subset a font using HarfBuzz hb-subset, retaining only the given codepoints. Use
+     * {@code retainGids=true} to keep original glyph IDs so existing content streams keep referencing correct glyphs.
      *
      * @param fontData    raw font bytes
      * @param codepoints  Unicode codepoints to retain in the subset

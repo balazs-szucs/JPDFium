@@ -11,14 +11,7 @@ import java.nio.file.Path;
 /**
  * In-process qpdf structural sanitization (FFM, no CLI).
  *
- * <p>Thin wrapper over {@link QpdfLib} for the structural scrubbing Stirling-PDF
- * used to do through the qpdf CLI: metadata/info/structure stripping, JavaScript
- * action removal, embedded-file removal, AcroForm removal, annotation flattening.
- *
- * <p>This is <b>not</b> visual redaction. Removing the underlying text of a
- * content stream is the pdfium side's job; run that first, then this pass to
- * clean up the structural copies (structure tree, annotation text, metadata)
- * redaction leaves behind.
+ * <p>Thin wrapper over {@link QpdfLib} for the structural scrubbing Stirling-PDF used to do via the qpdf CLI: metadata/info/structure stripping, JavaScript/action removal, embedded-file removal, AcroForm removal, and annotation flattening. This is <b>not</b> visual redaction: run the pdfium side first, then this pass to clean up structural copies redaction leaves behind.
  */
 public final class PdfSanitizer {
 
@@ -55,10 +48,8 @@ public final class PdfSanitizer {
         if (result == null) {
             throw new IOException("qpdf sanitization produced no output");
         }
-        // Single transaction for staging, size validation, permissions, and
-        // atomic publish: the previous createTempFile+publishStaged split kept
-        // the default temp permissions and skipped the budget check on this
-        // fallback path.
+        // Single transaction for staging, size validation, permissions, and atomic
+        // publish; the previous createTempFile+publishStaged split kept default temp permissions and skipped the budget check here.
         try (OutputTransaction tx = OutputTransaction.begin(output)) {
             Files.write(tx.staging(), result);
             tx.publish(maxBytes <= 0 ? null : SaveOptions.maxOutputBytes(maxBytes));

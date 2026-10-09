@@ -9,14 +9,8 @@ import java.nio.file.Path;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
 /**
- * PDF encryption.
- *
- * <p>Two native backends, no external process: in-memory AES-256 via
- * {@code EPDF_SetEncryption} (applied before save), and in-process qpdf
- * (AES-128/256 file operations) via {@link PdfSecurity}.
- *
- * <p>File-based {@link #encrypt(Path, Path, String, String)} and
- * {@link #decrypt(Path, Path, String)} delegate to {@link PdfSecurity}.
+ * PDF encryption with two native backends and no external process: in-memory AES-256 via
+ * {@code EPDF_SetEncryption} (applied before save) and in-process qpdf (AES-128/256 file operations) via {@link PdfSecurity}. File-based {@link #encrypt(Path, Path, String, String)} and {@link #decrypt(Path, Path, String)} delegate to {@link PdfSecurity}.
  */
 public final class PdfEncryption {
 
@@ -35,9 +29,8 @@ public final class PdfEncryption {
     }
 
     /**
-     * Set AES-256 encryption on an in-memory document.
-     * Must be called <b>before</b> saving. The encryption takes effect during
-     * {@code FPDF_SaveAsCopy} / {@code FPDF_SaveWithVersion}.
+     * Set AES-256 encryption on an in-memory document; must be called <b>before</b> saving, taking
+     * effect during {@code FPDF_SaveAsCopy} / {@code FPDF_SaveWithVersion}.
      *
      * @param rawDoc        raw FPDF_DOCUMENT
      * @param userPassword  user password (empty string = document opens without password)
@@ -68,9 +61,8 @@ public final class PdfEncryption {
     }
 
     /**
-     * Unlock owner permissions on an encrypted, already-opened document.
-     * After unlocking, modifications are allowed even though the document was
-     * opened with the user password.
+     * Unlock owner permissions on an encrypted, already-opened document, allowing modifications even
+     * though the document was opened with the user password.
      *
      * @param rawDoc        raw FPDF_DOCUMENT
      * @param ownerPassword owner password
@@ -104,10 +96,8 @@ public final class PdfEncryption {
     }
 
     /**
-     * Encrypt a PDF file with AES using the in-process qpdf backend.
-     *
-     * <p>All permissions are granted; use
-     * {@link PdfSecurity#encrypt(Path, Path, String, String, int, int)} to restrict them.
+     * Encrypt a PDF file with AES using the in-process qpdf backend. All permissions are granted;
+     * use {@link PdfSecurity#encrypt(Path, Path, String, String, int, int)} to restrict them.
      *
      * @param input         path to the input PDF
      * @param output        path for the encrypted output PDF

@@ -8,9 +8,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 /**
  * Optional hand-written bindings for the Rust-powered bridge features.
  *
- * <p>Deliberately not jextract-generated: the stub probe build does not export
- * these, and a tolerant lookup lets callers report "feature unavailable"
- * instead of failing class initialisation.
+ * <p>Deliberately not jextract-generated: the stub probe build does not export these, and a tolerant lookup lets callers report "feature unavailable" instead of failing class initialisation.
  */
 public final class RustBindings {
 

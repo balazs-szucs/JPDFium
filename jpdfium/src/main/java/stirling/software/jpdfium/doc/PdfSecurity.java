@@ -19,10 +19,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Comprehensive PDF security hardening and sanitization (builder pattern).
- *
- * <p>Removes potentially dangerous or sensitive content: JavaScript, embedded files,
- * actions, metadata, links, fonts, comments, hidden text, and interactive forms.
+ * Comprehensive PDF security hardening and sanitization (builder pattern). Removes potentially
+ * dangerous or sensitive content: JavaScript, embedded files, actions, metadata, links, fonts, comments, hidden text, and interactive forms.
  *
  * <pre>{@code
  * // Full sanitization in one call

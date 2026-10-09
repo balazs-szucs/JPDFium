@@ -13,13 +13,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Detect and correct skew (rotation) in scanned PDF pages.
  *
- * <p>Uses the Postl's projection profile variance algorithm to detect the skew
- * angle: for each candidate angle, the page bitmap is virtually sheared and the
- * row-sum variance is computed. The angle that maximizes variance corresponds to
- * the correct text orientation.
- *
- * <p>After detection, the page content is counter-rotated using
- * {@code FPDFPageObj_Transform} to straighten text lines.
+ * <p>Uses Postl's projection profile variance algorithm: for each candidate angle the page bitmap is virtually sheared and the row-sum variance computed; the angle maximizing variance is the correct orientation. The page content is then counter-rotated with {@code FPDFPageObj_Transform}.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("scanned.pdf"))) {
@@ -168,9 +162,7 @@ public final class PdfDeskew {
     /**
      * Projection-profile skew detection (Postl's algorithm).
      *
-     * <p>For each candidate angle, virtually shear the binary image and compute
-     * the variance of the horizontal projection (row sums). The angle with
-     * maximum variance is the skew angle.
+     * <p>For each candidate angle, virtually shear the binary image and compute the variance of the horizontal projection (row sums); the maximum-variance angle is the skew angle.
      */
     private static DeskewResult findSkewAngle(boolean[][] binary, int width, int height,
                                                 float maxAngle, float accuracy) {

@@ -24,12 +24,9 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Export and import annotations using XFDF (XML Forms Data Format) - the
- * industry-standard annotation exchange format for PDF review workflows.
+ * Export and import annotations using XFDF (XML Forms Data Format) - the industry-standard annotation exchange format for PDF review workflows.
  *
- * <p>XFDF is a human-readable XML format supported by Adobe Acrobat, Foxit,
- * PDF-XChange, and other PDF tools. It enables extracting annotations from
- * one document and importing them into another.
+ * <p>XFDF is human-readable XML supported by Adobe Acrobat, Foxit, PDF-XChange, and others, enabling extracting annotations from one document and importing them into another.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {
@@ -116,8 +113,7 @@ public final class PdfAnnotationExchange {
     /**
      * Export to FDF (binary) format.
      *
-     * <p>FDF is the legacy binary annotation format. XFDF is preferred for
-     * new workflows as it covers 95%+ of use cases and is human-readable.
+     * <p>FDF is the legacy binary annotation format; XFDF is preferred for new workflows as it covers 95%+ of use cases and is human-readable.
      *
      * @param doc open PDF document
      * @return FDF bytes (simplified text-based FDF structure)

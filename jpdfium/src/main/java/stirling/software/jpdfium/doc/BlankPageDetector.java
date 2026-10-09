@@ -11,8 +11,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Detect blank pages in a PDF document.
  *
- * <p>A page is considered "blank" if it has no text and its rendered image
- * is essentially uniform (below a configurable pixel variance threshold).
+ * <p>A page is "blank" if it has no text and its rendered image is essentially uniform (below a configurable pixel variance threshold).
  */
 public final class BlankPageDetector {
 

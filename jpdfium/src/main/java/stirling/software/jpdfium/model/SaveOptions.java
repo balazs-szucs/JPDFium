@@ -3,16 +3,7 @@ package stirling.software.jpdfium.model;
 /**
  * Output policy for document saves.
  *
- * <p>Memory/latency trade-off is explicit, not hidden behind overloads:
- * <ul>
- *   <li>{@code saveBytes()} materializes the whole document (high peak).</li>
- *   <li>{@code saveTo(Path)} streams natively to a sibling temp file, then
- *       atomically publishes (bounded native + Java memory, guard held during
- *       the file write only).</li>
- *   <li>{@code saveTo(channel)} spools to a temp file under the guard, then
- *       transfers in bounded chunks with the guard released (slow channels
- *       never stall unrelated PDFium work).</li>
- * </ul>
+ * <p>Memory/latency trade-offs are explicit: {@code saveBytes()} materializes the whole document (high peak); {@code saveTo(Path)} streams to a sibling temp file then atomically publishes (bounded memory); {@code saveTo(channel)} spools to a temp file under the guard, then transfers in bounded chunks with the guard released.
  */
 public final class SaveOptions {
 
@@ -65,8 +56,7 @@ public final class SaveOptions {
 
         /**
          * Refuse outputs larger than {@code maxBytes}.
-         * Native streaming saves abort mid-write; buffered/channel paths
-         * fail during staging before publish.
+         * Native streaming saves abort mid-write; buffered/channel paths fail during staging before publish.
          */
         public Builder maxOutputBytes(long maxBytes) {
             if (maxBytes < 0) throw new IllegalArgumentException("maxOutputBytes must be >= 0");

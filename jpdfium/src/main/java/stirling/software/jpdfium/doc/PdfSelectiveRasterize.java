@@ -10,9 +10,7 @@ import java.util.List;
 /**
  * Selectively rasterize specific pages while keeping others as vector content.
  *
- * <p>Useful for flattening complex pages (e.g., pages with problematic
- * transparency or complex vector art) into bitmap-on-page while preserving
- * other pages as native PDF.
+ * <p>Flattens complex pages (e.g. problematic transparency or complex vector art) into bitmap-on-page while preserving other pages as native PDF.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("mixed.pdf"))) {

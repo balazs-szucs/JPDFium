@@ -15,9 +15,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Extract embedded page thumbnails from a PDF.
  *
- * <p>Many PDFs include pre-rendered thumbnail images for each page.
- * This class provides access to both decoded (bitmap) and raw
- * (compressed) thumbnail data.
+ * <p>Many PDFs include pre-rendered thumbnail images for each page; this class provides access to both decoded (bitmap) and raw (compressed) thumbnail data.
  *
  * <pre>{@code
  * try (var doc = PdfDocument.open(path);
@@ -56,10 +54,7 @@ public final class PdfThumbnails {
     /**
      * Get the thumbnail for a page as a {@link BufferedImage}.
      *
-     * <p>Uses {@code FPDFPage_GetThumbnailAsBitmap} to obtain the bitmap with known
-     * dimensions, then converts from PDFium's BGRA memory layout to a Java
-     * {@code BufferedImage} (TYPE_INT_ARGB).
-     *
+     * <p>Uses {@code FPDFPage_GetThumbnailAsBitmap} to obtain the bitmap with known dimensions, then converts from PDFium's BGRA memory layout to a Java {@code BufferedImage} (TYPE_INT_ARGB).
      */
     // FPDFBitmap format constants
     private static final int FMT_GRAY = 1;

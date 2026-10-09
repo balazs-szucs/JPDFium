@@ -21,15 +21,9 @@ public enum CompressPreset {
     PRINT(90, 300, false, true, false, false, PreservationMode.VISUALLY_CONSTRAINED),
 
     /**
-     * Lossless maximum: aggressive structural optimization and stream
-     * recompression via qpdf (object streams, cross-reference streams, and
-     * FlateDecode recompression), with no image recompression and no lossy
-     * steps. zopfli recompression is intentionally NOT enabled: measured across
-     * a corpus, running zopfli on top of the qpdf pass inflated output
-     * (131-145% of the source versus 86% for the qpdf pass alone) while costing
-     * ~80x more CPU, and every ordering (qpdf+zopfli or zopfli+qpdf) was worse
-     * than the qpdf pass alone. zopfli remains available as an explicit opt-in
-     * via {@link CompressOptions.Builder#useZopfliDeflate(boolean)}.
+     * Lossless maximum: aggressive structural optimization and stream recompression via qpdf (object/xref streams, FlateDecode recompression), with no image recompression or lossy steps.
+     *
+     * <p>zopfli recompression is intentionally NOT enabled: measured across a corpus, zopfli on top of the qpdf pass inflated output (131-145% of source versus 86% for qpdf alone) at ~80x the CPU, and every ordering was worse. zopfli remains opt-in via {@link CompressOptions.Builder#useZopfliDeflate(boolean)}.
      */
     LOSSLESS(-1, -1, false, true, false, false, PreservationMode.EXACT),
 

@@ -1,19 +1,8 @@
 /**
- * Unified PDF redaction module - auto-redacts words, patterns, PII, entities,
- * and regions from PDFs using the Object Fission algorithm.
+ * Unified PDF redaction module - auto-redacts words, patterns, PII, entities, and regions from PDFs using the Object Fission algorithm.
  *
- * <p>This module provides a single entry point for all redaction needs:
- * <ul>
- *   <li>Word-list and regex redaction</li>
- *   <li>PCRE2 JIT PII pattern matching (SSN, email, phone, credit card, ...)</li>
- *   <li>FlashText NER entity matching</li>
- *   <li>Glyph-level redaction (HarfBuzz + ICU)</li>
- *   <li>Font normalization (/ToUnicode + /W repair)</li>
- *   <li>XMP / /Info metadata redaction</li>
- *   <li>Convert-to-image for maximum security</li>
- * </ul>
+ * <p>Provides word/regex redaction, PCRE2 JIT PII patterns, FlashText NER, glyph-level redaction (HarfBuzz + ICU), font normalization, XMP//Info metadata redaction, and convert-to-image for maximum security.
  *
- * <p><b>Quick Start</b></p>
  * <pre>{@code
  * RedactOptions opts = RedactOptions.builder()
  *     .addWord("Confidential")

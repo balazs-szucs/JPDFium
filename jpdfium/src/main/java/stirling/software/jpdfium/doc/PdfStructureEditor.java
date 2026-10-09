@@ -15,10 +15,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Build and apply tagged structure trees for PDF/UA accessibility compliance.
- *
- * <p>Supports manual tagging via a fluent builder and automatic structure inference
- * from font sizes, text positions, and detected tables/images.
+ * Build and apply tagged structure trees for PDF/UA accessibility compliance, supporting manual
+ * tagging via a fluent builder and automatic structure inference from font sizes, text positions, and detected tables/images.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {
@@ -52,10 +50,8 @@ public final class PdfStructureEditor {
     }
 
     /**
-     * Automatically infer and apply structure tags from content analysis.
-     *
-     * <p>Uses font sizes for heading detection, table extractor for table regions,
-     * image extractor for figures, and remaining text for paragraphs.
+     * Automatically infer and apply structure tags from content analysis: font sizes for heading
+     * detection, the table extractor for table regions, the image extractor for figures, and remaining text for paragraphs.
      *
      * @param doc the open PDF document
      * @return summary of what was tagged
@@ -229,11 +225,8 @@ public final class PdfStructureEditor {
     }
 
     /**
-     * Fluent builder for manually tagging document structure.
-     *
-     * <p>Tags are recorded in-memory and applied as custom metadata entries
-     * when {@link #apply()} is called. The structure tree is stored as
-     * document-level metadata using the standard StructTreeRoot pattern.
+     * Fluent builder for manually tagging document structure. Tags are recorded in-memory and applied
+     * as custom metadata entries when {@link #apply()} is called, with the structure tree stored as document-level metadata using the standard StructTreeRoot pattern.
      */
     public static final class Builder {
         private final PdfDocument doc;
@@ -336,12 +329,8 @@ public final class PdfStructureEditor {
         }
 
         /**
-         * Apply all tags to the document.
-         *
-         * <p>Creates invisible annotations with marked content to represent
-         * the structure tree. Each tag becomes a FREETEXT annotation with
-         * zero opacity positioned at the tag bounds, carrying the structure
-         * type and content in its properties.
+         * Apply all tags to the document. Creates invisible annotations with marked content to
+         * represent the structure tree: each tag becomes a FREETEXT annotation with zero opacity positioned at the tag bounds, carrying the structure type and content in its properties.
          */
         public void apply() {
             for (TagEntry tag : tags) {
@@ -359,9 +348,8 @@ public final class PdfStructureEditor {
                 }
             }
 
-            // Set document-level metadata if provided
-            // Structure metadata stored as custom metadata via the existing API
-            // Title and language are standard PDF document properties
+            // Set document-level metadata if provided. Structure metadata is stored as custom
+            // metadata via the existing API; title and language are standard PDF document properties.
         }
 
         private static String buildContents(TagEntry tag) {

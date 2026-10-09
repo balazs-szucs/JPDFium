@@ -3,9 +3,7 @@ package stirling.software.jpdfium.doc;
 import java.util.Optional;
 
 /**
- * Verification-oriented facts about a signature field, read from the EmbedPDF
- * signature model. Complements {@link Signature} with the /ByteRange coverage,
- * the revision the signature seals, and the DocMDP permission it carries.
+ * Verification-oriented facts about a signature field, read from the EmbedPDF signature model; complements {@link Signature} with the /ByteRange coverage, the sealed revision, and the DocMDP permission.
  *
  * @param index               0-based signature field index
  * @param fieldName           fully qualified field name

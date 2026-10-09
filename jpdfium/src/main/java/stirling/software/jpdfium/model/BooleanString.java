@@ -3,10 +3,8 @@ package stirling.software.jpdfium.model;
 import java.util.Locale;
 /**
  * Represents string values that are interpreted as boolean states.
- * <p>
- * The following case-insensitive values are considered {@code TRUE}:
- * {@code "yes"}, {@code "true"}, {@code "1"}, {@code "on"}.
- * All other values are considered {@code FALSE}.
+ *
+ * <p>Case-insensitive {@code "yes"}, {@code "true"}, {@code "1"}, {@code "on"} are {@code TRUE}; all other values are {@code FALSE}.
  */
 public enum BooleanString {
 

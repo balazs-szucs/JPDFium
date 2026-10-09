@@ -14,8 +14,7 @@ import java.util.List;
 /**
  * In-process PDF document merging backed by QPDF.
  *
- * <p>Merges page object graphs directly, preserving bookmarks, forms,
- * and structure trees while deduplicating shared resources.
+ * <p>Merges page object graphs directly, preserving bookmarks, forms, and structure trees while deduplicating shared resources.
  */
 public final class PdfMerger {
 
@@ -31,9 +30,7 @@ public final class PdfMerger {
     /**
      * Merge multiple PDF files into a single output file.
      *
-     * <p>File-backed first: the native merge streams each input, so the common
-     * case never puts the inputs on the Java heap. The in-memory fallback only
-     * materializes them when the native path is unavailable or fails.
+     * <p>File-backed first: the native merge streams each input so the common case never puts them on the Java heap; the in-memory fallback only materializes them when the native path is unavailable or fails.
      *
      * @param inputPaths list of input PDF file paths
      * @param outputPath destination PDF file path

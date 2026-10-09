@@ -11,26 +11,8 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /**
- * FFM bindings for the Rust-powered PDF processing functions declared in
- * {@code jpdfium_rust.h}.
- *
- * <p>All functions gracefully degrade in two ways:
- * <ol>
- *   <li>If the native library was compiled <em>without</em> Rust support (the
- *       stub or a real bridge built without {@code -DJPDFIUM_USE_RUST=ON}) the
- *       symbols still exist but return {@code JPDFIUM_ERR_NATIVE} (-99). Java
- *       callers interpret that code as "unavailable".</li>
- *   <li>If the native library was compiled from an older bridge that predates
- *       these symbols entirely (e.g. the old cached stub), the class still
- *       initializes - symbols that cannot be resolved are recorded as absent
- *       and the convenience wrappers return {@code null} transparently.</li>
- * </ol>
- *
- * <p>Memory ownership: output buffers returned by the native functions are
- * allocated with {@code libc::malloc} on the Rust side. They must be freed
- * with {@link #rustFree(MemorySegment)} (or implicitly via the
- * {@link #rustCompressPdf}, {@link #rustRepairLopdf}, and
- * {@link #rustResizePixels} convenience wrappers which free automatically).
+ * FFM bindings for the Rust-powered PDF processing functions declared in {@code jpdfium_rust.h}.
+ * All functions degrade gracefully: if the native library was compiled without Rust support (the stub or a bridge built without {@code -DJPDFIUM_USE_RUST=ON}) the symbols exist but return {@code JPDFIUM_ERR_NATIVE} (-99), which Java interprets as "unavailable"; and if built from an older bridge predating these symbols, unresolvable symbols are recorded as absent and the convenience wrappers return {@code null}. Output buffers returned by native functions are allocated with {@code libc::malloc} on the Rust side and must be freed with {@link #rustFree(MemorySegment)} (or implicitly via {@link #rustCompressPdf}, {@link #rustRepairLopdf}, and {@link #rustResizePixels}).
  */
 public final class RustBridgeBindings {
 
@@ -136,10 +118,8 @@ public final class RustBridgeBindings {
     }
 
     /**
-     * Repair a PDF using lopdf's tolerant XRef parser (final fallback stage).
-     *
-     * lopdf can often parse PDFs that qpdf and PDFio reject. Writing the document
-     * back immediately rebuilds the cross-reference table from scratch.
+     * Repair a PDF using lopdf's tolerant XRef parser (final fallback stage). lopdf can often parse
+     * PDFs that qpdf and PDFio reject; writing the document back immediately rebuilds the cross-reference table from scratch.
      *
      * @param pdfBytes possibly-damaged PDF bytes
      * @return repaired PDF bytes, or {@code null} if Rust is unavailable or repair
@@ -208,11 +188,8 @@ public final class RustBridgeBindings {
     }
 
     /**
-     * Optimise a standalone PNG byte stream using oxipng (lossless).
-     *
-     * <p>Useful for PNG images extracted from a PDF before re-embedding.
-     * oxipng removes superfluous metadata and re-deflates with zopfli for the
-     * smallest possible lossless PNG.
+     * Optimise a standalone PNG byte stream using oxipng (lossless). Useful for PNG images extracted
+     * from a PDF before re-embedding: oxipng removes superfluous metadata and re-deflates with zopfli for the smallest possible lossless PNG.
      *
      * @param pngBytes raw PNG file bytes
      * @param level    oxipng optimisation preset 0-6 (2=fast, 6=maximum)
@@ -241,10 +218,8 @@ public final class RustBridgeBindings {
     }
 
     /**
-     * Free a native buffer returned by a Rust function.
-     *
-     * Called automatically by the convenience wrappers; exposed for callers that
-     * use the raw method handles directly.
+     * Free a native buffer returned by a Rust function. Called automatically by the convenience
+     * wrappers; exposed for callers that use the raw method handles directly.
      *
      * @param ptr pointer to the native buffer (may be null - no-op)
      */

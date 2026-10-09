@@ -11,9 +11,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Add a solid-color background rectangle behind existing page content.
  *
- * <p>Creates a filled rectangle at the bottom of the z-order (behind
- * all existing content) for every specified page. Useful for adding
- * a white background to PDFs with transparency, or for decorative backgrounds.
+ * <p>Creates a filled rectangle at the bottom of the z-order (behind all existing content) for every specified page, useful for adding a white background to PDFs with transparency or for decorative backgrounds.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("transparent.pdf"))) {
@@ -76,10 +74,8 @@ public final class PdfBackground {
                 throw new JPDFiumException("FPDFPath_SetDrawMode failed", t);
             }
 
-            // PDFium InsertObject appends to the end (top of z-order).
-            // To place the background behind existing content, we remove all
-            // existing objects, insert the background rect first, then re-add
-            // the originals on top.
+            // PDFium InsertObject appends to the end (top of z-order). To place the
+            // background behind existing content, remove all objects, insert the background first, then re-add the originals.
 
             int existingCount;
             try {

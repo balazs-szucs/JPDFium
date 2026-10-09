@@ -11,15 +11,7 @@ import stirling.software.jpdfium.model.ImageFormat;
 /**
  * Pluggable image codec discovered through {@link ServiceLoader}.
  *
- * <p>When an implementation is on the classpath it becomes the default codec
- * for image decoding and encoding; {@code javax.imageio} stays available as the
- * fallback for environments without one, or for formats the codec cannot
- * handle. The {@code jpdfium-vips} module ships a libvips-backed implementation
- * that adds HEIC/HEIF/AVIF/JXL/JPEG2000 and plugin-free WebP writes.
- *
- * <p>RGBA frames use the bridge layout: an 8-byte little-endian
- * {@code [width][height]} header followed by {@code width*height*4} bytes of
- * straight (non-premultiplied) R,G,B,A.
+ * <p>When an implementation is on the classpath it becomes the default codec for decoding and encoding; {@code javax.imageio} stays as the fallback. The {@code jpdfium-vips} module ships a libvips-backed implementation adding HEIC/HEIF/AVIF/JXL/JPEG2000 and plugin-free WebP writes. RGBA frames use an 8-byte little-endian {@code [width][height]} header followed by straight R,G,B,A.
  */
 public interface ImageCodec {
 

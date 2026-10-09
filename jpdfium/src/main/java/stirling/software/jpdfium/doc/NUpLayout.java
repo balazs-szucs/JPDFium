@@ -9,12 +9,8 @@ import java.nio.file.Path;
 /**
  * Fluent builder for N-up PDF layouts.
  *
- * <p>Tiles multiple source pages onto each output page using PDFium's
- * {@code FPDF_ImportNPagesToOne} API. The resulting document is saved via
- * {@code FPDF_SaveAsCopy} - entirely through the Panama FFM layer, with
- * no round-trip through the jpdfium C bridge.
+ * <p>Tiles multiple source pages onto each output page via PDFium's {@code FPDF_ImportNPagesToOne} and saves with {@code FPDF_SaveAsCopy} (no jpdfium C bridge round-trip). The source {@link PdfDocument} must remain open until {@link #toBytes()} or {@link #save(Path)} is called - the raw handle is resolved lazily.
  *
- * <h2>Quick start</h2>
  * <pre>{@code
  * // Four-up on A4 landscape - one line
  * NUpLayout.from(doc).grid(2, 2).a4Landscape().build().save(outputPath);
@@ -25,9 +21,6 @@ import java.nio.file.Path;
  * // Custom page size (A3 landscape: 1190 x 842 pt)
  * NUpLayout.from(doc).grid(4, 2).pageSize(1190, 842).build().save(outputPath);
  * }</pre>
- *
- * <p>The source {@link PdfDocument} must remain open until {@link #toBytes()} or
- * {@link #save(Path)} is called - the raw document handle is resolved lazily.
  */
 public final class NUpLayout {
 

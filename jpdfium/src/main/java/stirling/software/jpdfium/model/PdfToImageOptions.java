@@ -211,13 +211,8 @@ public final class PdfToImageOptions {
 
         /**
          * Page range specification (1-indexed).
-         * <p>Examples:
-         * <ul>
-         *   <li>"1-5" - pages 1 through 5</li>
-         *   <li>"1,3,5" - specific pages</li>
-         *   <li>"1-5,8,12-" - ranges and individual pages</li>
-         *   <li>"all" - all pages (default)</li>
-         * </ul>
+         *
+         * <p>Examples: {@code "1-5"} (pages 1-5), {@code "1,3,5"} (specific pages), {@code "1-5,8,12-"} (ranges and pages), {@code "all"} (default).
          */
         public Builder pageRange(String range) {
             this.pageRange = range;

@@ -8,8 +8,7 @@ import java.lang.foreign.MemorySegment;
 /**
  * Draw vector paths on PDF pages using PDFium's path object API.
  *
- * <p>Supports moveTo, lineTo, bezierTo, close, and rectangle primitives
- * with fill/stroke colors and line style configuration.
+ * <p>Supports moveTo, lineTo, bezierTo, close, and rectangle primitives with fill/stroke colors and line style configuration.
  */
 public final class PdfPathDrawer {
 

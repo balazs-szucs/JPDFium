@@ -18,8 +18,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * Import pages between PDF documents and create N-up layouts.
  *
- * <p>All methods operate on raw FPDF_DOCUMENT segments obtained via
- * {@code JpdfiumLib.docRawHandle()}.
+ * <p>All methods operate on raw FPDF_DOCUMENT segments obtained via {@code JpdfiumLib.docRawHandle()}.
  *
  * <pre>{@code
  * try (var src = PdfDocument.open(Path.of("source.pdf"));
@@ -126,8 +125,7 @@ public final class PdfPageImporter {
     /**
      * Create an N-up layout from the source document.
      *
-     * <p>Tiles multiple source pages onto each output page using
-     * {@code FPDF_ImportNPagesToOne} and returns the result as PDF bytes.
+     * <p>Tiles multiple source pages onto each output page using {@code FPDF_ImportNPagesToOne} and returns the result as PDF bytes.
      *
      * @param sourceDocSegment raw FPDF_DOCUMENT of the source (from {@code JpdfiumLib.docRawHandle})
      * @param outputWidth      output page width in PDF points

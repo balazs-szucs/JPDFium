@@ -25,14 +25,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Programmatic form filling for PDF AcroForms. Supports text fields, checkboxes,
- * radio buttons, combo boxes, and list boxes.
+ * Programmatic form filling for PDF AcroForms: text fields, checkboxes, radio buttons, combo boxes, and list boxes. Values are collected via builder methods and applied atomically in {@link #apply()}, which runs the full PDFium form-fill lifecycle (environment init, page notifications, value writes, focus commit, cleanup).
  *
- * <p>The filler collects all desired field values via builder methods and applies them
- * atomically in {@link #apply()}, which manages the complete PDFium form-fill lifecycle
- * (environment init -> page notifications -> value writes -> focus commit -> cleanup).
- *
- * <h2>Quick start</h2>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("form.pdf"))) {
  *     FillResult result = PdfFormFiller.fill(doc)
@@ -48,7 +42,6 @@ import java.util.Set;
  * }
  * }</pre>
  *
- * <h2>Fill from a map</h2>
  * <pre>{@code
  * PdfFormFiller.fill(doc)
  *     .fromMap(Map.of("name", "Jane Doe", "agree", "Yes", "state", "IL"))
@@ -126,9 +119,8 @@ public final class PdfFormFiller {
     // Radio buttons
 
     /**
-     * Select a radio button by the export value of the option to activate.
-     * For example, {@code radio("gender", "male")} selects the radio button
-     * whose export value is {@code "male"}.
+     * Select a radio button by the export value of the option to activate, e.g.
+     * {@code radio("gender", "male")} selects the button whose export value is {@code "male"}.
      */
     public PdfFormFiller radio(String fieldName, String exportValue) {
         radioValues.put(fieldName, exportValue);
@@ -172,16 +164,8 @@ public final class PdfFormFiller {
     // Smart fill from map
 
     /**
-     * Smart-fill from a flat string map. The field type is detected at {@link #apply()} time:
-     * <ul>
-     *   <li>Text / editable combo: value is written directly.</li>
-     *   <li>Checkbox: {@code "yes"/"true"/"1"/"on"} (case-insensitive) -> checked, else unchecked.</li>
-     *   <li>Radio: value is matched against export values.</li>
-     *   <li>Combo / list: value is matched against option labels (first match wins).</li>
-     * </ul>
-     *
-     * <p>Explicit calls ({@link #text}, {@link #check}, {@link #radio}, etc.) take precedence
-     * over map values when both target the same field.
+     * Smart-fill from a flat string map; the field type is detected at {@link #apply()} time. Text /
+     * editable combo writes the value directly; checkbox treats {@code "yes"/"true"/"1"/"on"} (case-insensitive) as checked; radio matches the value against export values; combo / list matches against option labels (first match wins). Explicit calls ({@link #text}, {@link #check}, {@link #radio}, etc.) take precedence over map values for the same field.
      */
     public PdfFormFiller fromMap(Map<String, String> data) {
         mapValues.putAll(data);
@@ -202,10 +186,8 @@ public final class PdfFormFiller {
     // Apply
 
     /**
-     * Apply all accumulated fill operations to the document.
-     *
-     * <p>The document is modified in place. Call {@link PdfDocument#save(Path)} afterwards
-     * to persist the changes.
+     * Apply all accumulated fill operations to the document, modifying it in place; call
+     * {@link PdfDocument#save(Path)} afterwards to persist the changes.
      *
      * @return a {@link FillResult} describing which fields were filled and which were skipped
      * @throws FormFillException if the PDFium form environment cannot be initialised
@@ -597,10 +579,8 @@ public final class PdfFormFiller {
     // Low-level helpers
 
     /**
-     * Return the page-coordinate centre of an annotation's bounding rectangle,
-     * or {@code null} if the rect cannot be read.
-     * <p>The returned array is {@code [cx, cy]} in PDF page coordinates (origin bottom-left).
-     * FS_RECTF layout: left, top, right, bottom (all floats).
+     * Return the page-coordinate centre of an annotation's bounding rectangle, or {@code null} if the
+     * rect cannot be read. The returned {@code [cx, cy]} is in PDF page coordinates (origin bottom-left); FS_RECTF layout is left, top, right, bottom (all floats).
      */
     private static double[] getAnnotCentre(MemorySegment annot) {
         try (Arena arena = Arena.ofConfined()) {
@@ -718,9 +698,8 @@ public final class PdfFormFiller {
     }
 
     /**
-     * Flatten the touched pages after the form fill environment has been torn
-     * down: PDFium's FPDFPage_Flatten silently fails while a form environment
-     * is active, which previously left every widget annotation in place.
+     * Flatten the touched pages after the form fill environment has been torn down: PDFium's
+     * FPDFPage_Flatten silently fails while a form environment is active, which previously left every widget annotation in place.
      *
      * @return the number of pages flattened
      */
@@ -730,9 +709,8 @@ public final class PdfFormFiller {
         for (int pageIdx : pageIndices) {
             try (PdfPage page = document.page(pageIdx)) {
                 if (!widgetsHaveAppearance(page.rawHandle())) {
-                    // Flattening removes widget annotations; without an
-                    // appearance stream the painted value would be lost, so
-                    // leave this page unflattened.
+                    // Flattening removes widget annotations; without an appearance stream the painted
+                    // value would be lost, so leave this page unflattened.
                     continue;
                 }
                 int rc = safeInt2(PageEditBindings.FPDFPage_Flatten, page.rawHandle(), 0);

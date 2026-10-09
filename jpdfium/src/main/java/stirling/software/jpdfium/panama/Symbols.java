@@ -13,13 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Centralized FFM symbol lookup, downcall binding, and resolution tracking.
- *
- * <p>All binding classes delegate downcall construction to {@link Symbols}.
- * In {@link NativeRuntime.NativeMode#FULL} mode, any missing symbol throws an
- * immediate {@link UnsatisfiedLinkError} at class-init time rather than returning
- * null or failing silently later. In {@link NativeRuntime.NativeMode#STUB} mode,
- * missing symbols return {@code null} so stub execution degrades gracefully.
+ * Centralized FFM symbol lookup, downcall binding, and resolution tracking. All binding classes
+ * delegate downcall construction to {@link Symbols}: in {@link NativeRuntime.NativeMode#FULL} mode a missing symbol throws an immediate {@link UnsatisfiedLinkError} at class-init time, while in {@link NativeRuntime.NativeMode#STUB} mode missing symbols return {@code null} so stub execution degrades gracefully.
  */
 public final class Symbols {
 
@@ -59,12 +54,8 @@ public final class Symbols {
     }
 
     /**
-     * Create a guarded downcall handle for an optional symbol, or return {@code null}
-     * if the symbol is absent without throwing an exception even in FULL mode.
-     *
-     * <p>Optional symbols that are absent are not recorded in
-     * {@link #MISSING_SYMBOLS}: that list is reserved for <em>required</em>
-     * symbols that fail to resolve, so {@link #auditMissing()} stays meaningful.
+     * Create a guarded downcall handle for an optional symbol, or return {@code null} if the symbol is
+     * absent without throwing even in FULL mode. Absent optional symbols are not recorded in {@link #MISSING_SYMBOLS}, which is reserved for <em>required</em> symbols that fail to resolve so {@link #auditMissing()} stays meaningful.
      */
     public static MethodHandle downcallOptional(String name, FunctionDescriptor desc, Linker.Option... options) {
         Optional<MemorySegment> symbolOpt = find(name);
@@ -77,13 +68,8 @@ public final class Symbols {
     }
 
     /**
-     * Create a downcall handle that does NOT enter the PDFium domain.
-     *
-     * <p>For native entry points proven independent of PDFium's process-wide
-     * mutable state (in-process QPDF structural operations, each creating its
-     * own {@code QPDF}/{@code QPDFWriter} instances with call-local FFM
-     * argument storage). PDFium entry points must keep using
-     * {@link #downcall} so the domain serialization guarantee is preserved.
+     * Create a downcall handle that does NOT enter the PDFium domain. For native entry points proven
+     * independent of PDFium's process-wide mutable state (in-process QPDF structural operations, each creating its own {@code QPDF}/{@code QPDFWriter} with call-local FFM argument storage); PDFium entry points must keep using {@link #downcall} to preserve domain serialization.
      *
      * @throws UnsatisfiedLinkError if symbol is absent in FULL mode
      */
@@ -114,12 +100,8 @@ public final class Symbols {
     }
 
     /**
-     * Create a guarded downcall method handle for a required symbol.
-     *
-     * <p>The {@code Critical} suffix is historical (required, not a promise of
-     * {@link Linker.Option#critical(boolean)}). Handles stay plain so GraalVM
-     * native-image needs no per signature leaf registration and heap segments
-     * keep working. FastLinks keeps strict critical for the hottest ten.
+     * Create a guarded downcall method handle for a required symbol. The {@code Critical} suffix is
+     * historical (required, not a promise of {@link Linker.Option#critical(boolean)}); handles stay plain so GraalVM native-image needs no per-signature leaf registration and heap segments keep working, while FastLinks keeps strict critical for the hottest ten.
      *
      * @throws UnsatisfiedLinkError if symbol is absent in FULL mode
      */

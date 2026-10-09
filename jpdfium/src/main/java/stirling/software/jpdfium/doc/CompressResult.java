@@ -5,10 +5,7 @@ import java.util.List;
 /**
  * Result of a PDF compression operation.
  *
- * <p>{@code actions} lists every reduction step that was applied;
- * {@code warnings} lists every step that was skipped or downgraded and why
- * (e.g. a signed document returned unchanged, a PDF/A conformance claim being
- * preserved, or a pass that did not reduce size). Nothing is ever silent.
+ * <p>{@code actions} lists every reduction step applied; {@code warnings} lists every step skipped or downgraded and why (e.g. a signed document returned unchanged, a preserved PDF/A claim, or a pass that did not reduce size). Nothing is ever silent.
  */
 public record CompressResult(
         long originalSize,

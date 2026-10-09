@@ -16,34 +16,10 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Orchestrates page-level operations with optional streaming (low-memory)
- * and parallel (multi-threaded) processing.
+ * Orchestrates page-level operations with optional streaming (low-memory) and parallel (multi-threaded) processing.
  *
- * <h3>Modes</h3>
- * <ul>
- *   <li><b>Sequential</b> - processes pages in order on the calling thread.</li>
- *   <li><b>Streaming</b> - processes pages one at a time with periodic save/reload
- *       cycles to release PDFium internal caches and reduce memory pressure.</li>
-  *   <li><b>Parallel</b> - uses a thread pool to execute page operations
-  *       concurrently. PDFium calls serialize internally via the PdfiumRuntime execution domain
-  *       (the library is not thread-safe), but Java-side processing between
-  *       PDFium calls runs in true parallel across worker threads.</li>
- *   <li><b>Streaming + Parallel</b> - combines both: parallel worker threads
- *       with streaming flush to keep memory low.</li>
- * </ul>
+ * <p>Modes: <b>Sequential</b> processes pages in order on the calling thread; <b>Streaming</b> processes one at a time with periodic save/reload cycles to release PDFium internal caches and reduce memory pressure; <b>Parallel</b> uses a thread pool so Java-side processing runs truly in parallel while PDFium calls serialize internally; <b>Streaming + Parallel</b> combines both. Since 1.0.4 every native call goes through the PdfiumRuntime execution domain, so no caller-side locking is required.
  *
- * <h3>Thread Safety &amp; PDFium</h3>
- * <p>PDFium's internal state (font renderer, document loader, page parser) is
- * <b>not thread-safe</b> - even across independent document instances. All
- * PDFium native calls must be serialized. Since 1.0.4 the library does this
- * for you: every native call goes through the PdfiumRuntime execution domain,
- * so no caller-side locking is required anywhere.
- *
- * <p>Parallel speedup comes from overlapping Java-side work (hashing, NLP,
- * image processing, I/O) across threads while PDFium calls are pipelined
- * through the lock. The more Java work per page, the better the speedup.
- *
- * <h3>Usage</h3>
  * <pre>{@code
  * // Modify pages with streaming low-memory mode
  * PdfPipeline.processAndSave(input, output,
@@ -83,24 +59,17 @@ import java.util.concurrent.TimeUnit;
 public final class PdfPipeline {
 
     /**
-     * Global lock for all PDFium native calls. PDFium's internal state
-     * (font renderer, document loader, page parser) is <b>not thread-safe</b>
-     * - even across independent document instances.
+     * Global lock for all PDFium native calls; PDFium's internal state is <b>not thread-safe</b> even
+     * across independent document instances.
      *
-     * @deprecated since 1.0.4 - callers no longer need this. Every native call
-     *     is serialised internally by the PdfiumRuntime execution domain, so PDFium calls
-     *     are safe from any thread without caller-side locking. The field is
-     *     retained so existing {@code synchronized(PDFIUM_LOCK)} blocks keep
-     *     compiling; they are now redundant but harmless.
+     * @deprecated since 1.0.4 - callers no longer need this: every native call is serialised internally by the PdfiumRuntime execution domain, so PDFium calls are safe from any thread. The field is retained so existing {@code synchronized(PDFIUM_LOCK)} blocks keep compiling (now redundant but harmless).
      */
     @Deprecated(since = "1.0.4")
     public static final Object PDFIUM_LOCK = new Object();
 
     /**
-     * A page-level operation applied to each page of a document.
-     *
-     * <p>No caller locking needed: native calls serialize via the PdfiumRuntime execution domain.
-     * Java-side work runs in parallel across worker threads.
+     * A page-level operation applied to each page of a document. No caller locking is needed - native
+     * calls serialize via the PdfiumRuntime execution domain while Java-side work runs in parallel across worker threads.
      */
     @FunctionalInterface
     public interface PageOperation {
@@ -165,11 +134,8 @@ public final class PdfPipeline {
     }
 
     /**
-     * Read-only iteration over pages from byte array.
-     *
-     * <p>In parallel mode, a single shared document is opened and page
-     * operations are dispatched to a thread pool. Native calls serialize
-     * internally; consumers must not add their own locking.
+     * Read-only iteration over pages from a byte array. In parallel mode a single shared document is
+     * opened and page operations are dispatched to a thread pool; native calls serialize internally, so consumers must not add their own locking.
      */
     public static void forEach(byte[] sourceBytes, ProcessingMode mode,
                                BiConsumer<PdfDocument, Integer> consumer) {
@@ -336,9 +302,8 @@ public final class PdfPipeline {
         ExecutorService executor = Executors.newFixedThreadPool(parallelism);
         List<Future<?>> futures = new ArrayList<>();
         try {
-            // Submit one task per page for maximum pipeline overlap:
-            // while thread A does Java work on page N, thread B can enter
-            // the PdfiumRuntime execution domain for page N+1's extraction.
+            // Submit one task per page for maximum pipeline overlap: while thread A does Java work on
+            // page N, thread B can enter the PdfiumRuntime execution domain for page N+1's extraction.
             for (int i = 0; i < totalPages; i++) {
                 final int pi = i;
                 futures.add(executor.submit(() -> consumer.accept(doc, pi)));
@@ -352,18 +317,14 @@ public final class PdfPipeline {
                 doc.close();
             } catch (Throwable shutdownFailure) {
                 t.addSuppressed(shutdownFailure);
-                // Shutdown gave up while a task may still be running, so
-                // closing here would free native handles it is using. Hand
-                // ownership to a daemon that waits for the pool to actually
-                // drain: skipping the close outright would leak the handle
-                // and its live-resource accounting forever.
+                // Shutdown gave up while a task may still be running, so closing here would free native
+                // handles it is using. Hand ownership to a daemon that waits for the pool to actually drain: skipping the close would leak the handle and its live-resource accounting forever.
                 closeAfterPoolDrains(executor, doc, "forEachParallel");
             }
             throw t;
         }
-        // All futures completed, so no task can still own doc: closing in a
-        // finally retires ownership even when shutdown itself throws
-        // (notably on caller interruption during awaitTermination).
+        // All futures completed, so no task can still own doc: closing in a finally retires ownership
+        // even when shutdown itself throws (notably on caller interruption during awaitTermination).
         try {
             shutdownAndReport(executor, "forEachParallel");
         } finally {
@@ -372,10 +333,8 @@ public final class PdfPipeline {
     }
 
     /**
-     * Close {@code doc} once {@code executor} has really terminated.
-     *
-     * <p>Daemon so it can never keep the JVM alive; the document is already
-     * detached from the caller by the time this runs.
+     * Close {@code doc} once {@code executor} has really terminated. The daemon can never keep the JVM
+     * alive; the document is already detached from the caller by the time this runs.
      */
     private static void closeAfterPoolDrains(ExecutorService executor, PdfDocument doc, String op) {
         Thread reaper = Thread.ofPlatform().daemon().name("jpdfium-" + op + "-doc-reaper").start(() -> {
@@ -394,9 +353,8 @@ public final class PdfPipeline {
     }
 
     /**
-     * Process a chunk with optional streaming flushes.
-     * Native calls serialize internally via the PdfiumRuntime execution domain; no caller locking here
-     * (holding a monitor across a downcall pins vthread carriers).
+     * Process a chunk with optional streaming flushes. Native calls serialize internally via the
+     * PdfiumRuntime execution domain; no caller locking here (holding a monitor across a downcall pins vthread carriers).
      */
     private static byte[] processChunkBytes(byte[] chunkBytes, ProcessingMode mode, PageOperation op) {
         PdfDocument doc = PdfDocument.open(chunkBytes);
@@ -453,15 +411,8 @@ public final class PdfPipeline {
     }
 
     /**
-     * Terminates a pipeline pool and reports failure instead of treating it
-     * as cleanup. {@code shutdownNow} is best-effort: a native task ignoring
-     * interruption keeps owning its arenas, leases, staging files, and
-     * permits until it actually exits, so a false return means ownership is
-     * still outstanding, not released.
-     *
-     * <p>Can therefore return by throwing while tasks are still running.
-     * Callers that own a resource the tasks are using must keep ownership when
-     * this throws, and must not close it from a {@code finally}.
+     * Terminates a pipeline pool and reports failure instead of treating it as cleanup. {@code shutdownNow}
+     * is best-effort: a native task ignoring interruption keeps owning its arenas, leases, staging files, and permits until it actually exits, so a false return means ownership is still outstanding. It can therefore return by throwing while tasks are still running; callers that own a resource the tasks are using must keep ownership when this throws and must not close it from a {@code finally}.
      */
     private static void shutdownAndReport(ExecutorService executor, String op) {
         executor.shutdown();

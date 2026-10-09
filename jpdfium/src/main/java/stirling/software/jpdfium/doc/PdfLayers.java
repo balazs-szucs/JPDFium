@@ -13,11 +13,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Query and manipulate Optional Content Groups (Layers) in PDF documents.
- *
- * <p>Layers (OCGs) are used in CAD exports, legal documents, design files, and
- * maps to organize content into toggleable visibility groups. This class provides
- * read, toggle, render, flatten, and delete operations.
+ * Query and manipulate Optional Content Groups (Layers) in PDF documents. Layers (OCGs) organize
+ * content into toggleable visibility groups in CAD exports, legal documents, design files, and maps; this class provides read, toggle, render, flatten, and delete operations.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {
@@ -50,10 +47,8 @@ public final class PdfLayers {
     public record Layer(String name, boolean visible, boolean locked, int objectCount) {}
 
     /**
-     * List all Optional Content Groups (layers) in the document.
-     *
-     * <p>Scans all pages for objects with marked content associated with OCG names.
-     * Returns deduplicated layers with visibility state and object counts.
+     * List all Optional Content Groups (layers) in the document. Scans all pages for objects with
+     * marked content associated with OCG names, returning deduplicated layers with visibility state and object counts.
      *
      * @param doc open PDF document
      * @return list of layers (empty if document has no OCGs)
@@ -100,10 +95,8 @@ public final class PdfLayers {
     }
 
     /**
-     * Set visibility of a named layer.
-     *
-     * <p>This marks annotations associated with the layer as hidden or visible.
-     * The change affects subsequent rendering and saving.
+     * Set visibility of a named layer by marking its associated annotations hidden or visible;
+     * the change affects subsequent rendering and saving.
      *
      * @param doc       open PDF document
      * @param layerName name of the layer to toggle
@@ -137,10 +130,8 @@ public final class PdfLayers {
     }
 
     /**
-     * Render a page with only the specified layers visible.
-     *
-     * <p>This temporarily hides all layers not in the visible set, renders,
-     * then restores original visibility.
+     * Render a page with only the specified layers visible, temporarily hiding all others and then
+     * restoring their original visibility.
      *
      * @param doc           open PDF document
      * @param pageIndex     page to render
@@ -245,11 +236,8 @@ public final class PdfLayers {
     }
 
     /**
-     * Create a new layer by adding a marker annotation.
-     *
-     * <p>Creates an invisible annotation on the first page that registers
-     * the layer name. Actual content can be associated with the layer using
-     * {@link #addObjectToLayer}.
+     * Create a new layer by adding a marker annotation: an invisible annotation on the first page
+     * that registers the layer name. Actual content can be associated with the layer using {@link #addObjectToLayer}.
      *
      * @param doc            open PDF document
      * @param name           layer name

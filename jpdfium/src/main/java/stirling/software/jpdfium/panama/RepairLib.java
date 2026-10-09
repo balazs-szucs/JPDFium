@@ -16,11 +16,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * FFM bindings for the PDF repair pipeline.
  *
- * <p>
- * Wraps the native repair, Brotli, PDFio, lcms2, and OpenJPEG functions
- * declared in {@code jpdfium.h}. All Phase 2 libraries are opt-in:
- * if absent at build time, the native functions return {@code -5}
- * (JPDFIUM_ERR_NATIVE) and the Java methods return sentinel values.
+ * <p>Wraps the native repair, Brotli, PDFio, lcms2, and OpenJPEG functions declared in {@code jpdfium.h}. All Phase 2 libraries are opt-in: if absent at build time, native functions return {@code -5} (JPDFIUM_ERR_NATIVE) and Java methods return sentinel values.
  */
 public final class RepairLib {
 
@@ -328,19 +324,10 @@ public final class RepairLib {
     /**
      * Attempt to repair a damaged PDF using lopdf's tolerant XRef parser.
      *
-     * <p>This is the final fallback stage in the repair cascade, tried only when
-     * all C-based repair strategies (qpdf + PDFio) have failed.  lopdf can often
-     * parse PDFs with heavily corrupted cross-reference tables that qpdf and PDFio
-     * reject entirely.  Saving the document immediately after loading rebuilds the
-     * XRef table from scratch.
-     *
-     * <p>If the Rust library is not compiled in (the native function returns
-     * {@code JPDFIUM_ERR_NATIVE = -99}), this method returns
-     * {@code RepairResult.Status.FAILED} with a diagnostic message.
+     * <p>Final fallback stage, tried only when all C-based repair strategies (qpdf + PDFio) have failed; lopdf can often parse heavily corrupted XRef tables, and saving immediately after loading rebuilds the XRef from scratch. If the Rust library is not compiled in ({@code JPDFIUM_ERR_NATIVE = -99}), returns {@code RepairResult.Status.FAILED} with a diagnostic message.
      *
      * @param input raw PDF bytes (may be damaged)
-     * @return repair result; {@link RepairResult#isUsable()} is {@code true} on
-     *         success
+     * @return repair result; {@link RepairResult#isUsable()} is {@code true} on success
      */
     public static RepairResult rustRepair(byte[] input) {
         return PdfiumRuntime.execute(() -> {

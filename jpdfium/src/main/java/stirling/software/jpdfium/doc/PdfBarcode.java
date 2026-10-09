@@ -11,11 +11,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Add and scan QR codes and barcodes in PDF documents.
  *
- * <p>QR code generation uses a minimal pure-Java QR encoder (no native dependencies).
- * The QR code is drawn directly as PDF path objects for maximum quality at any zoom level.
- *
- * <p>Barcode scanning requires zxing-cpp in the native bridge (available when built
- * with barcode support).
+ * <p>QR generation uses a minimal pure-Java QR encoder (no native dependencies) drawn directly as PDF path objects for maximum quality at any zoom; barcode scanning requires zxing-cpp in the native bridge.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("invoice.pdf"))) {

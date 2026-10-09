@@ -10,8 +10,7 @@ import java.lang.foreign.MemorySegment;
 /**
  * Extract text within a bounded rectangle on a PDF page.
  *
- * <p>Uses FPDFText_GetBoundedText to retrieve text that falls within
- * a specified rectangular region of the page.
+ * <p>Uses {@code FPDFText_GetBoundedText} to retrieve text falling within a specified rectangular region of the page.
  */
 public final class PdfBoundedText {
 

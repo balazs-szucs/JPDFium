@@ -36,14 +36,9 @@ public final class StorageOptions {
     public Path tempDir() { return tempDir; }
 
     /**
-     * Whether a multi-output split may read its inputs straight from the
-     * document's source file instead of a fresh snapshot.
+     * Whether a multi-output split may read its inputs straight from the document's source file instead of a fresh snapshot.
      *
-     * <p>Off by default. Many mutating APIs leave the structural epoch at zero,
-     * so a file-opened document can hold edits the file does not; reusing the
-     * file then publishes pre-edit content, which for redaction means
-     * republishing the very text the caller removed. Enable only when the
-     * caller knows the document is untouched since it was opened.
+     * <p>Off by default: many mutating APIs leave the structural epoch at zero, so a file-opened document can hold edits the file does not, and reusing the file publishes pre-edit content. Enable only when the caller knows the document is untouched since it was opened.
      */
     public boolean reuseSourceFile() { return reuseSourceFile; }
 
@@ -99,14 +94,9 @@ public final class StorageOptions {
         }
 
         /**
-         * Read split inputs from the document's source file instead of
-         * snapshotting the live document first. Saves one native serialization
-         * per multi-output split.
+         * Read split inputs from the document's source file instead of snapshotting the live document first, saving one native serialization per multi-output split.
          *
-         * <p>Only correct when the document has not been mutated since it was
-         * opened from that file: in-memory edits are invisible to the file, so
-         * the outputs would carry pre-edit content. See
-         * {@link StorageOptions#reuseSourceFile()}.
+         * <p>Only correct when the document has not been mutated since it was opened from that file. See {@link StorageOptions#reuseSourceFile()}.
          */
         public Builder reuseSourceFile(boolean reuse) {
             this.reuseSourceFile = reuse;

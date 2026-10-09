@@ -17,8 +17,7 @@ import stirling.software.jpdfium.text.PdfTextExtractor;
 /**
  * Comprehensive document statistics and analytics.
  *
- * <p>Aggregates data from text extraction, image analysis, page objects,
- * bookmarks, annotations, and metadata into a single report.
+ * <p>Aggregates text extraction, image analysis, page objects, bookmarks, annotations, and metadata into a single report.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("report.pdf"))) {

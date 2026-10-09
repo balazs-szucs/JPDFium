@@ -49,10 +49,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Represents an open page within a {@link PdfDocument}.
- *
- * <p><strong>Thread safety:</strong> Confined to the thread that opened it.
- * Obtain a new instance per thread if concurrent access is needed.
+ * Represents an open page within a {@link PdfDocument}; confined to the thread that opened it
+ * (obtain a new instance per thread if concurrent access is needed).
  */
 public final class PdfPage implements AutoCloseable {
 
@@ -295,9 +293,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Render the page directly into a pre-allocated native memory segment.
-     * Guarantees zero Java heap allocation in steady state when the same cached
-     * {@code targetBitmap} view is reused (wrapping per call allocates a view object).
+     * Render the page directly into a pre-allocated native memory segment, guaranteeing zero Java
+     * heap allocation in steady state when the same cached {@code targetBitmap} view is reused (wrapping per call allocates a view object).
      *
      * @param targetBitmap pre-allocated MemorySegment (at least width * height * 4 bytes)
      * @param width        render width in pixels
@@ -319,10 +316,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Render the page directly into a pre-allocated direct {@link ByteBuffer}.
-     * Convenience overload: wrapping the buffer per call allocates a segment view
-     * (escape-analysis dependent); certified callers reuse a cached
-     * {@code MemorySegment} via {@link #renderInto(MemorySegment, int, int)}.
+     * Render the page directly into a pre-allocated direct {@link ByteBuffer}. Convenience overload:
+     * wrapping the buffer per call allocates a segment view (escape-analysis dependent); certified callers reuse a cached {@code MemorySegment} via {@link #renderInto(MemorySegment, int, int)}.
      *
      * @param directBuffer pre-allocated direct ByteBuffer (capacity at least width * height * 4 bytes)
      * @param width        render width in pixels
@@ -342,22 +337,15 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Start a progressive render into a caller-owned bitmap.
-     *
-     * <p>The native layer retains the {@code targetBitmap} pointer across
-     * {@link ProgressiveSession#step()} calls. The caller must keep the
-     * segment's arena alive until the session closes, and must not close this
-     * page before the session completes. Only one session may be active per
-     * page at a time.
+     * Start a progressive render into a caller-owned bitmap. The native layer retains the
+     * {@code targetBitmap} pointer across {@link ProgressiveSession#step()} calls, so keep the segment's arena alive until the session closes and do not close this page before it completes; only one session may be active per page.
      */
     public ProgressiveSession startProgressiveRender(MemorySegment targetBitmap, int width, int height, int flags) {
         ensureOpen();
         JpdfiumLib.checkRenderIntoArgs(targetBitmap, width, height);
         int stride = Math.multiplyExact(width, 4);
-        // PDFium keeps a single progressive context per page; a second pending
-        // session would alias the first session's native state. Require callers
-        // to close the active session before starting another. Synchronized
-        // with close() so the page cannot be freed mid-start.
+        // PDFium keeps a single progressive context per page; a second pending session would alias
+        // the first's native state. Require callers to close the active session first; synchronized with close() so the page cannot be freed mid-start.
         synchronized (this) {
             ensureOpen();
             if (!progressiveActive.compareAndSet(false, true)) {
@@ -391,14 +379,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Start a progressive render into an owner-accessible buffer.
-     *
-     * <p>Unlike the segment overloads, the session holds an explicit
-     * {@code RenderLease} on the buffer: the caller may close its own handle
-     * at any time and the target stays valid until the session terminates,
-     * when the last lease reclaims the arena. Prefer this overload for
-     * retained sessions; the segment overloads are legacy synchronous
-     * caller-thread operations.
+     * Start a progressive render into an owner-accessible buffer. The session holds an explicit
+     * {@code RenderLease} on the buffer, so the caller may close its own handle at any time and the target stays valid until the session terminates (when the last lease reclaims the arena). Prefer this overload for retained sessions; the segment overloads are legacy synchronous operations.
      */
     public ProgressiveSession startProgressiveRender(
             PdfiumBuffers.SharedRenderBuffer buffer, int flags) {
@@ -423,13 +405,8 @@ public final class PdfPage implements AutoCloseable {
                 }
                 return session;
             } catch (Throwable constructionFailure) {
-                // Best-effort cleanup of the partially-started session. The
-                // lease is retired first: its arena backs the bitmap the
-                // session may have handed to native code, and native state is
-                // released by the page-close abandon backstop if construction
-                // got far enough to start anything. A cleanup failure must not
-                // mask the construction failure, and the page must never stay
-                // marked active.
+                // Best-effort cleanup of the partially-started session: retire the lease first (its
+                // arena backs the bitmap native code may hold), then let the page-close abandon backstop release native state. A cleanup failure must not mask the construction failure, and the page must never stay marked active.
                 try {
                     if (lease != null) {
                         lease.close();
@@ -452,10 +429,8 @@ public final class PdfPage implements AutoCloseable {
         private final Arena cancelArena;
         private final MemorySegment cancelFlag;
         /**
-         * Buffer lease keeping a shared target's arena alive for the session,
-         * or {@code null} for legacy segment sessions whose lifetime stays
-         * caller-managed. Retired (closed) strictly after the progressive
-         * PDFium state, never before.
+         * Buffer lease keeping a shared target's arena alive for the session, or {@code null} for
+         * legacy segment sessions whose lifetime stays caller-managed; retired (closed) strictly after the progressive PDFium state, never before.
          */
         private final PdfiumBuffers.RenderLease bufferLease;
         private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -482,10 +457,8 @@ public final class PdfPage implements AutoCloseable {
                 throw t;
             }
             if (status != ProgressiveStatus.TO_BE_CONTINUED.code()) {
-                // Terminal at start: the native bridge already closed its
-                // progressive state on this path, so retire Java ownership
-                // without a redundant native close. The factory above must
-                // not publish this session as active (see isRetired check).
+                // Terminal at start: the native bridge already closed its progressive state, so retire
+                // Java ownership without a redundant native close. The factory above must not publish this session as active (see isRetired check).
                 closed.set(true);
                 retireAll(Retirement.NATIVE_ALREADY_RETIRED, false);
                 if (status != ProgressiveStatus.DONE.code()) {
@@ -500,13 +473,8 @@ public final class PdfPage implements AutoCloseable {
         }
 
         /**
-         * Whether the terminal transition still owes PDFium a progressive
-         * close. Terminal {@code start}/{@code continue} statuses already
-         * closed native state inside the bridge, so re-closing is redundant
-         * (a harmless no-op against a missing entry, but an extra crossing of
-         * the domain for nothing). Every other ending, explicit close, cancel
-         * completion, owner teardown, leaves native state live and must close
-         * it explicitly while the page is still valid.
+         * Whether the terminal transition still owes PDFium a progressive close. Terminal
+         * {@code start}/{@code continue} statuses already closed native state inside the bridge, so re-closing is a harmless no-op; every other ending (explicit close, cancel completion, owner teardown) leaves native state live and must close it explicitly while the page is still valid.
          */
         private enum Retirement {
             /** Native state is still live: close it explicitly. */
@@ -530,9 +498,8 @@ public final class PdfPage implements AutoCloseable {
             if (closed.get()) {
                 return ProgressiveStatus.DONE;
             }
-            // Synchronized with PdfPage.close() on the owner monitor so the
-            // page cannot be freed between the isClosed check and the native
-            // continue call. Lock order is always owner -> domain.
+            // Synchronized with PdfPage.close() on the owner monitor so the page cannot be freed
+            // between the isClosed check and the native continue call. Lock order is always owner -> domain.
             synchronized (owner) {
                 if (closed.get()) {
                     return ProgressiveStatus.DONE;
@@ -559,9 +526,8 @@ public final class PdfPage implements AutoCloseable {
         }
 
         /**
-         * Retirement during page teardown: the owner is already marked closed,
-         * but its native page is still valid, so the explicit progressive
-         * close runs instead of depending on the native abandon backstop.
+         * Retirement during page teardown: the owner is already marked closed but its native page is
+         * still valid, so the explicit progressive close runs instead of relying on the native abandon backstop.
          */
         void closeForOwnerTeardown() {
             closeInternal(Retirement.NATIVE_LIVE, true);
@@ -581,40 +547,16 @@ public final class PdfPage implements AutoCloseable {
         }
 
         /**
-         * The single terminal transition for every session ending: terminal
-         * start, terminal continue (via {@code close()}), explicit close, and
-         * owner teardown. Exactly once per session:
+         * The single terminal transition for every session ending (terminal start, terminal continue
+         * via {@code close()}, explicit close, owner teardown) retires, exactly once: native progressive state if still held; the session registry lease; the buffer lease strictly after native retirement (the native target must stay mapped until PDFium is done); cancel storage; and page active-state. When native close fails, {@link PdfPage#close()} still runs its abandon backstop before any remaining native borrower could outlive the arena.
          *
-         * <ul>
-         *   <li>native progressive state, if the bridge still holds one;</li>
-         *   <li>session registry lease;</li>
-         *   <li>buffer lease, strictly after native retirement, the native
-         *       target must stay mapped until PDFium is done with it;</li>
-         *   <li>cancel storage;</li>
-         *   <li>page active-state release and {@code activeSession} removal.</li>
-         * </ul>
-         *
-         * <p>Ordering matters for the buffer lease: native progressive state
-         * may still hold the target bitmap, so the lease is released strictly
-         * after the native close attempt, never before. When the native close
-         * itself fails, {@link PdfPage#close()} still runs its page-close
-         * abandon backstop before any remaining native borrower could outlive
-         * the arena.
-         *
-         * @param retirement    whether native progressive state still needs an
-         *                      explicit close
-         * @param ownerClosing  true when the owner page is already marked
-         *                      closed but still natively valid, so the explicit
-         *                      progressive close runs instead of depending on
-         *                      the native abandon backstop
+         * @param retirement    whether native progressive state still needs an explicit close
+         * @param ownerClosing  true when the owner page is already marked closed but still natively valid, so the explicit progressive close runs instead of depending on the native abandon backstop
          */
         private void retireAll(Retirement retirement, boolean ownerClosing) {
             try {
-                // A stale owner already had its native page freed by the
-                // structural operation that invalidated it, so there is
-                // nothing left to close; every other case (session open,
-                // or owner teardown before pageClose) still has valid native
-                // page state and must be closed explicitly.
+                // A stale owner already had its native page freed by the structural operation that
+                // invalidated it, so nothing is left to close; every other case (session open, or owner teardown before pageClose) still has valid native state and must be closed explicitly.
                 if (retirement == Retirement.NATIVE_LIVE
                         && (ownerClosing || !owner.isClosed())
                         && !owner.isStale()) {
@@ -645,11 +587,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Extract plain text from this page.
-     *
-     * <p>Uses high-fidelity UTF-16LE text extraction ({@code EPDFText_GetTextFull})
-     * with emoji and surrogate pair preservation when available in the native runtime,
-     * and falls back cleanly to standard {@code FPDFText_GetText}.
+     * Extract plain text from this page using high-fidelity UTF-16LE extraction
+     * ({@code EPDFText_GetTextFull}), preserving emoji and surrogate pairs when available, and falling back cleanly to {@code FPDFText_GetText}.
      *
      * @return extracted plain text from the page
      */
@@ -717,14 +656,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Returns character positions as JSON: [{i,u,ox,oy,l,r,b,t}, ...]
-     *
-     * <p>Each element contains the character index (i), unicode codepoint (u),
-     * absolute origin from {@code FPDFText_GetCharOrigin} (ox,oy), and
-     * bounding box from {@code FPDFText_GetCharBox} (l,r,b,t).
-     *
-     * <p>Used by automated tests to verify that text positions are preserved
-     * after Object Fission redaction.
+     * Returns character positions as JSON: [{i,u,ox,oy,l,r,b,t}, ...]. Each element holds the
+     * character index (i), unicode codepoint (u), absolute origin from {@code FPDFText_GetCharOrigin} (ox,oy), and bounding box from {@code FPDFText_GetCharBox} (l,r,b,t); used by tests to verify positions survive Object Fission redaction.
      *
      * @return JSON string with position data for every character on the page
      */
@@ -745,12 +678,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Redact a region with configurable content removal.
-     *
-     * <p><strong>Removed:</strong> the visual-only mode ({@code removeContent=false})
-     * painted a cover rectangle over intact, extractable content - the classic
-     * "looks redacted" leak. It is refused with
-     * {@link IllegalArgumentException}; content removal is mandatory.
+     * Redact a region with configurable content removal. <strong>Removed:</strong> the visual-only
+     * mode ({@code removeContent=false}) painted a cover rectangle over intact, extractable content - the classic "looks redacted" leak; it is refused with {@link IllegalArgumentException} and content removal is mandatory.
      */
     public void redactRegion(Rect rect, int argbColor, boolean removeContent) {
         ensureOpen();
@@ -764,10 +693,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Redact by pattern with configurable content removal.
-     *
-     * <p><strong>Removed:</strong> the visual-only mode ({@code removeContent=false})
-     * is refused - see {@link #redactRegion(Rect, int, boolean)}.
+     * Redact by pattern with configurable content removal. The visual-only mode
+     * ({@code removeContent=false}) is refused - see {@link #redactRegion(Rect, int, boolean)}.
      */
     public void redactPattern(String regexPattern, int argbColor, boolean removeContent) {
         ensureOpen();
@@ -795,9 +722,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * True text redaction: removes only matched characters from the content
-     * stream, splitting overlapping text objects so the rest keeps its
-     * position, font and render mode.
+     * True text redaction: removes only matched characters from the content stream, splitting
+     * overlapping text objects so the rest keeps its position, font and render mode.
      *
      * @param words         list of words or regex patterns to redact
      * @param argbColor     fill color (0xAARRGGBB)
@@ -834,10 +760,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * The visual-only cover mode (removeContent=false) is removed from the
-     * public API: painting over intact, extractable content is the banned
-     * "looks redacted" leak class. Every redaction ends verified-complete or
-     * in a loud error - never in a painted cover.
+     * The visual-only cover mode (removeContent=false) is removed from the public API: painting
+     * over intact, extractable content is the banned "looks redacted" leak class. Every redaction ends verified-complete or in a loud error - never in a painted cover.
      */
     private static void requireContentRemoval(boolean removeContent) {
         if (!removeContent) {
@@ -849,9 +773,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Mark phase: create a REDACT annotation at the given rectangle.
-     * No content is modified - the annotation is stored in the page's
-     * annotation dictionary.  Call {@link #commitRedactions} to burn.
+     * Mark phase: create a REDACT annotation at the given rectangle without modifying content;
+     * call {@link #commitRedactions} to burn it.
      *
      * @param rect      the area to mark for redaction (PDF coordinates)
      * @param argbColor fill color for the redaction box (0xAARRGGBB)
@@ -927,17 +850,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Commit phase: burn all REDACT annotations on this page.
-     *
-     * <p>This permanently removes text/images under each marked rectangle
-     * using the Object Fission Algorithm, paints filled rectangles, and
-     * removes the consumed annotations.  The document handle remains
-     * valid - no reload required.
-     *
-     * <p><strong>Removed:</strong> the visual-only mode ({@code removeContent=false})
-     * painted a cover rectangle over intact, extractable content - the classic
-     * "looks redacted" leak. It is refused with
-     * {@link IllegalArgumentException}; content removal is mandatory.
+     * Commit phase: burn all REDACT annotations on this page. Permanently removes text/images under
+     * each marked rectangle using the Object Fission Algorithm, paints filled rectangles, and removes the consumed annotations; the document handle remains valid (no reload). <strong>Removed:</strong> the visual-only mode ({@code removeContent=false}) is refused with {@link IllegalArgumentException}; content removal is mandatory.
      *
      * @param argbColor     fill color for the redaction rectangles
      * @param removeContent must be true (content removal is mandatory)
@@ -950,18 +864,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Returns the raw FPDF_PAGE MemorySegment for direct PDFium FFM calls.
-     *
-     * <p><strong>Lifetime:</strong> zero-length view of native memory owned by this
-     * {@code PdfPage}. Must not outlive {@link #close()}, must stay on the thread
-     * that owns this page, and every native call using it must run inside the
-     * PdfiumRuntime execution domain (via the {@code *Bindings} or
-     * {@code JpdfiumLib} helpers).
-     *
-     * <p><strong>Outside the execution-domain guarantee:</strong> like
-     * {@link PdfDocument#rawHandle()}, direct use bypasses the admission and
-     * ordering enforced for built-in operations. It keeps working, but the
-     * domain makes no promise about it.
+     * Returns the raw FPDF_PAGE MemorySegment for direct PDFium FFM calls. <strong>Lifetime:</strong>
+     * a zero-length view owned by this {@code PdfPage} - must not outlive {@link #close()}, must stay on the owning thread, and every native call using it must run inside the PdfiumRuntime execution domain. <strong>Internal use:</strong> bypasses the admission and ordering enforced for built-in operations; prefer the typed API.
      */
     public MemorySegment rawHandle() {
         ensureOpen();
@@ -970,9 +874,7 @@ public final class PdfPage implements AutoCloseable {
 
     /**
      * Returns the raw FPDF_DOCUMENT MemorySegment from this page's parent document.
-     *
-     * <p><strong>Lifetime:</strong> same contract as {@link #rawHandle()}: invalid
-     * after this page is closed.
+     * <strong>Lifetime:</strong> same contract as {@link #rawHandle()} - invalid after this page is closed.
      */
     public MemorySegment rawDocHandle() {
         ensureOpen();
@@ -1008,11 +910,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Get the embedded thumbnail for this page as a {@link BufferedImage}.
-     *
-     * <p>Preferred over {@link #thumbnail()} when you need a viewable image -
-     * dimensions are resolved via {@code FPDFPage_GetThumbnailAsBitmap} so the
-     * result can be written directly to a PNG/JPEG file.
+     * Get the embedded thumbnail for this page as a {@link BufferedImage}. Preferred over
+     * {@link #thumbnail()} when you need a viewable image - dimensions come from {@code FPDFPage_GetThumbnailAsBitmap}, so the result can be written directly to PNG/JPEG.
      *
      * @return the thumbnail image, or empty if the page has no embedded thumbnail
      */
@@ -1034,17 +933,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Flatten this page using the specified mode.
-     *
-     * <ul>
-     *   <li>{@link FlattenMode#ANNOTATIONS} - bakes annotations and form fields into the
-     *       page content stream. Text remains selectable.</li>
-     *   <li>{@link FlattenMode#FULL} - rasterizes the page into an image-based page
-     *       at the given DPI. Invalidates this {@link PdfPage} instance <strong>and
-     *       every other open page</strong> on the document, because the native
-     *       page is deleted and replaced; callers must reopen pages via
-     *       {@link PdfDocument#page(int)} for subsequent operations.</li>
-     * </ul>
+     * Flatten this page using the specified mode. {@link FlattenMode#ANNOTATIONS} bakes annotations
+     * and form fields into the content stream (text stays selectable); {@link FlattenMode#FULL} rasterizes the page at the given DPI, invalidating this {@link PdfPage} <strong>and every other open page</strong> because the native page is deleted and replaced - reopen via {@link PdfDocument#page(int)}.
      */
     public void flatten(FlattenMode mode, int dpi) {
         ensureOpen();
@@ -1258,12 +1148,8 @@ public final class PdfPage implements AutoCloseable {
     }
 
     /**
-     * Returns the raw bridge page handle.
-     *
-     * <p><strong>Internal use only.</strong> This handle is an opaque token understood
-     * only by {@link JpdfiumLib} and its companions.
-     * External callers bypassing this method bypass all closed-page checks and
-     * thread-safety contracts enforced by this class.
+     * Returns the raw bridge page handle. <strong>Internal use only.</strong> This opaque token is
+     * understood only by {@link JpdfiumLib} and its companions; external callers bypassing it skip all closed-page and thread-safety checks.
      */
     public long nativeHandle() {
         ensureOpen();
@@ -1289,19 +1175,12 @@ public final class PdfPage implements AutoCloseable {
 
     @Override
     public void close() {
-        // Lifecycle: OPEN → teardown under this monitor → CLOSED.
-        // compareAndSet, not check-then-set: a lost race here closes the same
-        // native page twice and corrupts the heap. Synchronized with
-        // ProgressiveSession step/close on this monitor so an in-flight
-        // continue cannot race native page cleanup (the native layer also
-        // abandons pending progressive state on page close as a backstop).
+        // Lifecycle: OPEN -> teardown under this monitor -> CLOSED. compareAndSet, not check-then-set:
+        // a lost race closes the same native page twice and corrupts the heap. Synchronized with ProgressiveSession step/close so an in-flight continue cannot race cleanup (the native layer also abandons pending progressive state on close as a backstop).
         synchronized (this) {
             if (!closed.compareAndSet(false, true)) return;
-            // Retire the active session first, while the native page is still
-            // valid, so its explicit progressive close runs instead of
-            // depending on the abandon backstop. A session failure is
-            // aggregated, never silently dropped, but native page retirement
-            // still proceeds.
+            // Retire the active session first, while the native page is still valid, so its explicit
+            // progressive close runs instead of relying on the abandon backstop. A session failure is aggregated, never silently dropped, but native page retirement still proceeds.
             ProgressiveSession session = activeSession.getAndSet(null);
             Throwable sessionFailure = null;
             if (session != null) {
@@ -1312,10 +1191,8 @@ public final class PdfPage implements AutoCloseable {
                 }
             }
             try {
-                // jpdfium_page_close handles stale wrappers without touching freed
-                // PDFium state, and releases the DocCore reference held by this page.
-                // Skipping the call leaks the DocCore (replacement FPDF_DOCUMENT, byte
-                // buffer, loaded fonts) for the life of the process.
+                // jpdfium_page_close handles stale wrappers without touching freed PDFium state and
+                // releases the DocCore reference held by this page. Skipping it leaks the DocCore (replacement FPDF_DOCUMENT, byte buffer, loaded fonts) for the process lifetime.
                 JpdfiumLib.pageClose(handle);
             } catch (RuntimeException re) {
                 if (sessionFailure != null) {

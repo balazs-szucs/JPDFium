@@ -12,11 +12,7 @@ import java.util.List;
 /**
  * SVG conversion backed by the Rust {@code resvg} rasterizer.
  *
- * <p>SVG is rasterized in-process (no cairo/gdk-pixbuf/X11 stack, no external
- * process), then encoded with {@link PdfImageConverter} (ImageIO) or, when the
- * optional {@code jpdfium-vips} module is present, with libvips through
- * {@code VipsImageConverter.svgToBytes}. The same rasterizer feeds
- * {@link #toPdf} so an SVG can become a one-page PDF.
+ * <p>Rasterized in-process (no cairo/gdk-pixbuf/X11 stack, no external process) then encoded with {@link PdfImageConverter} (ImageIO) or, when {@code jpdfium-vips} is present, libvips via {@code VipsImageConverter.svgToBytes}; the same rasterizer feeds {@link #toPdf}.
  *
  * <pre>{@code
  * RenderResult rgba = SvgConverter.toRgba(svgBytes, 1024, 1024);

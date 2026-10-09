@@ -53,34 +53,25 @@ public final class CompressOptions {
     public boolean removeUnusedObjects() { return removeUnusedObjects; }
     public boolean removeMetadata() { return removeMetadata; }
     /**
-     * Preservation contract for this run: which actions are allowed and how
-     * much preview drift the verify-and-rollback pass tolerates. Defaults to
-     * {@link PreservationMode#VISUALLY_CONSTRAINED}; a preset sets it and an
-     * explicit call overrides the preset.
+     * Preservation contract for this run: which actions are allowed and how much preview drift the
+     * verify-and-rollback pass tolerates. Defaults to {@link PreservationMode#VISUALLY_CONSTRAINED}; a preset sets it and an explicit call overrides the preset.
      */
     public PreservationMode preservationMode() { return preservationMode; }
     /** Processing mode for batch operations (streaming, parallel, or both). */
     public ProcessingMode processingMode() { return processingMode; }
     /**
-     * Whether to run a Rust/zopfli post-processing pass on the compressed PDF.
-     * When {@code true}, lopdf + zopfli recompresses all FlateDecode streams,
-     * typically saving an additional 10-25% compared to standard DEFLATE.
-     * Requires Rust integration compiled into the native library; if unavailable
-     * (returns {@code JPDFIUM_ERR_NATIVE}) the step is silently skipped.
-     * Default: {@code false}.
+     * Whether to run a Rust/zopfli post-processing pass. When {@code true}, lopdf + zopfli recompresses
+     * all FlateDecode streams, typically saving an additional 10-25% over standard DEFLATE; if the Rust integration is unavailable (returns {@code JPDFIUM_ERR_NATIVE}) the step is silently skipped. Default: {@code false}.
      */
     public boolean useZopfliDeflate() { return useZopfliDeflate; }
     /**
-     * Number of zopfli iterations for the DEFLATE recompression pass.
-     * Higher values produce smaller output at the cost of more CPU time.
-     * Typical values: 5 (fast), 15 (default), 100 (maximum quality).
-     * Only used when {@link #useZopfliDeflate()} is {@code true}.
+     * Number of zopfli iterations for the DEFLATE recompression pass: higher values produce smaller
+     * output at more CPU cost (typical: 5 fast, 15 default, 100 maximum). Only used when {@link #useZopfliDeflate()} is {@code true}.
      */
     public int zopfliIterations() { return zopfliIterations; }
     /**
-     * Skip the Rust/zopfli pass when the input exceeds this many bytes.
-     * {@code 0} means unlimited. Use to bound worst-case zopfli cost on large
-     * files. Only used when {@link #useZopfliDeflate()} is {@code true}.
+     * Skip the Rust/zopfli pass when the input exceeds this many bytes ({@code 0} = unlimited), to
+     * bound worst-case zopfli cost on large files. Only used when {@link #useZopfliDeflate()} is {@code true}.
      */
     public int zopfliMaxInputBytes() { return zopfliMaxInputBytes; }
 
@@ -114,9 +105,8 @@ public final class CompressOptions {
         /** Strip XMP and document metadata. */
         public Builder removeMetadata(boolean v) { this.removeMetadata = v; return this; }
         /**
-         * Set the preservation contract. Defaults to
-         * {@link PreservationMode#VISUALLY_CONSTRAINED}; overrides the value
-         * set by {@link #preset(CompressPreset)}.
+         * Set the preservation contract. Defaults to {@link PreservationMode#VISUALLY_CONSTRAINED};
+         * overrides the value set by {@link #preset(CompressPreset)}.
          */
         public Builder preservationMode(PreservationMode mode) { this.preservationMode = Objects.requireNonNull(mode, "mode"); return this; }
         /** Apply a preset, overriding current values. Individual setters can override after. */
@@ -135,26 +125,16 @@ public final class CompressOptions {
         public Builder processingMode(ProcessingMode mode) { this.processingMode = mode; return this; }
 
         /**
-         * Enable Rust/zopfli DEFLATE recompression as a post-processing pass.
-         *
-         * <p>When {@code true}, after the qpdf structural pass JPDFium runs
-         * lopdf + zopfli over the output to produce smaller FlateDecode streams
-         * (typically 10-25% further reduction). This pass is slow - use it only
-         * for archival or batch-offline workloads where CPU time is not critical.
-         *
-         * <p>If the Rust library is not compiled in ({@code JPDFIUM_ERR_NATIVE})
-         * this option is silently ignored and the result of the existing qpdf pass
-         * is returned unchanged.
+         * Enable Rust/zopfli DEFLATE recompression as a post-processing pass. When {@code true}, after
+         * the qpdf structural pass JPDFium runs lopdf + zopfli over the output to produce smaller FlateDecode streams (typically 10-25% further reduction); it is slow, so use only for archival or batch-offline workloads where CPU time is not critical. If the Rust library is not compiled in ({@code JPDFIUM_ERR_NATIVE}) this option is silently ignored and the qpdf result is returned unchanged.
          *
          * @param enable {@code true} to enable (default {@code false})
          */
         public Builder useZopfliDeflate(boolean enable) { this.useZopfliDeflate = enable; return this; }
 
         /**
-         * Set the number of zopfli iterations for the DEFLATE recompression pass.
-         *
-         * <p>Higher values produce smaller output at the cost of more CPU time.
-         * Ignored unless {@link #useZopfliDeflate(boolean)} is {@code true}.
+         * Set the number of zopfli iterations for the DEFLATE recompression pass. Higher values produce
+         * smaller output at more CPU cost; ignored unless {@link #useZopfliDeflate(boolean)} is {@code true}.
          *
          * @param iterations iteration count (5=fast, 15=default, 100=maximum)
          */
@@ -164,9 +144,8 @@ public final class CompressOptions {
         }
 
         /**
-         * Skip the zopfli pass when the input exceeds {@code bytes} (0 = unlimited).
-         * Bounds worst-case cost on large files. Ignored unless
-         * {@link #useZopfliDeflate(boolean)} is {@code true}.
+         * Skip the zopfli pass when the input exceeds {@code bytes} (0 = unlimited), bounding worst-case
+         * cost on large files. Ignored unless {@link #useZopfliDeflate(boolean)} is {@code true}.
          */
         public Builder zopfliMaxInputBytes(int bytes) {
             this.zopfliMaxInputBytes = Math.max(0, bytes);

@@ -15,8 +15,7 @@ import java.util.List;
 /**
  * Detect duplicate or near-identical pages using perceptual hashing.
  *
- * <p>Renders each page at low DPI, computes an average hash (aHash),
- * and reports clusters of pages with matching or similar hashes.
+ * <p>Renders each page at low DPI, computes an average hash (aHash), and reports clusters of pages with matching or similar hashes.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("merged.pdf"))) {

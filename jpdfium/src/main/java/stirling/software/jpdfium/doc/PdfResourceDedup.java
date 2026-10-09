@@ -20,9 +20,7 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 /**
  * Detect and report duplicate embedded resources (images) across pages.
  *
- * <p>Walks all pages, fingerprints image objects by their rendered pixel data,
- * and groups duplicates. This helps identify opportunities to reduce file size
- * by de-duplicating shared images.
+ * <p>Walks all pages, fingerprints image objects by rendered pixel data, and groups duplicates, helping identify opportunities to reduce file size by de-duplicating shared images.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("large.pdf"))) {

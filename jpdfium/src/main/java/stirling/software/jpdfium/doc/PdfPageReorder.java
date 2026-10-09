@@ -10,8 +10,7 @@ import java.util.List;
 /**
  * Reorder, move, swap, and reverse pages within a PDF document.
  *
- * <p>All operations modify the document in place by importing pages into a
- * temporary document in the desired order and then replacing the original pages.
+ * <p>All operations modify the document in place by importing pages into a temporary document in the desired order and then replacing the original pages.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("report.pdf"))) {
@@ -69,8 +68,7 @@ public final class PdfPageReorder {
     /**
      * Reorder pages according to the given index list.
      *
-     * <p>The list must contain exactly {@code doc.pageCount()} entries and must be
-     * a permutation of {@code [0, pageCount)}.
+     * <p>The list must contain exactly {@code doc.pageCount()} entries and be a permutation of {@code [0, pageCount)}.
      *
      * @param doc      the document to modify (in place)
      * @param newOrder list of 0-based page indices in the desired order
@@ -141,8 +139,7 @@ public final class PdfPageReorder {
     /**
      * Apply a page ordering by importing pages into a temp document and back.
      *
-     * <p>Uses PDFium's FPDF_ImportPagesByIndex to copy pages in the desired order
-     * into a fresh document, then replaces all pages in the original.
+     * <p>Uses PDFium's {@code FPDF_ImportPagesByIndex} to copy pages in the desired order into a fresh document, then replaces all pages in the original.
      */
     private static void applyOrder(PdfDocument doc, List<Integer> order) {
         int pageCount = doc.pageCount();

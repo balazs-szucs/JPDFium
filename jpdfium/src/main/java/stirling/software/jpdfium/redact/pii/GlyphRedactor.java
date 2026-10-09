@@ -6,23 +6,10 @@ import stirling.software.jpdfium.panama.GlyphLib;
 import java.util.List;
 
 /**
- * Glyph-level precise redaction using HarfBuzz shaping, ICU BiDi analysis,
- * and grapheme cluster boundary detection.
+ * Glyph-level precise redaction using HarfBuzz shaping, ICU BiDi analysis, and grapheme cluster boundary detection.
  *
- * <p>Standard character-based redaction can fail when:
- * <ul>
- *   <li><strong>Ligatures</strong> - one glyph represents two characters (fi, fl, ffi).
- *       HarfBuzz {@code hb_shape()} maps glyph clusters to character ranges so the
- *       redaction box covers the entire ligature glyph.</li>
- *   <li><strong>RTL text</strong> - Arabic, Hebrew text is stored in logical order but
- *       displayed right-to-left. ICU BiDi resolves visual order before computing
- *       the redaction rectangle.</li>
- *   <li><strong>Combining characters</strong> - accents, diacritics form grapheme clusters
- *       (e.g., e + combining accent). libunibreak/ICU ensures the redaction box never splits
- *       a combining character pair.</li>
- * </ul>
+ * <p>Fixes character-based failures: ligatures (one glyph, multiple chars) are mapped via HarfBuzz clusters; RTL text has visual order resolved by ICU BiDi before computing the rectangle; combining characters are kept in one grapheme cluster by libunibreak/ICU.
  *
- * <p><b>Usage</b></p>
  * <pre>{@code
  * GlyphRedactor.Result result = GlyphRedactor.redact(page,
  *     List.of("secret", "confidential"),
@@ -114,9 +101,8 @@ public final class GlyphRedactor {
             }
 
             /**
-             * Enable HarfBuzz cluster mapping for ligatures (default: true).
-             * Ligature glyphs (fi, fl, ffi) are redacted as a whole even when only one
-             * character of the ligature is targeted.
+             * Enable HarfBuzz cluster mapping for ligatures (default: true):
+             * ligature glyphs (fi, fl, ffi) are redacted as a whole even when only one character is targeted.
              */
             public Builder ligatureAware(boolean v) {
                 this.ligatureAware = v;
@@ -142,9 +128,8 @@ public final class GlyphRedactor {
             }
 
             /**
-             * Enable qpdf structural content removal (default: true).
-             * When enabled, redacted content is removed from the PDF content stream,
-             * not just covered with a rectangle.
+             * Enable qpdf structural content removal (default: true): redacted content
+             * is removed from the PDF content stream, not just covered with a rectangle.
              */
             public Builder removeStream(boolean v) {
                 this.removeStream = v;

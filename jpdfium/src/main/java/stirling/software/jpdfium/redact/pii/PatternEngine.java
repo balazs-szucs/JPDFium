@@ -11,17 +11,8 @@ import java.util.Map;
 /**
  * PCRE2 JIT-compiled pattern engine for high-performance PII detection.
  *
- * <p>Compiles regex patterns once to native machine code via PCRE2's JIT compiler,
- * then runs them at near-native speed against extracted text. Supports:
- * <ul>
- *   <li>Lookaheads and lookbehinds</li>
- *   <li>Unicode word boundaries ({@code \b})</li>
- *   <li>Script-aware {@code \w} (matches accented, CJK, Cyrillic characters)</li>
- *   <li>Named capture groups ({@code (?P&lt;name&gt;...)})</li>
- *   <li>Luhn post-validation for credit card numbers</li>
- * </ul>
+ * <p>Compiles patterns once to native machine code, then runs them at near-native speed; supports lookaheads/lookbehinds, Unicode word boundaries, script-aware {@code \w}, named capture groups, and Luhn validation for credit cards. A {@code PatternEngine} instance must be confined to a single thread.
  *
- * <p><b>Usage</b></p>
  * <pre>{@code
  * try (PatternEngine engine = PatternEngine.create(PiiCategory.all())) {
  *     List<Match> matches = engine.findAll("Call John at john@example.com or 555-123-4567");
@@ -30,9 +21,6 @@ import java.util.Map;
  *     }
  * }
  * }</pre>
- *
- * <p><strong>Thread safety:</strong> A {@code PatternEngine} instance must be confined
- * to a single thread. Create separate instances for concurrent use.
  */
 public final class PatternEngine implements AutoCloseable {
 

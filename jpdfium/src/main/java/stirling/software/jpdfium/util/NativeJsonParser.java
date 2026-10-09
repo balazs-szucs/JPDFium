@@ -8,8 +8,7 @@ import java.util.Map;
 /**
  * Lightweight parser for the simple JSON arrays returned by native bridge functions.
  *
- * <p>Native functions return flat JSON arrays of objects with string/int/bool values.
- * This avoids pulling in a full JSON library for these trivial shapes.
+ * <p>Native functions return flat JSON arrays of objects with string/int/bool values, avoiding a full JSON library for these trivial shapes.
  */
 public final class NativeJsonParser {
 

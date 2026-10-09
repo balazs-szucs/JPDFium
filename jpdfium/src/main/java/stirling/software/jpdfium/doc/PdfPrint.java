@@ -15,9 +15,7 @@ import java.util.List;
 /**
  * Print preparation utilities: booklet imposition and page tiling.
  *
- * <p>Booklet imposition rearranges pages for saddle-stitch printing on
- * folded sheets. Two source pages are placed side-by-side on each half
- * of the output sheet in the correct order for folding.
+ * <p>Booklet imposition rearranges pages for saddle-stitch printing on folded sheets; two source pages are placed side-by-side on each half of the output sheet in the correct order for folding.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("document.pdf"))) {
@@ -47,9 +45,7 @@ public final class PdfPrint {
     /**
      * Create a booklet impositioned document with custom options.
      *
-     * <p>For an N-page document (padded to a multiple of 4), the pages are
-     * rearranged so that when printed double-sided and folded, they form a
-     * booklet. Each output sheet contains 4 source pages (2 per side).
+     * <p>For an N-page document (padded to a multiple of 4), pages are rearranged so that when printed double-sided and folded they form a booklet; each output sheet holds 4 source pages (2 per side).
      *
      * @param doc     the source document
      * @param options booklet options (sheet size, binding direction)
@@ -139,9 +135,8 @@ public final class PdfPrint {
      */
     private static void placePageContent(MemorySegment rawDest, MemorySegment rawSrc,
                                           int srcPageIndex) {
-        // Use page import: import the source page, then it becomes the content
-        // For booklet, we use the N-up approach via importNPagesToOne for each pair
-        // But since importNPagesToOne creates a whole doc, we use direct import + transform
+        // Use page import: import the source page, then it becomes the content.
+        // importNPagesToOne creates a whole doc, so use direct import + transform for each pair.
 
         // Import the source page as a new page at the end
         int beforeCount;

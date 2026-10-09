@@ -24,24 +24,9 @@ import java.util.zip.ZipFile;
 import stirling.software.jpdfium.exception.NativeLoadException;
 
 /**
- * Opt-in Maven fallback for missing platform natives.
+ * Opt-in Maven fallback for missing platform natives. Off by default: when {@code -Djpdfium.native.download=true} is set and the classpath has no natives jar for the platform, the matching {@code com.stirling:jpdfium-natives-<platform>:<version>} jar is fetched from Maven Central (or {@code -Djpdfium.native.repo=...}), cached under the native cache root for offline reuse, and loaded through the same checksum-verified extraction path as a bundled jar.
  *
- * <p>Off by default. When {@code -Djpdfium.native.download=true} is set and
- * the classpath has no natives jar for the current platform, the matching
- * {@code com.stirling:jpdfium-natives-<platform>:<version>} jar is fetched
- * from Maven Central (or {@code -Djpdfium.native.repo=...}), cached under the
- * native cache root for offline reuse, and loaded through the same
- * checksum-verified extraction path as a bundled jar.
- *
- * <p>Trust model: TLS authenticates the repository (plain http is refused
- * except for loopback test servers), and every extracted file is still
- * SHA-256 verified against the jar's own manifest by {@link NativeCache}.
- * This matches build-time dependency resolution, which trusts the same
- * repository over the same transport. The cache slot is additionally bound
- * to the repository authority: a bundle fetched from one repository is
- * never reused after the configured repository changes, because the
- * embedded hashes are self-attested by whoever served the bundle and prove
- * nothing about a different authority.
+ * <p>Trust model: TLS authenticates the repository (plain http is refused except for loopback test servers) and every extracted file is SHA-256 verified against the jar's own manifest; the cache slot is bound to the repository authority so a bundle fetched from one repository is never reused after the repository changes.
  */
 final class NativeDownloader {
 
@@ -120,10 +105,8 @@ final class NativeDownloader {
     }
 
     /**
-     * Local jar path for the platform, downloading once when absent.
-     * Returns null only when downloads are disabled (caller keeps its original
-     * error). Enabled-but-impossible states (unknown or snapshot version,
-     * bad repository, network or integrity failure) throw.
+     * Local jar path for the platform, downloading once when absent. Returns null only when downloads
+     * are disabled (caller keeps its original error); enabled-but-impossible states (unknown or snapshot version, bad repository, network or integrity failure) throw.
      */
     static Path fetchNativesJar(String platform) {
         if (!isDownloadEnabled()) return null;
@@ -144,9 +127,8 @@ final class NativeDownloader {
         }
         String repo = repoBase();
         Path cached = downloadCachePath(platform, version, repo);
-        // Claim the cache directory before the cache hit so a pre-existing
-        // file at the slot is only adopted after the directory is ours
-        // (owner-only permissions enforced below).
+        // Claim the cache directory before the cache hit so a pre-existing file at the slot is only
+        // adopted after the directory is ours (owner-only permissions enforced below).
         if (cached != null) {
             try {
                 NativeCache.requirePrivateDirectory(cached.getParent());
@@ -175,21 +157,12 @@ final class NativeDownloader {
     }
 
     /**
-     * Cache slot for a downloaded jar, bound to the repository authority.
-     *
-     * <p>A bundle cached from one repository must never satisfy a fetch
-     * configured for another: the jar's embedded hashes are self-attested by
-     * whoever served it, so accepting a stale slot after a repository change
-     * would execute the previous authority's native code under the new
-     * authority's trust. The slot directory therefore carries a SHA-256 of
-     * the normalized repository URL.
+     * Cache slot for a downloaded jar, bound to the repository authority. A bundle cached from one
+     * repository must never satisfy a fetch configured for another: the jar's embedded hashes are self-attested by whoever served it, so accepting a stale slot after a repository change would execute the previous authority's native code under the new authority's trust. The slot directory therefore carries a SHA-256 of the normalized repository URL.
      */
     static Path downloadCachePath(String platform, String version, String repo) {
-        // Private per-user cache only: falling back to the shared system temp
-        // directory would place executable native code where other local users
-        // can pre-create or observe it (CodeQL java/local-temp-file-disclosure).
-        // When no private root exists, return null and let the caller fail
-        // closed to System.loadLibrary instead of using a shared location.
+        // Private per-user cache only: falling back to the shared system temp directory would place
+        // executable native code where other local users can pre-create or observe it (CodeQL java/local-temp-file-disclosure). When no private root exists, return null and let the caller fail closed to System.loadLibrary.
         Path root = NativeCache.resolveCacheRoot();
         if (root == null) return null;
         root = root.resolve("downloads").resolve("repo-" + repoId(repo));
@@ -208,14 +181,8 @@ final class NativeDownloader {
     }
 
     /**
-     * True when the file opens as a zip holding this platform's manifest with
-     * intact payloads. Structure and names alone are not enough: a cached file
-     * can rot while the ZIP stays readable, and reusing it would fail every
-     * later JVM run the same way instead of downloading a replacement. Every
-     * payload file is therefore hashed against the manifest embedded in the
-     * same jar. (Self-attested hashes detect corruption, not a hostile
-     * authority - see the class trust model. Jars predating hash manifests
-     * keep the structural check.)
+     * True when the file opens as a zip holding this platform's manifest with intact payloads.
+     * Structure and names alone are not enough: a cached file can rot while the ZIP stays readable, so every payload file is hashed against the manifest embedded in the same jar. (Self-attested hashes detect corruption, not a hostile authority - see the class trust model; jars predating hash manifests keep the structural check.)
      */
     static boolean isUsableJar(Path jar, String platform) {
         if (jar == null || !Files.isRegularFile(jar)) return false;
@@ -267,9 +234,8 @@ final class NativeDownloader {
     }
 
     /**
-     * Largest accepted natives jar. Natives bundles are tens of megabytes; the
-     * cap only stops a misbehaving repository (or error page) from exhausting
-     * the cache filesystem. Fail-closed with a clear message when exceeded.
+     * Largest accepted natives jar. Native bundles are tens of megabytes; the cap only stops a
+     * misbehaving repository (or error page) from exhausting the cache filesystem, failing closed with a clear message when exceeded.
      */
     static final long MAX_DOWNLOAD_BYTES = 1024L * 1024 * 1024;
 
@@ -288,11 +254,8 @@ final class NativeDownloader {
         Path staging = null;
         try {
             staging = Files.createTempFile(destination.getParent(), ".download-", ".jar");
-            // Never follow redirects: repoBase() already allows plain HTTP
-            // for loopback test servers, and a redirect from there (or from a
-            // compromised mirror) to non-loopback HTTP would deliver native
-            // code over cleartext. Legitimate Maven repositories serve
-            // artifacts without redirects; a 3xx fails closed below.
+            // Never follow redirects: repoBase() already allows plain HTTP for loopback test servers,
+            // and a redirect from there (or a compromised mirror) to non-loopback HTTP would deliver native code over cleartext. Legitimate Maven repositories serve artifacts without redirects; a 3xx fails closed below.
             HttpClient client = HttpClient.newBuilder()
                     .followRedirects(HttpClient.Redirect.NEVER)
                     .connectTimeout(CONNECT_TIMEOUT)
@@ -301,10 +264,8 @@ final class NativeDownloader {
                     .timeout(REQUEST_TIMEOUT)
                     .GET()
                     .build();
-            // Stream the body (do not use ofFile): the status must be checked
-            // before a single byte is written, and the byte count must be
-            // bounded while streaming so a huge artifact or error body cannot
-            // exhaust the cache filesystem. Timeouts alone do not limit bytes.
+            // Stream the body (do not use ofFile): the status must be checked before a single byte is
+            // written, and the byte count must be bounded while streaming so a huge artifact or error body cannot exhaust the cache filesystem. Timeouts alone do not limit bytes.
             HttpResponse<InputStream> response =
                     client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream body = response.body()) {

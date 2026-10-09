@@ -19,13 +19,7 @@ import java.util.List;
 /**
  * Compare two PDF documents and produce a text diff and/or visual diff report.
  *
- * <p>Two-layer approach:
- * <ul>
- *   <li><b>Text diff:</b> Extracts text from both documents and runs a line-level
- *       diff to find insertions, deletions, and changes.</li>
- *   <li><b>Visual diff:</b> Renders each page pair at matching DPI, diffs the pixel
- *       buffers, and finds bounding boxes of changed regions.</li>
- * </ul>
+ * <p>Two layers: a line-level text diff of extracted text (insertions, deletions, changes), and a visual diff that renders each page pair at matching DPI, diffs pixel buffers, and finds bounding boxes of changed regions.
  *
  * <pre>{@code
  * try (PdfDocument doc1 = PdfDocument.open(Path.of("v1.pdf"));

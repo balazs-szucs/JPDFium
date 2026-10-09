@@ -10,10 +10,8 @@ import java.util.List;
 /**
  * High-level structured text extraction from PDF documents.
  *
- * <p>Parses the raw character-level JSON from PDFium into structured
- * {@link PageText} objects with lines, words, and characters.
+ * <p>Parses the raw character-level JSON from PDFium into structured {@link PageText} objects with lines, words, and characters.
  *
- * <p><b>Usage Example</b></p>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("document.pdf"))) {
  *     // Extract text from page 0
@@ -76,14 +74,9 @@ public final class PdfTextExtractor {
     }
 
     /**
-     * Parses the compact JSON character array returned by the C bridge.
-     * Format: [{"i":0,"u":65,"x":10.1,"y":20.2,"w":8.3,"h":12.4,"font":"Arial","size":12.0}, ...]
+     * Parses the compact JSON character array returned by the C bridge: format {@code [{"i":0,"u":65,"x":10.1,"y":20.2,"w":8.3,"h":12.4,"font":"Arial","size":12.0}, ...]}.
      *
-     * <p>Single index-based sweep with substring views for values: no regex
-     * {@code split}, no per-field {@code String.replace}. Quoted values are
-     * JSON-unescaped (handling {@code \"} and {@code \\}); number values are
-     * handed to {@code Integer.parseInt}/{@code Float.parseFloat} as substrings.
-     * Malformed objects are skipped wholesale.
+     * <p>Single index-based sweep with substring views: no regex split or per-field {@code String.replace}; quoted values are JSON-unescaped and numbers handed to {@code Integer.parseInt}/{@code Float.parseFloat} as substrings; malformed objects are skipped wholesale.
      */
     static List<TextChar> parseCharsJson(String json) {
         if (json == null || json.isEmpty() || "[]".equals(json)) return new ArrayList<>();

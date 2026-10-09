@@ -14,12 +14,8 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 
 /**
- * Transactional file publication for document saves.
- *
- * <p>State machine: {@code CREATED -> WRITING -> FINALIZED -> (VALIDATED) ->
- * PUBLISHED}; any failure before {@code PUBLISHED} aborts and cleans the
- * staging file, leaving the destination untouched. Staging files live beside
- * the destination when possible so the final move is a rename.
+ * Transactional file publication for document saves. State machine: {@code CREATED -> WRITING ->
+ * FINALIZED -> (VALIDATED) -> PUBLISHED}; any failure before {@code PUBLISHED} aborts and cleans the staging file, leaving the destination untouched. Staging files live beside the destination when possible so the final move is a rename.
  */
 public final class OutputTransaction implements AutoCloseable {
 
@@ -43,10 +39,8 @@ public final class OutputTransaction implements AutoCloseable {
     public static OutputTransaction begin(Path destination) throws IOException {
         if (destination == null) throw new IllegalArgumentException("destination must not be null");
         Path abs = destination.toAbsolutePath();
-        // Stage beside the resolved target, not beside the link: a symlink can
-        // point at another filesystem, and a staging file on the other side of
-        // that boundary could only be published by a non-atomic copy, which is
-        // exactly what this transaction exists to avoid.
+        // Stage beside the resolved target, not beside the link: a symlink can point at another
+        // filesystem, and a staging file across that boundary could only be published by a non-atomic copy - exactly what this transaction avoids.
         Path resolved = resolveSymlinks(abs);
         Path parent = resolved.getParent();
         Path staging;
@@ -72,11 +66,8 @@ public final class OutputTransaction implements AutoCloseable {
     }
 
     /**
-     * Shared staged-output validation: non-empty, within the explicit or
-     * global byte budget, and reopenable when requested. Every save path that
-     * hands a staged file to a caller or a destination must go through here,
-     * so a validating policy cannot be silently dropped by one path while
-     * another enforces it.
+     * Shared staged-output validation: non-empty, within the explicit or global byte budget, and
+     * reopenable when requested. Every save path that hands a staged file to a caller or destination must go through here, so a validating policy cannot be silently dropped by one path while another enforces it.
      */
     static void validateStaged(Path staging, SaveOptions options) throws IOException {
         long size = Files.size(staging);
@@ -111,19 +102,8 @@ public final class OutputTransaction implements AutoCloseable {
     }
 
     /**
-     * Move a finished staging file onto a caller-chosen destination, atomically.
-     *
-     * <p>Staging files are owner-only while they are being written, which is
-     * right for a partially written PDF and wrong for the final artifact: a
-     * plain rename would hand the caller an owner-only file and would silently
-     * drop the permissions of the file it replaced. This therefore
-     * <ul>
-     *   <li>follows an existing symlink so publishing replaces the real file
-     *       instead of the link;</li>
-     *   <li>copies the destination's current permissions onto the staging file
-     *       when one exists, or applies the same default a plain
-     *       {@code Files.write} would produce (umask included) when it does not.</li>
-     * </ul>
+     * Move a finished staging file onto a caller-chosen destination, atomically. Staging files are
+     * owner-only while written (right for a partial PDF, wrong for the final artifact), so rather than a plain rename that would hand the caller an owner-only file and drop the replaced file's permissions, this follows an existing symlink so publishing replaces the real file, and copies the destination's current permissions onto the staging file when one exists (or applies the same default a plain {@code Files.write} would produce, umask included, when it does not).
      *
      * @param staging     finished file to publish
      * @param destination caller-chosen destination path
@@ -132,9 +112,8 @@ public final class OutputTransaction implements AutoCloseable {
     public static void publishStaged(Path staging, Path destination) throws IOException {
         Path target = resolveSymlinks(destination);
         applyDestinationPermissions(staging, target);
-        // Flush file content before the rename: without this a power loss can
-        // leave the destination with zero or partial bytes despite a
-        // successful rename, breaking the no-partial-destination contract.
+        // Flush file content before the rename: without this a power loss can leave the destination
+        // with zero or partial bytes despite a successful rename, breaking the no-partial-destination contract.
         try (FileChannel channel = FileChannel.open(staging, StandardOpenOption.WRITE)) {
             channel.force(true);
         }
@@ -177,11 +156,8 @@ public final class OutputTransaction implements AutoCloseable {
                 Files.setPosixFilePermissions(staging, Files.getPosixFilePermissions(target));
                 return;
             }
-            // No destination yet, so mirror what a direct Files.write would
-            // create: 0666 masked by the process umask. createFile applies the
-            // umask (createTempFile does not - it always forces owner-only), so
-            // it is the only way to learn the effective default. The probe name
-            // derives from the already-unique staging name.
+            // No destination yet, so mirror what a direct Files.write would create: 0666 masked by the
+            // process umask. createFile applies the umask (createTempFile forces owner-only), so it is the only way to learn the effective default; the probe name derives from the already-unique staging name.
             Path parent = staging.getParent();
             if (parent == null) return;
             Path probe = parent.resolve(staging.getFileName() + ".perm");

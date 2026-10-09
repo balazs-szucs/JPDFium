@@ -18,9 +18,7 @@ import java.util.List;
 /**
  * Multi-column text extraction.
  *
- * <p>Detects vertical gaps (gutters) in text layout and extracts text
- * column-by-column from left to right, preserving reading order within
- * each column.
+ * <p>Detects vertical gutter gaps in the text layout and extracts text column-by-column left to right, preserving reading order within each column.
  *
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(Path.of("two-column.pdf"))) {

@@ -8,8 +8,7 @@ import java.util.Map;
 /**
  * PII categories with their PCRE2 detection patterns.
  *
- * <p>Each category carries a PCRE2 regex compiled with UTF+UCP mode for
- * Unicode-aware word boundaries and character classes in multilingual PDFs.
+ * <p>Each category carries a PCRE2 regex compiled with UTF+UCP mode for Unicode-aware word boundaries and character classes in multilingual PDFs.
  *
  * @see PatternEngine
  */

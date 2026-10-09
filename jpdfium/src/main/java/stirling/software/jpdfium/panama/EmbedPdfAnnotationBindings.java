@@ -10,14 +10,9 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /**
- * FFM bindings for the EmbedPDF fork's annotation APIs ({@code EPDF*} functions).
+ * FFM bindings for the EmbedPDF fork's annotation APIs ({@code EPDF* functions}).
  *
- * <p>These APIs provide richer annotation manipulation than standard PDFium:
- * color/opacity without appearance-stream restrictions, border styles, rectangle
- * differences, appearance generation, blend modes, rotation, reply types,
- * redaction overlay text, and single/batch redaction application.
- *
- * @see AnnotationBindings
+ * <p>Richer annotation manipulation than standard PDFium: color/opacity without appearance-stream restrictions, border styles, rectangle differences, appearance generation, blend modes, rotation, reply types, redaction overlay text, and single/batch redaction. See {@link AnnotationBindings}.
  */
 public final class EmbedPdfAnnotationBindings {
 
@@ -211,8 +206,7 @@ public final class EmbedPdfAnnotationBindings {
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT));
 
     /** Set annotation icon (Text/FileAttachment/Sound/Stamp). Optional: not every
-     *  PDFium build exports this symbol (the bundled EmbedPDF fork does not), so
-     *  the handle may be null - callers must null-check before invoking. */
+     *  PDFium build exports this symbol (the bundled EmbedPDF fork does not), so callers must null-check. */
     public static final MethodHandle EPDFAnnot_SetIcon = downcallOptional("EPDFAnnot_SetIcon",
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
 

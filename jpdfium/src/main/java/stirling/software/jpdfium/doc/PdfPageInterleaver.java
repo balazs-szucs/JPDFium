@@ -7,8 +7,7 @@ import stirling.software.jpdfium.panama.DocBindings;
 /**
  * Interleave pages from two PDF documents (e.g., for front/back scanning).
  *
- * <p>Typical use: combine a front-pages scan and a back-pages scan into a
- * single document with proper page ordering.
+ * <p>Typical use: combine a front-pages scan and a back-pages scan into a single document with proper page ordering.
  */
 public final class PdfPageInterleaver {
 

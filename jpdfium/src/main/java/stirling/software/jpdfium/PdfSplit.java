@@ -65,10 +65,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Split a PDF using the given strategy.
-     *
-     * <p>The source document must remain open during this call.
-     * The caller owns all returned documents and must close them.
+     * Split a PDF using the given strategy. The source document must remain open during this call;
+     * the caller owns all returned documents and must close them.
      *
      * @param doc      source document
      * @param strategy how to split
@@ -79,41 +77,20 @@ public final class PdfSplit {
     }
 
     /**
-     * Split with explicit storage control. The live document is materialized
-     * once and reused for every range: per-range saves would serialize the full
-     * source N times.
-     *
-     * <p>Snapshot semantics: one save captures current state (including
-     * unsaved edits); every part derives from that snapshot. The source
-     * generation is captured before the snapshot and rechecked per range,
-     * concurrent structural mutation fails loudly instead of mixing states.
-     * Multi-output splitting is best-effort per part, not atomic: earlier
-     * parts may succeed when a later one fails; the caller owns returned
-     * documents and must close them.
-     *
-     * <p>The original file is reused instead of the snapshot only when
-     * {@link StorageOptions#reuseSourceFile()} is set, and then only for a
-     * document opened from that path. Many mutating APIs do not bump the
-     * structural epoch (redaction, flatten, page edits all leave it at zero),
-     * so an unmodified-looking file-opened document can still hold edits the
-     * file does not - reusing it would publish pre-edit content. That shortcut
-     * is therefore opt-in and the caller's assertion, not something this class
-     * can infer.
+     * Split with explicit storage control. The live document is materialized once and reused for
+     * every range (per-range saves would serialize the source N times). One save captures current state (including unsaved edits) and every part derives from that snapshot; the source generation is captured before the snapshot and rechecked per range, so concurrent structural mutation fails loudly. Multi-output splitting is best-effort per part, not atomic. The original file is reused instead of the snapshot only when {@link StorageOptions#reuseSourceFile()} is set and the document was opened from that path; many mutating APIs (redaction, flatten, page edits) do not bump the structural epoch, so reusing it would publish pre-edit content - the shortcut is opt-in and the caller's assertion.
      */
     public static List<PdfDocument> split(PdfDocument doc, SplitStrategy strategy,
             StorageOptions options) {
         List<int[]> ranges = strategy.computeRanges(doc);
         if (ranges.size() > 1 && options.mode() != StorageOptions.Mode.MEMORY
                 && QpdfLib.isExtractFileSupported()) {
-            // Snapshot unless the caller vouched for the source file. Source
-            // stays alive for all outputs: QPDF foreign objects may read stream
-            // bytes from the original until writing finishes.
-            // https://qpdf.readthedocs.io/en/stable/design.html
+            // Snapshot unless the caller vouched for the source file. Source stays alive for all
+            // outputs: QPDF foreign objects may read stream bytes from the original until writing finishes. https://qpdf.readthedocs.io/en/stable/design.html
             int epoch = doc.structureEpoch();
             Path src = doc.sourcePath();
-            // Snapshot first, in its own try: only a snapshot-step failure
-            // falls through to the per-range path below. Extraction-loop
-            // failures are RuntimeExceptions and propagate after cleanup.
+            // Snapshot first, in its own try: only a snapshot-step failure falls through to the
+            // per-range path below. Extraction-loop failures are RuntimeExceptions and propagate after cleanup.
             Path reusable = null;
             boolean ownsReusable = false;
             try {
@@ -181,9 +158,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Close parts already produced by a failing multi-output split. They have
-     * no cleaner and own native handles plus temp files, so dropping them on
-     * the floor would leak both.
+     * Close parts already produced by a failing multi-output split. They own native handles plus temp
+     * files and have no cleaner, so dropping them would leak both.
      */
     private static void closeAll(List<PdfDocument> parts) {
         for (PdfDocument part : parts) {
@@ -193,10 +169,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract specific pages (by zero-based indices) into a new document.
-     *
-     * <p>The source document must remain open during this call but can be closed
-     * immediately afterwards - the returned document is fully self-contained.
+     * Extract specific pages (by zero-based indices) into a new document. The source must remain open
+     * during this call but can be closed immediately afterwards - the result is fully self-contained.
      *
      * @param doc     source document (must remain open)
      * @param indices zero-based page indices to extract
@@ -207,9 +181,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract specific pages with explicit storage control.
-     * FILE mode fails loudly when the native file-backed extract is
-     * unavailable or fails; live documents are materialized to temp files.
+     * Extract specific pages with explicit storage control. FILE mode fails loudly when the native
+     * file-backed extract is unavailable or fails; live documents are materialized to temp files.
      */
     public static PdfDocument extractPages(PdfDocument doc, Set<Integer> indices, StorageOptions options) {
         if (indices.isEmpty()) {
@@ -277,10 +250,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract a contiguous range of pages into a new document.
-     *
-     * <p>The source document must remain open during this call but can be closed
-     * immediately afterwards - the returned document is fully self-contained.
+     * Extract a contiguous range of pages into a new document. The source must remain open during
+     * this call but can be closed immediately afterwards - the result is fully self-contained.
      *
      * @param doc       source document (must remain open)
      * @param fromPage  first page index (inclusive, zero-based)
@@ -292,9 +263,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract a contiguous range with explicit storage control.
-     * FILE mode fails loudly when the native file-backed extract is
-     * unavailable or fails; live documents are materialized to temp files.
+     * Extract a contiguous range with explicit storage control. FILE mode fails loudly when the
+     * native file-backed extract is unavailable or fails; live documents are materialized to temp files.
      */
     public static PdfDocument extractPageRange(PdfDocument doc, int fromPage, int toPage, StorageOptions options) {
         if (fromPage < 0 || toPage < fromPage || toPage >= doc.pageCount()) {
@@ -368,12 +338,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract a contiguous range of pages straight from an input file to an
-     * output file.
-     *
-     * <p>File-backed like {@code PdfMerge.mergeFilesToFile}: no document
-     * bytes on the Java heap. Falls back to open/extract/save when the
-     * file-backed native path is unavailable.
+     * Extract a contiguous range straight from an input file to an output file. File-backed like
+     * {@code PdfMerge.mergeFilesToFile}: no document bytes on the Java heap; falls back to open/extract/save when the native path is unavailable.
      *
      * @param input    input PDF file path
      * @param fromPage first page index (inclusive, zero-based)
@@ -387,9 +353,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Extract a range straight to a file with explicit storage control.
-     * Existing output is replaced only after extraction succeeds. FILE mode
-     * fails loudly when the native file-backed extract is unavailable or fails.
+     * Extract a range straight to a file with explicit storage control. Existing output is replaced
+     * only after extraction succeeds; FILE mode fails loudly when the native file-backed extract is unavailable or fails.
      */
     public static void extractPageRangeToFile(Path input, int fromPage, int toPage,
                                               Path output, StorageOptions options) throws IOException {
@@ -421,9 +386,8 @@ public final class PdfSplit {
         }
         try (PdfDocument doc = PdfDocument.open(input);
              PdfDocument part = extractPageRange(doc, fromPage, toPage, options)) {
-            // Save to a staging file first, then atomically replace the output.
-            // A direct save to output would corrupt the file when output aliases input
-            // (the document is still open), and a failed save would leave a partial file.
+            // Save to a staging file first, then atomically replace the output. A direct save would
+            // corrupt the file when output aliases input (document still open) and leave a partial file on failure.
             Path staged;
             try {
                 staged = options.createStagingFile(output);
@@ -447,10 +411,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Native-extract into a staging file and replace {@code output} only on
-     * success: qpdf must never truncate the input it is still reading when the
-     * output aliases the input. Returns false when the native path is
-     * unavailable or fails; the caller then falls back or fails in FILE mode.
+     * Native-extract into a staging file and replace {@code output} only on success: qpdf must never
+     * truncate the input it is still reading when output aliases input. Returns false when the native path is unavailable or fails; the caller then falls back or fails in FILE mode.
      */
     private static boolean stageNativeExtract(Path input, int[] pageIndices, int expectedPages,
                                               Path output, StorageOptions options) throws IOException {
@@ -490,9 +452,8 @@ public final class PdfSplit {
     }
 
     /**
-     * File-backed extract shared by the open-document paths: extract to a
-     * temp file, apply bookmarks through the file variant, verify, and hand
-     * back a temp-owned document. Null when anything fails (caller falls back).
+     * File-backed extract shared by the open-document paths: extract to a temp file, apply bookmarks
+     * through the file variant, verify, and hand back a temp-owned document. Null when anything fails (caller falls back).
      */
     private static PdfDocument extractToTemp(Path input, int[] pageIndices,
                                              List<Bookmark> remappedBookmarks, StorageOptions options) {
@@ -556,11 +517,8 @@ public final class PdfSplit {
     }
 
     /**
-     * PDFium's {@code FPDF_ImportPages} leaves imported pages referencing objects
-     * owned by the source document, so the live destination is invalidated the
-     * moment the source closes (saving it afterwards crashes the native layer).
-     * Save, close and reopen while the source is still open so the returned
-     * document is fully standalone and safe to use after the source closes.
+     * PDFium's {@code FPDF_ImportPages} leaves imported pages referencing objects owned by the source
+     * document, so the live destination is invalidated the moment the source closes (saving it afterwards crashes the native layer). Save, close and reopen while the source is still open so the result is standalone and safe after the source closes.
      */
     private static PdfDocument detach(PdfDocument dest) {
         try (dest) {
@@ -569,12 +527,8 @@ public final class PdfSplit {
     }
 
     /**
-     * Creates an empty PDF document that can receive imported pages.
-     *
-     * <p>Opens a properly-formed minimal PDF and deletes the single blank page.
-     * No intermediate {@code saveBytes} copy is needed - the minimal PDF is
-     * already well-formed with correct xref offsets, and {@code FPDF_ImportPages}
-     * works directly against the live document.
+     * Creates an empty PDF document that can receive imported pages. Opens a properly-formed minimal
+     * PDF and deletes its single blank page; no intermediate {@code saveBytes} copy is needed because the minimal PDF already has correct xref offsets, and {@code FPDF_ImportPages} works directly against the live document.
      */
     private static PdfDocument createEmptyDocument() {
         PdfDocument dest = PdfDocument.open(MINIMAL_PDF_BYTES);
@@ -632,11 +586,8 @@ public final class PdfSplit {
         }
 
         /**
-         * Split at top-level bookmark boundaries.
-         *
-         * <p>Each top-level bookmark starts a new section. Pages before the first
-         * bookmark (if any) are grouped together. If no bookmarks exist, returns
-         * the entire document as one part.
+         * Split at top-level bookmark boundaries. Each top-level bookmark starts a new section; pages
+         * before the first bookmark (if any) are grouped together. If no bookmarks exist, returns the entire document as one part.
          *
          * @return split strategy
          */

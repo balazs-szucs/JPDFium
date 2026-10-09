@@ -3,8 +3,7 @@ package stirling.software.jpdfium.doc;
 /**
  * Form field types as returned by {@code FPDFAnnot_GetFormFieldType}.
  *
- * <p>Values match the {@code FPDF_FORMFIELD_*} constants defined in
- * {@code fpdf_formfill.h}:
+ * <p>Values match the {@code FPDF_FORMFIELD_*} constants in {@code fpdf_formfill.h}:
  * <pre>
  *   FPDF_FORMFIELD_UNKNOWN     = 0
  *   FPDF_FORMFIELD_PUSHBUTTON  = 1

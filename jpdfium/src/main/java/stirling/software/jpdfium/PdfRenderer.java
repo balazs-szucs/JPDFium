@@ -18,11 +18,7 @@ import stirling.software.jpdfium.panama.JpdfiumLib;
 import java.util.List;
 
 /**
- * PDF page renderer modeled after Apache PDFBox's {@code PDFRenderer}.
- *
- * <p>Provides a familiar, straightforward rendering API for developers migrating from
- * PDFBox while leveraging high-performance native PDFium rendering and the active image
- * codec (libvips when available, otherwise ImageIO).
+ * PDF page renderer modeled after Apache PDFBox's {@code PDFRenderer}, providing a familiar API while using high-performance native PDFium rendering and the active image codec (libvips when available, otherwise ImageIO).
  *
  * <p><b>Usage Examples:</b></p>
  * <pre>{@code
@@ -137,9 +133,8 @@ public final class PdfRenderer {
     }
 
     /**
-     * Renders a page to a {@link BufferedImage} at the specified resolution in DPI
-     * with the specified {@link ColorType}.
-     * Mirrors PDFBox's {@code PDFRenderer.renderImageWithDPI(pageIndex, dpi, imageType)}.
+     * Renders a page to a {@link BufferedImage} at the specified DPI and {@link ColorType},
+     * mirroring PDFBox's {@code PDFRenderer.renderImageWithDPI(pageIndex, dpi, imageType)}.
      *
      * @param pageIndex 0-based page index
      * @param dpi       render resolution in dots per inch
