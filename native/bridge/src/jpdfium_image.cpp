@@ -281,7 +281,7 @@ JPDFIUM_EXPORT int32_t jpdfium_image_to_pdf(const uint8_t* image_data, int64_t i
             return result;
         }
 
-        dw.release();
+        (void)dw.release();
         provisional = nullptr;
         *doc_handle = encodeHandle(raw);
         return JPDFIUM_OK;

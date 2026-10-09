@@ -7,6 +7,7 @@ import stirling.software.jpdfium.panama.PageEditBindings;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.EnumSet;
 import java.util.Set;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
@@ -28,10 +29,27 @@ public final class PdfColorConverter {
     private PdfColorConverter() {}
 
     /**
-     * Target color space for conversion.
+     * Target color space for conversion. CMYK is declared but unsupported:
+     * the PDFium object color API only emits DeviceRGB.
      */
     public enum ColorSpace {
-        GRAYSCALE
+        GRAYSCALE,
+        RGB,
+        CMYK
+    }
+
+    /**
+     * True if the native conversion path can emit the given target.
+     */
+    public static boolean supportsColorSpace(ColorSpace target) {
+        return target == ColorSpace.GRAYSCALE || target == ColorSpace.RGB;
+    }
+
+    /**
+     * Color spaces this converter can currently emit.
+     */
+    public static Set<ColorSpace> supportedColorSpaces() {
+        return EnumSet.of(ColorSpace.GRAYSCALE, ColorSpace.RGB);
     }
 
     /**
@@ -70,6 +88,48 @@ public final class PdfColorConverter {
     }
 
     /**
+     * Rewrite every fill/stroke color on all pages as DeviceRGB.
+     *
+     * @param doc the document to modify (in place)
+     * @return number of objects whose colors were rewritten
+     */
+    public static int toRgb(PdfDocument doc) {
+        int total = 0;
+        for (int i = 0; i < doc.pageCount(); i++) {
+            try (PdfPage page = doc.page(i)) {
+                total += convertPage(page.rawHandle(),
+                        ColorConvertOptions.builder()
+                                .targetColorSpace(ColorSpace.RGB)
+                                .preserveBlack(false)
+                                .build());
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Normalize specific pages to DeviceRGB.
+     *
+     * @param doc         the document to modify (in place)
+     * @param pageIndices set of 0-based page indices to convert
+     * @return number of objects whose colors were rewritten
+     */
+    public static int toRgb(PdfDocument doc, Set<Integer> pageIndices) {
+        int total = 0;
+        for (int i : pageIndices) {
+            if (i >= 0 && i < doc.pageCount()) {
+                try (PdfPage page = doc.page(i)) {
+                    total += convertPage(page.rawHandle(), ColorConvertOptions.builder()
+                            .targetColorSpace(ColorSpace.RGB)
+                            .preserveBlack(false)
+                            .build());
+                }
+            }
+        }
+        return total;
+    }
+
+    /**
      * Convert colors on a single page using the specified options.
      *
      * @param doc     the document to modify (in place)
@@ -77,6 +137,11 @@ public final class PdfColorConverter {
      * @return number of objects whose colors were converted
      */
     public static int convert(PdfDocument doc, ColorConvertOptions options) {
+        ColorSpace target = options.targetColorSpace();
+        if (!supportsColorSpace(target)) {
+            throw new JPDFiumException("Unsupported color conversion target: " + target
+                    + " (PDFium object color API emits DeviceRGB only)");
+        }
         int total = 0;
         for (int i = 0; i < doc.pageCount(); i++) {
             try (PdfPage page = doc.page(i)) {
@@ -93,6 +158,11 @@ public final class PdfColorConverter {
     }
 
     private static int convertPage(MemorySegment rawPage, ColorConvertOptions options) {
+        ColorSpace target = options.targetColorSpace();
+        if (!supportsColorSpace(target)) {
+            throw new JPDFiumException("Unsupported color conversion target: " + target
+                    + " (PDFium object color API emits DeviceRGB only)");
+        }
         int count;
         try {
             count = (int) PageEditBindings.FPDFPage_CountObjects.invokeExact(rawPage);
@@ -122,11 +192,11 @@ public final class PdfColorConverter {
 
             // Convert fill color
             if (isText || isPath) {
-                if (convertFillColor(obj, options)) {
+                if (convertFillColor(obj, options, target)) {
                     changed = true;
                     converted++;
                 }
-                if (convertStrokeColor(obj, options)) {
+                if (convertStrokeColor(obj, options, target)) {
                     changed = true;
                 }
             }
@@ -139,7 +209,8 @@ public final class PdfColorConverter {
         return converted;
     }
 
-    private static boolean convertFillColor(MemorySegment obj, ColorConvertOptions options) {
+    private static boolean convertFillColor(MemorySegment obj, ColorConvertOptions options,
+                                             ColorSpace target) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment r = arena.allocate(ValueLayout.JAVA_INT);
             MemorySegment g = arena.allocate(ValueLayout.JAVA_INT);
@@ -156,14 +227,15 @@ public final class PdfColorConverter {
 
             if (options.preserveBlack() && ri == 0 && gi == 0 && bi == 0) return false;
 
-            int gray = toGray(ri, gi, bi);
+            int[] rgb = toTargetRgb(ri, gi, bi, target);
             int setOk = (int) PageEditBindings.FPDFPageObj_SetFillColor.invokeExact(
-                    obj, gray, gray, gray, ai);
+                    obj, rgb[0], rgb[1], rgb[2], ai);
             return setOk != 0;
         } catch (Throwable t) { return false; }
     }
 
-    private static boolean convertStrokeColor(MemorySegment obj, ColorConvertOptions options) {
+    private static boolean convertStrokeColor(MemorySegment obj, ColorConvertOptions options,
+                                               ColorSpace target) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment r = arena.allocate(ValueLayout.JAVA_INT);
             MemorySegment g = arena.allocate(ValueLayout.JAVA_INT);
@@ -180,11 +252,22 @@ public final class PdfColorConverter {
 
             if (options.preserveBlack() && ri == 0 && gi == 0 && bi == 0) return false;
 
-            int gray = toGray(ri, gi, bi);
+            int[] rgb = toTargetRgb(ri, gi, bi, target);
             int setOk = (int) PageEditBindings.FPDFPageObj_SetStrokeColor.invokeExact(
-                    obj, gray, gray, gray, ai);
+                    obj, rgb[0], rgb[1], rgb[2], ai);
             return setOk != 0;
         } catch (Throwable t) { return false; }
+    }
+
+    /**
+     * Map an RGB triplet to the target color space for the PDFium RGB setter.
+     */
+    private static int[] toTargetRgb(int r, int g, int b, ColorSpace target) {
+        if (target == ColorSpace.GRAYSCALE) {
+            int gray = toGray(r, g, b);
+            return new int[] { gray, gray, gray };
+        }
+        return new int[] { r, g, b };
     }
 
     /**
