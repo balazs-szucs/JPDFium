@@ -13,10 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Execution-domain contract that holds without native PDFium: submission
@@ -151,8 +148,7 @@ class PdfiumRuntimeTest {
             throw new AssertionError("admitted op failed", workerFailure.get());
         }
         assertEquals("done", result.get(), "admitted op runs to completion after quiesce");
-        assertTrue(lateFailure.get() instanceof JPDFiumException,
-                "post-quiesce submission must reject loudly, got: " + lateFailure.get());
+        assertInstanceOf(JPDFiumException.class, lateFailure.get(), "post-quiesce submission must reject loudly, got: " + lateFailure.get());
     }
 
     @Test
@@ -303,8 +299,7 @@ class PdfiumRuntimeTest {
                 failure.set(t);
             }
         });
-        assertTrue(failure.get() instanceof JPDFiumException,
-                "guarded raw handle must not admit ordinary work from teardown, got: " + failure.get());
+        assertInstanceOf(JPDFiumException.class, failure.get(), "guarded raw handle must not admit ordinary work from teardown, got: " + failure.get());
         // The teardown context itself survived the rejection: it can still run
         // its own nested teardown afterwards.
         PdfiumRuntime.execute(() -> { });

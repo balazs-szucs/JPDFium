@@ -684,7 +684,8 @@ public final class JpdfiumLib {
                 while (buf.hasRemaining()) {
                     int w = channel.write(buf);
                     if (w == 0) {
-                        if (++zeroSpins > 10_000) {
+                        ++zeroSpins;
+                        if (zeroSpins > 10_000) {
                             throw new IOException("channel is not making progress");
                         }
                     } else if (w > 0) {

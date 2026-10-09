@@ -12,8 +12,7 @@ import stirling.software.jpdfium.transform.PdfPageGeometry;
 
 import java.awt.image.BufferedImage;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Form-nested fission regression guard: the removed text must not survive in
@@ -73,9 +72,8 @@ class CropFormZOrderTest {
                     if (lum < 128) dark++;
                 }
             }
-            assertTrue(dark == 0,
-                    "straddling text painted on top of content drawn after the form: "
-                            + dark + " dark pixels in the rect region");
+            assertEquals(0, dark, "straddling text painted on top of content drawn after the form: "
+                + dark + " dark pixels in the rect region");
         }
     }
 }

@@ -39,7 +39,7 @@ public class S95_RedactPipelinePerf {
     private static final int WARMUP = 4;
     private static final int ITERATIONS = 12;
 
-    public static void main(String[] args) throws Exception {
+    static void main(String[] args) throws Exception {
         SampleBase.ensureNative();
         Path outDir = SampleBase.out("S95_redact-pipeline-perf");
         Path csv = outDir.resolve("perf.csv");
