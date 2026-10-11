@@ -39,6 +39,9 @@ import stirling.software.jpdfium.util.NativeJsonParser;
  * @param mappings per-code mappings recovered for this resource
  * @param mappingTruncated true when a bounded scan (charmap walk or code cap)
  *     stopped early, so {@link #mappings()} is incomplete
+ * @param toUnicodeState the declared {@code /ToUnicode} state: one of
+ *     {@code absent}, {@code supported_complete}, {@code supported_empty},
+ *     {@code unsupported}, {@code malformed}, or {@code ""} when not reported
  */
 public record FontEvidence(
         int pageIndex,
@@ -61,7 +64,8 @@ public record FontEvidence(
         String encoding,
         int embeddingFsType,
         List<UnicodeMapping> mappings,
-        boolean mappingTruncated) {
+        boolean mappingTruncated,
+        String toUnicodeState) {
 
     public FontEvidence {
         resourceName = resourceName == null ? "" : resourceName;
@@ -71,6 +75,38 @@ public record FontEvidence(
         kind = kind == null ? FontKind.UNKNOWN : kind;
         encoding = encoding == null ? "" : encoding;
         mappings = mappings == null ? List.of() : List.copyOf(mappings);
+        toUnicodeState = toUnicodeState == null ? "" : toUnicodeState;
+    }
+
+    /**
+     * Convenience constructor used where the declared {@code /ToUnicode} state is
+     * not observed; the state is left empty rather than guessed.
+     */
+    public FontEvidence(
+            int pageIndex,
+            String resourceName,
+            String baseFont,
+            String family,
+            String subtype,
+            FontKind kind,
+            boolean embedded,
+            boolean sfnt,
+            boolean cff,
+            boolean cid,
+            boolean subset,
+            boolean hasCmap,
+            int numGlyphs,
+            int unitsPerEm,
+            long glyphBytes,
+            boolean hasToUnicode,
+            boolean toUnicodeValid,
+            String encoding,
+            int embeddingFsType,
+            List<UnicodeMapping> mappings,
+            boolean mappingTruncated) {
+        this(pageIndex, resourceName, baseFont, family, subtype, kind, embedded, sfnt, cff, cid,
+                subset, hasCmap, numGlyphs, unitsPerEm, glyphBytes, hasToUnicode, toUnicodeValid,
+                encoding, embeddingFsType, mappings, mappingTruncated, "");
     }
 
     /** Embedding/subsetting rights decoded from the {@code fsType} word. */
@@ -180,7 +216,8 @@ public record FontEvidence(
                     row.getOrDefault("encoding", ""),
                     parseInt(row.get("embedding_permission"), -1),
                     byResource.getOrDefault(resource, List.of()),
-                    asBool(row.get("mapping_truncated"))));
+                    asBool(row.get("mapping_truncated")),
+                    row.getOrDefault("tounicode_state", "")));
         }
         return out;
     }

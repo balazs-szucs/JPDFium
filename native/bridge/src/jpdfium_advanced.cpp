@@ -1505,22 +1505,32 @@ std::string program_bytes(QPDFObjectHandle descriptor) {
     return {};
 }
 
-// Defined below in this anonymous namespace; declared here so /ToUnicode
-// validity can be decided from parsed entries rather than token presence.
-std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool* exact);
+// States of a declared /ToUnicode stream. Only the SUPPORTED_* states may be
+// reconstructed; UNSUPPORTED (a construct the writer cannot reproduce, such as
+// an inherited /UseCMap) and MALFORMED must be left untouched.
+enum class TounicodeState {
+    ABSENT,
+    SUPPORTED_COMPLETE,
+    SUPPORTED_EMPTY,
+    UNSUPPORTED,
+    MALFORMED
+};
 
-void tounicode_state(QPDFObjectHandle fd, bool& present, bool& valid) {
-    present = false;
-    valid = false;
-    if (!fd.hasKey("/ToUnicode")) return;
-    QPDFObjectHandle t = fd.getKey("/ToUnicode");
-    present = true;
-    if (!t.isStream()) return;
-    // Valid only if at least one mapping is actually declared. A stream that
-    // merely mentions a section keyword declares nothing and is treated as
-    // absent, so it is rebuilt rather than preserved.
-    valid = !parse_tounicode(fd, nullptr).empty();
+const char* tounicode_state_name(TounicodeState s) {
+    switch (s) {
+        case TounicodeState::ABSENT: return "absent";
+        case TounicodeState::SUPPORTED_COMPLETE: return "supported_complete";
+        case TounicodeState::SUPPORTED_EMPTY: return "supported_empty";
+        case TounicodeState::UNSUPPORTED: return "unsupported";
+        case TounicodeState::MALFORMED: return "malformed";
+    }
+    return "malformed";
 }
+
+// Defined below in this anonymous namespace; declared here so callers can
+// decide from parsed state rather than token presence.
+TounicodeState parse_tounicode(QPDFObjectHandle fd,
+                               std::unordered_map<uint32_t, uint32_t>* out);
 
 std::string font_base_name(QPDFObjectHandle fd) {
     if (!fd.hasKey("/BaseFont")) return {};
@@ -1576,8 +1586,9 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
     GlyphMaps gm =
         build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
 
-    bool tucPresent = false, tucValid = false;
-    tounicode_state(fd, tucPresent, tucValid);
+    TounicodeState tuc = parse_tounicode(fd, nullptr);
+    bool tucPresent = tuc != TounicodeState::ABSENT;
+    bool tucValid = tuc == TounicodeState::SUPPORTED_COMPLETE;
 
     bool simple = !cid && is_simple_subtype(fd);
     std::string kind = cid ? "composite" : (simple ? "simple" : "unknown");
@@ -1617,6 +1628,10 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
     out += tucPresent ? "true" : "false";
     out += ",\"tounicode_valid\":";
     out += tucValid ? "true" : "false";
+    out += ",\"tounicode_state\":";
+    out += "\"";
+    out += tounicode_state_name(tuc);
+    out += "\"";
     out += ",\"encoding\":" + escape_json(font_encoding_name(fd));
     snprintf(num, sizeof(num), ",\"embedding_permission\":%d", gm.fs_type);
     out += num;
@@ -1843,12 +1858,15 @@ bool collect_used_strings(QPDFObjectHandle page,
 // construct this parser cannot reproduce byte-for-byte (multi-code destinations,
 // array bfrange, >2-byte source codes), so callers refuse to rewrite a map they
 // cannot preserve.
-std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool* exact) {
-    if (exact) *exact = true;
-    std::unordered_map<uint32_t, uint32_t> declared;
-    if (!fd.hasKey("/ToUnicode")) return declared;
+TounicodeState parse_tounicode(QPDFObjectHandle fd,
+                               std::unordered_map<uint32_t, uint32_t>* out) {
+    if (out) out->clear();
+    if (!fd.hasKey("/ToUnicode")) return TounicodeState::ABSENT;
     QPDFObjectHandle tu = fd.getKey("/ToUnicode");
-    if (!tu.isStream()) return declared;
+    if (!tu.isStream()) return TounicodeState::MALFORMED;
+    // Inherited mappings (a stream-dictionary /UseCMap or a body `usecmap`) are
+    // not reproduced by rewriting the local block, so they are unsupported.
+    if (tu.hasKey("/UseCMap")) return TounicodeState::UNSUPPORTED;
     std::string s = stream_bytes(tu);
     auto hexval = [](const std::string& h) {
         uint32_t v = 0;
@@ -1867,12 +1885,16 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
         return v;
     };
     // A destination that is not a valid Unicode scalar (a lone surrogate or a
-    // value above U+10FFFF) cannot be reproduced, so the map is not exact.
+    // value above U+10FFFF) cannot be reproduced.
     auto valid_scalar = [](uint32_t v) {
         return v <= 0x10FFFFu && !(v >= 0xD800u && v <= 0xDFFFu);
     };
     enum { NONE, BFCHAR, BFRANGE } mode = NONE;
     std::vector<std::string> hexes;
+    bool unsupported = false;
+    bool malformed = false;
+    // A mapping entry was parsed, whether or not the caller asked for the map.
+    bool any = false;
     const size_t n = s.size();
     size_t i = 0;
     while (i < n) {
@@ -1888,24 +1910,49 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
             if (i < n) ++i;
             hexes.push_back(h);
             if (mode == BFCHAR && hexes.size() == 2) {
-                if (hexes[0].size() > 4 || hexes[1].size() > 4) {
-                    if (exact) *exact = false;
+                if (hexes[0].empty() || hexes[0].size() > 4) {
+                    unsupported = true;  // multi-byte source code
                 }
-                uint32_t src = hexval(hexes[0]), dst = hexval(hexes[1]);
-                if (!valid_scalar(dst)) {
-                    if (exact) *exact = false;
+                uint32_t src = hexval(hexes[0]);
+                uint32_t dst = 0;
+                if (hexes[1].size() == 8) {
+                    // A supplementary destination is written as a UTF-16BE
+                    // surrogate pair; accept only a well-formed pair.
+                    uint32_t hi = hexval(hexes[1].substr(0, 4));
+                    uint32_t lo = hexval(hexes[1].substr(4, 4));
+                    if (hi >= 0xD800u && hi <= 0xDBFFu && lo >= 0xDC00u && lo <= 0xDFFFu) {
+                        dst = 0x10000u + ((hi - 0xD800u) << 10) + (lo - 0xDC00u);
+                    } else {
+                        unsupported = true;  // lone or malformed surrogate pair
+                    }
+                } else if (hexes[1].empty() || hexes[1].size() > 4) {
+                    unsupported = true;  // multi-code destination
+                } else {
+                    dst = hexval(hexes[1]);
+                    if (!valid_scalar(dst)) unsupported = true;
                 }
-                declared[src] = dst;
+                if (out) (*out)[src] = dst;
+                any = true;
                 hexes.clear();
             } else if (mode == BFRANGE && hexes.size() == 3) {
-                if (hexes[0].size() > 4 || hexes[2].size() > 4) {
-                    if (exact) *exact = false;
+                if (hexes[0].empty() || hexes[0].size() > 4
+                        || hexes[1].size() != hexes[0].size() || hexes[2].empty()
+                        || hexes[2].size() > 4) {
+                    unsupported = true;
                 }
                 uint32_t lo = hexval(hexes[0]), hi = hexval(hexes[1]), dst = hexval(hexes[2]);
-                if (!valid_scalar(dst) || !valid_scalar(dst + (hi - lo))) {
-                    if (exact) *exact = false;
+                if (hi < lo) malformed = true;
+                uint32_t span = (hi >= lo) ? (hi - lo) : 0;
+                if (span >= 65536) unsupported = true;  // beyond the bounded expansion
+                bool rangeOk = true;
+                if (dst > 0x10FFFFu - span) rangeOk = false;  // runs past scalar space
+                if (rangeOk && dst <= 0xDFFFu && dst + span >= 0xD800u) {
+                    rangeOk = false;  // crosses the surrogate block
                 }
-                for (uint32_t k = 0; k + lo <= hi && k < 65536; ++k) declared[lo + k] = dst + k;
+                if (!valid_scalar(dst) || !rangeOk) unsupported = true;
+                for (uint32_t k = 0; k + lo <= hi && k < 65536; ++k)
+                    if (out) (*out)[lo + k] = dst + k;
+                any = true;
                 hexes.clear();
             }
             continue;
@@ -1913,7 +1960,7 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
         if (c == '<' && i + 1 < n && s[i + 1] == '<') { i += 2; continue; }
         if (c == '>' && i + 1 < n && s[i + 1] == '>') { i += 2; continue; }
         if (c == '[') {
-            if (mode == BFRANGE && exact) *exact = false;  // array destination
+            if (mode == BFRANGE) unsupported = true;  // array destination
             i++;
             hexes.clear();
             continue;
@@ -1926,14 +1973,27 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
                 ++i;
             std::string w = s.substr(st, i - st);
             if (w == "beginbfchar") { mode = BFCHAR; hexes.clear(); }
-            else if (w == "endbfchar") { mode = NONE; hexes.clear(); }
+            else if (w == "endbfchar") {
+                if (mode != BFCHAR) malformed = true;
+                mode = NONE;
+                hexes.clear();
+            }
             else if (w == "beginbfrange") { mode = BFRANGE; hexes.clear(); }
-            else if (w == "endbfrange") { mode = NONE; hexes.clear(); }
+            else if (w == "endbfrange") {
+                if (mode != BFRANGE) malformed = true;
+                mode = NONE;
+                hexes.clear();
+            }
+            else if (w == "usecmap") { unsupported = true; }
             continue;
         }
         ++i;
     }
-    return declared;
+    if (mode != NONE) malformed = true;  // unterminated block
+    if (malformed) return TounicodeState::MALFORMED;
+    if (unsupported) return TounicodeState::UNSUPPORTED;
+    if (any) return TounicodeState::SUPPORTED_COMPLETE;
+    return TounicodeState::SUPPORTED_EMPTY;
 }
 
 }  // namespace
@@ -1997,16 +2057,14 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
             QPDFObjectHandle fd = fe.dict;
             bool cid = is_cid_font(fd);
             if (!cid && !is_simple_subtype(fd)) continue;  // unsupported subtype: skip
-            bool present = false, valid = false;
-            tounicode_state(fd, present, valid);
-
-            // Parse the existing map up front. A stream whose constructs cannot
-            // be reproduced exactly is left untouched: rewriting it would corrupt
-            // entries the caller never asked to change.
-            bool exact = true;
+            // Parse the existing map up front. A stream that inherits mappings,
+            // is malformed, or uses constructs the writer cannot reproduce is
+            // left untouched: rewriting it would drop or corrupt entries.
             std::unordered_map<uint32_t, uint32_t> declared;
-            if (present) declared = parse_tounicode(fd, &exact);
-            if (present && !exact) continue;
+            TounicodeState st = parse_tounicode(fd, &declared);
+            if (st == TounicodeState::UNSUPPORTED || st == TounicodeState::MALFORMED) continue;
+            bool present = st != TounicodeState::ABSENT;
+            bool valid = st == TounicodeState::SUPPORTED_COMPLETE;
 
             QPDFObjectHandle descriptor = descriptor_of(fd, cid);
             std::string bytes = program_bytes(descriptor);
@@ -2014,10 +2072,14 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
                 build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
 
             std::vector<Mapping> maps;
+            bool mapTruncated = gm.cmap_truncated;
             if (cid)
-                build_cid_map(fd, gm, maps);
+                build_cid_map(fd, gm, maps, &mapTruncated);
             else
                 build_simple_map(fd, gm, maps);
+            // An incomplete analysis cannot justify a mapping decision: refuse to
+            // mutate rather than install a map built from partial evidence.
+            if (mapTruncated) continue;
 
             std::vector<Mapping> resolved;
             resolved.reserve(maps.size());

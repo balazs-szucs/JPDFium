@@ -116,12 +116,15 @@ class FontIntelligenceNativeTest {
                         assertTrue(fixed >= 0);
                         // Re-inspect: the font must now be reusable, or still
                         // reported (never silently claimed fixed but unchanged).
+                        boolean verified = false;
                         for (FontEvidence after : FontIntelligence.inspectPage(doc, p)) {
-                            if (after.resourceName().equals(f.resourceName())) {
-                                if (after.toUnicodeValid()) {
-                                    repairedVerified++;
-                                }
+                            if (after.resourceName().equals(f.resourceName())
+                                    && after.toUnicodeValid()) {
+                                verified = true;
                             }
+                        }
+                        if (verified) {
+                            repairedVerified++;
                         }
                     }
                 }

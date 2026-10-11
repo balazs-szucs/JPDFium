@@ -92,8 +92,9 @@ public final class FontIntelligence {
             return FontCapability.ORIGINAL_REUSABLE;
         }
         if (e.mappingCount() > 0) {
-            // A truncated scan cannot justify a complete-map claim.
-            if (e.mappingTruncated()) {
+            // A declared map we could not parse must not be overwritten, and a
+            // truncated scan cannot justify a complete-map claim.
+            if (isUnsupportedMap(e.toUnicodeState()) || e.mappingTruncated()) {
                 return FontCapability.MANUAL_CONFIRMATION_REQUIRED;
             }
             return e.unresolvedCount() == 0
@@ -105,6 +106,11 @@ public final class FontIntelligence {
             return FontCapability.MANUAL_CONFIRMATION_REQUIRED;
         }
         return FontCapability.REPLACEMENT_REQUIRED;
+    }
+
+    /** A declared /ToUnicode we recognised but cannot parse or preserve. */
+    private static boolean isUnsupportedMap(String state) {
+        return "unsupported".equals(state) || "malformed".equals(state);
     }
 
     /** Repair plans justified by one font's evidence (empty when none apply). */

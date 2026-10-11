@@ -41,10 +41,11 @@ class RepairPreservationTest {
         byte[] broken = RepairCorpus.truncate(RepairCorpus.validMultiPage(), 0.5);
 
         RepairResult result = PdfRepair.builder().input(broken).all().build().execute();
-        if (result.status() == RepairResult.Status.FAILED) {
-            assertNull(result.repairedPdf());
-            assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("pages"));
-        }
+        assertEquals(RepairResult.Status.FAILED, result.status(),
+                "a truncated document must fail, not publish a candidate");
+        assertNull(result.repairedPdf(), "a failure must publish no bytes");
+        assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("pages"),
+                "with nothing published, page preservation must be unknown");
     }
 
     @Test

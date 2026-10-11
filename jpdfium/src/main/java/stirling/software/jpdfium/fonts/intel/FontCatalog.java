@@ -104,6 +104,18 @@ public final class FontCatalog implements Iterable<FontEvidence> {
                 a.kind(), a.embedded(), a.sfnt(), a.cff(), a.cid(), a.subset(), a.hasCmap(),
                 a.numGlyphs(), a.unitsPerEm(), a.glyphBytes(), a.hasToUnicode(), a.toUnicodeValid(),
                 a.encoding(), a.embeddingFsType(), new ArrayList<>(byCode.values()),
-                a.mappingTruncated() || b.mappingTruncated());
+                a.mappingTruncated() || b.mappingTruncated(),
+                mergeState(a.toUnicodeState(), b.toUnicodeState()));
+    }
+
+    /** Combine declared-map states; an unsupported/malformed side wins. */
+    private static String mergeState(String x, String y) {
+        if (x.equals("unsupported") || x.equals("malformed")) {
+            return x;
+        }
+        if (y.equals("unsupported") || y.equals("malformed")) {
+            return y;
+        }
+        return x.isEmpty() ? y : x;
     }
 }
