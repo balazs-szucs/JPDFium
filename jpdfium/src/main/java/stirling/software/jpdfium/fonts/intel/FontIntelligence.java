@@ -86,7 +86,9 @@ public final class FontIntelligence {
         if (e.kind() == FontKind.UNKNOWN) {
             return FontCapability.UNSUPPORTED_OPERATION;
         }
-        if (e.toUnicodeValid()) {
+        // Reuse requires a declared /ToUnicode entry that is also structurally
+        // usable; a validity flag alone, with no entry present, is not enough.
+        if (e.hasToUnicode() && e.toUnicodeValid()) {
             return FontCapability.ORIGINAL_REUSABLE;
         }
         if (e.mappingCount() > 0) {
@@ -94,9 +96,11 @@ public final class FontIntelligence {
                     ? FontCapability.MAPPING_REPAIR_AVAILABLE
                     : FontCapability.MANUAL_CONFIRMATION_REQUIRED;
         }
-        return e.unresolvedCount() > 0
-                ? FontCapability.MANUAL_CONFIRMATION_REQUIRED
-                : FontCapability.REPLACEMENT_REQUIRED;
+        // No observed mapping: a declared map we could not confirm, or none.
+        if (e.hasToUnicode() || e.unresolvedCount() > 0) {
+            return FontCapability.MANUAL_CONFIRMATION_REQUIRED;
+        }
+        return FontCapability.REPLACEMENT_REQUIRED;
     }
 
     /** Repair plans justified by one font's evidence (empty when none apply). */

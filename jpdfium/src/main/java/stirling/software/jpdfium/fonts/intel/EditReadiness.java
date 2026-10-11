@@ -14,8 +14,10 @@ import java.util.Objects;
  *       needed operation at all;</li>
  *   <li>{@link #fontCapable()} — this font/encoding is inside the supported
  *       recovery set;</li>
- *   <li>{@link #runEmittable()} — a replacement for this specific run can be
- *       encoded correctly from evidence.</li>
+ *   <li>{@link #runEmittable()} — whether emitting a replacement run is
+ *       certified from evidence. This is always {@code false} today: no
+ *       replacement-text encoder exists in this subsystem, so it cannot be
+ *       claimed from font evidence alone.</li>
  * </ul>
  *
  * <p>This is a preflight only: it never emits a replacement font. The
@@ -26,7 +28,7 @@ import java.util.Objects;
  * @param baseFont {@code /BaseFont} name as written
  * @param engineCapable native bridge implements the needed operation
  * @param fontCapable this font/encoding is within the supported recovery set
- * @param runEmittable a replacement run could be emitted from evidence
+ * @param runEmittable false: emitting a replacement run is not certified from evidence
  * @param capability the derived per-font capability outcome
  * @param strategy required font strategy, or "" when none is required
  * @param unsupportedReason "" unless the operation is unsupported
@@ -73,8 +75,10 @@ public record EditReadiness(
         Objects.requireNonNull(e, "evidence");
         FontCapability cap = FontIntelligence.capability(e);
         boolean fontCapable = cap != FontCapability.UNSUPPORTED_OPERATION;
-        boolean runEmittable = cap == FontCapability.ORIGINAL_REUSABLE
-                || cap == FontCapability.MAPPING_REPAIR_AVAILABLE;
+        // No replacement-text encoder exists in this subsystem, so a run cannot
+        // be certified emittable from font evidence alone. Report the honest
+        // false rather than inferring it from the capability.
+        boolean runEmittable = false;
         String strategy = strategyFor(cap);
         String reason = cap == FontCapability.UNSUPPORTED_OPERATION
                 ? "unsupported font subtype/encoding: "

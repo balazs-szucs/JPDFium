@@ -15,11 +15,11 @@ class EditReadinessTest {
             FontKind kind, boolean toUnicodeValid, List<UnicodeMapping> mappings) {
         return new FontEvidence(0, "F1", "Base", "Fam", "Type0", kind,
                 true, true, false, kind == FontKind.COMPOSITE, false, true, 100, 1000, 500,
-                false, toUnicodeValid, "Identity-H", 0, mappings);
+                toUnicodeValid, toUnicodeValid, "Identity-H", 0, mappings);
     }
 
     @Test
-    void originalReusableIsEmittableFromTheOriginalFont() {
+    void originalReusableIsNotCertifiedEmittable() {
         EditReadiness r = EditReadiness.of(
                 evidence(FontKind.COMPOSITE, true,
                         List.of(new UnicodeMapping(1, 0x41, FontProvenance.DECLARED, ""))),
@@ -27,7 +27,7 @@ class EditReadinessTest {
         assertEquals(FontCapability.ORIGINAL_REUSABLE, r.capability());
         assertTrue(r.engineCapable());
         assertTrue(r.fontCapable());
-        assertTrue(r.runEmittable());
+        assertFalse(r.runEmittable());
         assertEquals(EditReadiness.STRATEGY_ORIGINAL, r.strategy());
         assertEquals("", r.unsupportedReason());
     }
@@ -39,7 +39,7 @@ class EditReadinessTest {
                         List.of(new UnicodeMapping(1, 0x41, FontProvenance.RECOVERED, ""))),
                 true);
         assertEquals(FontCapability.MAPPING_REPAIR_AVAILABLE, r.capability());
-        assertTrue(r.runEmittable());
+        assertFalse(r.runEmittable());
         assertEquals(EditReadiness.STRATEGY_REPAIR_MAPPING, r.strategy());
         assertEquals(1, r.recoveredCount());
     }
@@ -54,7 +54,7 @@ class EditReadinessTest {
         assertEquals(FontCapability.MAPPING_REPAIR_AVAILABLE, r.capability());
         assertEquals(1, r.ambiguousCount());
         assertEquals(0, r.unresolvedCount());
-        assertTrue(r.runEmittable());
+        assertFalse(r.runEmittable());
     }
 
     @Test
@@ -66,7 +66,7 @@ class EditReadinessTest {
         assertFalse(r.engineCapable());
         assertEquals(FontCapability.MAPPING_REPAIR_AVAILABLE, r.capability());
         assertTrue(r.fontCapable());
-        assertTrue(r.runEmittable());
+        assertFalse(r.runEmittable());
     }
 
     @Test
@@ -100,7 +100,7 @@ class EditReadinessTest {
         assertTrue(s.contains("mapping_repair_available"), s);
         assertTrue(s.contains("engine=true"), s);
         assertTrue(s.contains("font=true"), s);
-        assertTrue(s.contains("run=true"), s);
+        assertTrue(s.contains("run=false"), s);
         assertTrue(s.contains("recovered=1"), s);
     }
 }

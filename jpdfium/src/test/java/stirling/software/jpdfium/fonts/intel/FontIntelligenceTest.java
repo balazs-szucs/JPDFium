@@ -172,7 +172,7 @@ class FontIntelligenceTest {
             FontKind kind, boolean toUnicodeValid, List<UnicodeMapping> mappings) {
         return new FontEvidence(0, "F1", "Base", "Fam", "TrueType", kind,
                 true, true, false, false, false, true, 100, 1000, 500,
-                false, toUnicodeValid, "WinAnsiEncoding", 0, mappings);
+                toUnicodeValid, toUnicodeValid, "WinAnsiEncoding", 0, mappings);
     }
 
     @Test
