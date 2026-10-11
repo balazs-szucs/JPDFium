@@ -49,6 +49,12 @@ python3 qualification/qualify.py --lane recovery --group general   --limit 0 --t
 python3 qualification/qualify.py --lane recovery --group generated --limit 0 --timeout 60
 ```
 
+Every run writes its generated evidence under a single run directory,
+`jpdfium/build/qualification/<run-id>/`, and never modifies the source tree.
+Override the location with `--out-root` and the directory name with `--run-id`
+(default: a timestamp). The two lanes may share one run directory or use
+distinct `--run-id`s; the recovery lane writes only under `<run>/recovery/`.
+
 Budget: one JVM per (input, operation); `--timeout 60 s` per launch (Python-side,
 no GNU `timeout`); `-Xmx512m` bounds the heap only, not native allocations;
 render comparison is limited to documents ≤ 25 pages and is recorded as

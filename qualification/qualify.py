@@ -46,19 +46,48 @@ import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# Frozen input corpus and its manifest come from a separate, deterministic step
+# (generateCorpus + QualificationFixtures + build-manifest.sh); the manifest
+# records each input's path, so the runner reads inputs in place.
 INPUTS = ROOT / "qualification" / "inputs"
-BASELINES = ROOT / "qualification" / "baselines"
-OUTPUTS = ROOT / "qualification" / "outputs"
-REPORTS = ROOT / "qualification" / "reports"
-FAILURES = ROOT / "qualification" / "failures"
 MANIFEST = ROOT / "qualification" / "manifests" / "inputs.jsonl"
 CLASSPATH_FILE = ROOT / "jpdfium" / "build" / "qualification-classpath.txt"
 
 # Paired-mutation recovery lane (see --lane recovery).
 MUTATOR = ROOT / "qualification" / "mutate-tounicode.js"
-RECOVERY = ROOT / "qualification" / "recovery"
-RECOVERY_RECORDS = RECOVERY / "records"
-RECOVERY_REPORTS = RECOVERY / "reports"
+
+# Every generated artefact (baselines, candidate PDFs, failure bundles, reports,
+# recovery records) is written under one run directory so the source tree stays
+# clean and a whole run can be archived at once:
+#
+#   jpdfium/build/qualification/<run-id>/{baselines,outputs,reports,failures,recovery}
+#
+# configure_run() rebinds these roots. They stay None until it is called, so a
+# helper reached before configuration fails loudly rather than writing somewhere
+# unexpected. Curated source-controlled documents (README.md, FINDINGS-*.md,
+# RECEIPT.md, manifests/) are NOT written by the runner.
+DEFAULT_OUT_ROOT = ROOT / "jpdfium" / "build" / "qualification"
+BASELINES = None
+OUTPUTS = None
+REPORTS = None
+FAILURES = None
+RECOVERY = None
+RECOVERY_RECORDS = None
+RECOVERY_REPORTS = None
+
+
+def configure_run(out_root, run_id):
+    """Point the generated-artefact roots at <out_root>/<run_id>; return it."""
+    global BASELINES, OUTPUTS, REPORTS, FAILURES, RECOVERY, RECOVERY_RECORDS, RECOVERY_REPORTS
+    run_dir = Path(out_root) / run_id
+    BASELINES = run_dir / "baselines"
+    OUTPUTS = run_dir / "outputs"
+    REPORTS = run_dir / "reports"
+    FAILURES = run_dir / "failures"
+    RECOVERY = run_dir / "recovery"
+    RECOVERY_RECORDS = RECOVERY / "records"
+    RECOVERY_REPORTS = RECOVERY / "reports"
+    return run_dir
 
 WORKER = "stirling.software.jpdfium.qualification.QualificationWorker"
 RENDER_PAGE_CAP = 25          # render only documents with <= this many pages
@@ -634,7 +663,14 @@ def main():
                          "order/whitespace-insensitive, separates loss from reflow)")
     ap.add_argument("--only", default="",
                     help="comma-separated id substrings; keep only matching inputs")
+    ap.add_argument("--out-root", default=str(DEFAULT_OUT_ROOT),
+                    help="root for generated run artefacts "
+                         "(default: jpdfium/build/qualification)")
+    ap.add_argument("--run-id", default=time.strftime("%Y%m%dT%H%M%S"),
+                    help="run directory name under --out-root")
     args = ap.parse_args()
+
+    run_dir = configure_run(args.out_root, args.run_id)
 
     if not CLASSPATH_FILE.exists():
         sys.exit("missing %s; run ./gradlew :jpdfium:qualificationClasspath" % CLASSPATH_FILE)
@@ -680,12 +716,14 @@ def main():
         if args.limit:
             by_group[g] = by_group[g][: args.limit]
 
-    for d in (OUTPUTS, REPORTS, FAILURES):
+    for d in (BASELINES, OUTPUTS, REPORTS, FAILURES):
         d.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="qual-probe-"))
 
     summary = {
         "generated_by": "qualification/qualify.py",
+        "run_id": args.run_id,
+        "run_dir": str(run_dir),
         "host": sys.platform,
         "verapdf": "skipped_not_installed" if not shutil.which("verapdf") else "available",
         "render_page_cap": RENDER_PAGE_CAP,
@@ -872,6 +910,7 @@ def main():
     (REPORTS / "summary.json").write_text(json.dumps(summary, indent=2))
 
     print("== qualification summary ==")
+    print("%-32s %s" % ("run_dir", run_dir))
     for key in ("files_discovered", "files_baselined", "controls_run",
                 "operations_attempted", "operations_written", "expected_refusals",
                 "unexpected_failures", "unexpected_skips", "missing_fixtures",
@@ -882,7 +921,7 @@ def main():
         print("%-32s %s" % (key, summary[key]))
     if (summary["unexpected_failures"] or summary["repair_induced_regressions"]
             or summary["missing_fixtures"]):
-        print("FAIL: see qualification/reports/summary.json and qualification/failures/")
+        print("FAIL: see %s and %s" % (REPORTS / "summary.json", FAILURES))
         return 1
     print("PASS (repair-induced regressions = 0; serialization deltas reported separately)")
     return 0
