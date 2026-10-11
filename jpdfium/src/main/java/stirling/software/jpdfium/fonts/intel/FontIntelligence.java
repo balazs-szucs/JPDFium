@@ -92,6 +92,10 @@ public final class FontIntelligence {
             return FontCapability.ORIGINAL_REUSABLE;
         }
         if (e.mappingCount() > 0) {
+            // A truncated scan cannot justify a complete-map claim.
+            if (e.mappingTruncated()) {
+                return FontCapability.MANUAL_CONFIRMATION_REQUIRED;
+            }
             return e.unresolvedCount() == 0
                     ? FontCapability.MAPPING_REPAIR_AVAILABLE
                     : FontCapability.MANUAL_CONFIRMATION_REQUIRED;

@@ -1020,6 +1020,7 @@ struct GlyphMaps {
     std::unordered_set<uint32_t> gid_ambiguous;         // >1 codepoint maps to one glyph
     std::unordered_map<std::string, uint32_t> name_to_uni;
     std::unordered_set<std::string> name_ambiguous;     // one glyph name, >1 codepoint
+    bool cmap_truncated = false;                        // a bounded scan stopped early
 };
 
 FT_Library font_intel_ft() {
@@ -1078,9 +1079,12 @@ GlyphMaps build_glyph_maps(const uint8_t* data, size_t len) {
         }
         cp = FT_Get_Next_Char(face, cp, &gid);
     }
+    // A stop at the guard means the scan covered only part of the charmap.
+    if (guard > 200000) m.cmap_truncated = true;
     if (FT_HAS_GLYPH_NAMES(face)) {
         char nm[256];
         uint32_t cap = std::min<uint32_t>(m.num_glyphs, 65535);
+        if (m.num_glyphs > 65535) m.cmap_truncated = true;
         for (uint32_t g = 1; g <= cap; ++g) {
             if (FT_Get_Glyph_Name(face, g, nm, sizeof(nm)) == 0 && nm[0]) {
                 auto it = m.gid_to_uni.find(g);
@@ -1330,7 +1334,8 @@ bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vecto
 
 // Composite font with an Identity encoding and Identity /CIDToGIDMap:
 // code == CID == GID -> Unicode via the embedded program's cmap.
-bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<Mapping>& out) {
+bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<Mapping>& out,
+                   bool* truncated = nullptr) {
     QPDFObjectHandle enc = fontDict.getKey("/Encoding");
     std::string encName = enc.isName() ? enc.getName() : "";
     if (encName != "/Identity-H" && encName != "/Identity-V")
@@ -1365,7 +1370,10 @@ bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<M
     if (identity) {
         for (const auto& [gid, uni] : gm.gid_to_uni) {
             if (gid > 0xFFFF) continue;  // out-of-range for a 2-byte code space
-            if (maps.size() >= kCap) break;
+            if (maps.size() >= kCap) {
+                if (truncated) *truncated = true;
+                break;
+            }
             bool amb = gm.gid_ambiguous.find(gid) != gm.gid_ambiguous.end();
             maps.push_back({gid, amb ? 0u : uni, amb ? "AMBIGUOUS" : "RECOVERED",
                             amb ? "cmap:ambiguous" : "cidToGid:identity"});
@@ -1378,7 +1386,11 @@ bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<M
         }
         for (const auto& [gid, uni] : gm.gid_to_uni) {
             auto it = gid2cid.find(gid);
-            if (it == gid2cid.end() || maps.size() >= kCap) continue;
+            if (it == gid2cid.end()) continue;
+            if (maps.size() >= kCap) {
+                if (truncated) *truncated = true;
+                break;
+            }
             bool amb = gm.gid_ambiguous.find(gid) != gm.gid_ambiguous.end();
             maps.push_back({it->second, amb ? 0u : uni, amb ? "AMBIGUOUS" : "RECOVERED",
                             amb ? "cmap:ambiguous" : "cidToGid:stream"});
@@ -1571,10 +1583,13 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
     std::string kind = cid ? "composite" : (simple ? "simple" : "unknown");
 
     std::vector<Mapping> maps;
+    bool mapTruncated = false;
     if (cid)
-        build_cid_map(fd, gm, maps);
+        build_cid_map(fd, gm, maps, &mapTruncated);
     else if (simple)
         build_simple_map(fd, gm, maps);
+    // A bounded charmap scan that stopped early makes the map incomplete.
+    if (gm.cmap_truncated) mapTruncated = true;
 
     std::string out = "{";
     out += "\"resource\":" + escape_json(key);
@@ -1605,6 +1620,8 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
     out += ",\"encoding\":" + escape_json(font_encoding_name(fd));
     snprintf(num, sizeof(num), ",\"embedding_permission\":%d", gm.fs_type);
     out += num;
+    out += ",\"mapping_truncated\":";
+    out += mapTruncated ? "true" : "false";
 
     // Mapping rows go in a separate flat array: NativeJsonParser only handles
     // brace-free object literals and cannot descend into nested arrays.

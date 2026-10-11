@@ -15,7 +15,7 @@ class EditReadinessTest {
             FontKind kind, boolean toUnicodeValid, List<UnicodeMapping> mappings) {
         return new FontEvidence(0, "F1", "Base", "Fam", "Type0", kind,
                 true, true, false, kind == FontKind.COMPOSITE, false, true, 100, 1000, 500,
-                toUnicodeValid, toUnicodeValid, "Identity-H", 0, mappings);
+                toUnicodeValid, toUnicodeValid, "Identity-H", 0, mappings, false);
     }
 
     @Test

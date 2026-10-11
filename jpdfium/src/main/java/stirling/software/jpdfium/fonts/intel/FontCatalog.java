@@ -103,6 +103,7 @@ public final class FontCatalog implements Iterable<FontEvidence> {
                 a.pageIndex(), a.resourceName(), a.baseFont(), a.family(), a.subtype(),
                 a.kind(), a.embedded(), a.sfnt(), a.cff(), a.cid(), a.subset(), a.hasCmap(),
                 a.numGlyphs(), a.unitsPerEm(), a.glyphBytes(), a.hasToUnicode(), a.toUnicodeValid(),
-                a.encoding(), a.embeddingFsType(), new ArrayList<>(byCode.values()));
+                a.encoding(), a.embeddingFsType(), new ArrayList<>(byCode.values()),
+                a.mappingTruncated() || b.mappingTruncated());
     }
 }

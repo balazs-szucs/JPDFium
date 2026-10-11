@@ -37,6 +37,8 @@ import stirling.software.jpdfium.util.NativeJsonParser;
  * @param encoding declared encoding name (may be empty)
  * @param embeddingFsType raw {@code OS/2} {@code fsType} word, or {@code -1} if unknown
  * @param mappings per-code mappings recovered for this resource
+ * @param mappingTruncated true when a bounded scan (charmap walk or code cap)
+ *     stopped early, so {@link #mappings()} is incomplete
  */
 public record FontEvidence(
         int pageIndex,
@@ -58,7 +60,8 @@ public record FontEvidence(
         boolean toUnicodeValid,
         String encoding,
         int embeddingFsType,
-        List<UnicodeMapping> mappings) {
+        List<UnicodeMapping> mappings,
+        boolean mappingTruncated) {
 
     public FontEvidence {
         resourceName = resourceName == null ? "" : resourceName;
@@ -176,7 +179,8 @@ public record FontEvidence(
                     asBool(row.get("tounicode_valid")),
                     row.getOrDefault("encoding", ""),
                     parseInt(row.get("embedding_permission"), -1),
-                    byResource.getOrDefault(resource, List.of())));
+                    byResource.getOrDefault(resource, List.of()),
+                    asBool(row.get("mapping_truncated"))));
         }
         return out;
     }

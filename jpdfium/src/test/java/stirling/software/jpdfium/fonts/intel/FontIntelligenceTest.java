@@ -172,7 +172,7 @@ class FontIntelligenceTest {
             FontKind kind, boolean toUnicodeValid, List<UnicodeMapping> mappings) {
         return new FontEvidence(0, "F1", "Base", "Fam", "TrueType", kind,
                 true, true, false, false, false, true, 100, 1000, 500,
-                toUnicodeValid, toUnicodeValid, "WinAnsiEncoding", 0, mappings);
+                toUnicodeValid, toUnicodeValid, "WinAnsiEncoding", 0, mappings, false);
     }
 
     @Test
@@ -234,12 +234,12 @@ class FontIntelligenceTest {
         FontEvidence a = new FontEvidence(0, "F1", "Base", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 500, false, false,
                 "WinAnsiEncoding", 0,
-                List.of(new UnicodeMapping(65, 65, FontProvenance.RECOVERED, "n")));
+                List.of(new UnicodeMapping(65, 65, FontProvenance.RECOVERED, "n")), false);
         // Same program identity, different resource name, different code.
         FontEvidence b = new FontEvidence(1, "F9", "Base", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 500, false, false,
                 "WinAnsiEncoding", 0,
-                List.of(new UnicodeMapping(66, 66, FontProvenance.RECOVERED, "n")));
+                List.of(new UnicodeMapping(66, 66, FontProvenance.RECOVERED, "n")), false);
 
         FontCatalog catalog = FontCatalog.of(List.of(a, b));
         assertEquals(2, catalog.fonts().size());
@@ -254,13 +254,30 @@ class FontIntelligenceTest {
     void catalogDistinctKeepsDifferentProgramsSeparate() {
         FontEvidence a = new FontEvidence(0, "F1", "Base", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 500, false, false,
-                "WinAnsiEncoding", 0, List.of());
+                "WinAnsiEncoding", 0, List.of(), false);
         FontEvidence b = new FontEvidence(0, "F2", "Other", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 400, false, false,
-                "WinAnsiEncoding", 0, List.of());
+                "WinAnsiEncoding", 0, List.of(), false);
         FontCatalog catalog = FontCatalog.of(List.of(a, b));
         assertEquals(2, catalog.size());
         assertFalse(catalog.isEmpty());
         assertEquals(0, catalog.requiringRepair().size());
+    }
+
+    // --- truncation reporting -----------------------------------------------
+
+    @Test
+    void truncatedAnalysisCannotClaimACompleteMap() {
+        String json = "{\"page_index\":0,\"fonts\":[{\"resource\":\"F1\",\"base_font\":\"B\","
+                + "\"kind\":\"simple\",\"num_glyphs\":10,\"units_per_em\":1000,\"glyph_bytes\":1,"
+                + "\"has_tounicode\":false,\"tounicode_valid\":false,\"mapping_truncated\":true}],"
+                + "\"mappings\":[{\"resource\":\"F1\",\"code\":65,\"unicode\":65,"
+                + "\"provenance\":\"RECOVERED\",\"note\":\"x\"}]}";
+        List<FontEvidence> ev = FontEvidence.fromJson(json, 0);
+        assertEquals(1, ev.size());
+        assertTrue(ev.get(0).mappingTruncated(), "truncation flag must be parsed");
+        assertEquals(FontCapability.MANUAL_CONFIRMATION_REQUIRED,
+                FontIntelligence.capability(ev.get(0)),
+                "a truncated scan must not be presented as a complete-map repair opportunity");
     }
 }
