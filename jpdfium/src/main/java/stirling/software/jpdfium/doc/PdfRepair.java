@@ -315,12 +315,16 @@ public final class PdfRepair {
         boolean revision = RepairReport.STRATEGY_REVISION_RECOVERY.equals(strategy);
         boolean salvage = RepairReport.STRATEGY_PDFIO_PAGE_SALVAGE.equals(strategy)
                 || RepairReport.STRATEGY_LOPDF_REWRITE.equals(strategy);
-        // Pages are preserved only when the output page count is known and matches
-        // the input; otherwise the claim is left unknown.
-        boolean pagesPreserved = ok && inputPages >= 0 && outputPages >= 0
-                && inputPages == outputPages;
-        report.preservation("pages",
-                pagesPreserved ? RepairReport.PRESERVED : RepairReport.UNKNOWN);
+        // Only the page COUNT is verified here: equal counts do not prove the
+        // same pages, order, contents or geometry, so page content is reported
+        // as unknown rather than folded into a "preserved" claim.
+        String pageCount = RepairReport.UNKNOWN;
+        if (ok && inputPages >= 0 && outputPages >= 0) {
+            pageCount = inputPages == outputPages
+                    ? RepairReport.PRESERVED : RepairReport.LOST;
+        }
+        report.preservation("page_count", pageCount);
+        report.preservation("page_content", RepairReport.UNKNOWN);
         if (revision) {
             // An earlier revision is intact up to its own %%EOF; everything the
             // later revisions added is gone.

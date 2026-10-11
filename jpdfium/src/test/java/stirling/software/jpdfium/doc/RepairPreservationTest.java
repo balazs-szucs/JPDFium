@@ -44,8 +44,9 @@ class RepairPreservationTest {
         assertEquals(RepairResult.Status.FAILED, result.status(),
                 "a truncated document must fail, not publish a candidate");
         assertNull(result.repairedPdf(), "a failure must publish no bytes");
-        assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("pages"),
-                "with nothing published, page preservation must be unknown");
+        assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("page_count"),
+                "with nothing published, page-count preservation must be unknown");
+        assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("page_content"));
     }
 
     @Test
@@ -55,7 +56,8 @@ class RepairPreservationTest {
 
         RepairResult result = PdfRepair.builder().input(pdf).all().build().execute();
         assertTrue(result.isUsable(), "an undamaged document must stay usable");
-        assertEquals(RepairReport.PRESERVED, result.report().preservation().get("pages"));
+        assertEquals(RepairReport.PRESERVED, result.report().preservation().get("page_count"));
+        assertEquals(RepairReport.UNKNOWN, result.report().preservation().get("page_content"));
     }
 
     @Test
@@ -69,6 +71,6 @@ class RepairPreservationTest {
                 "the sanitized candidate must be re-verified");
         assertTrue(result.report().stagesSucceeded().contains("final_reverify"),
                 "the re-verification of the sanitized candidate must succeed");
-        assertEquals(RepairReport.PRESERVED, result.report().preservation().get("pages"));
+        assertEquals(RepairReport.PRESERVED, result.report().preservation().get("page_count"));
     }
 }

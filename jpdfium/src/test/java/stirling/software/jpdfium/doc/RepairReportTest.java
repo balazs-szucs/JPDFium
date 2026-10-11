@@ -34,7 +34,9 @@ class RepairReportTest {
                 report.stagesSucceeded().toString());
         assertTrue(report.stagesAttempted().contains("candidate_reopen"));
         assertTrue(report.stagesSucceeded().contains("candidate_reopen"));
-        assertEquals(RepairReport.PRESERVED, report.preservation().get("pages"));
+        assertEquals(RepairReport.PRESERVED, report.preservation().get("page_count"));
+        assertEquals(RepairReport.UNKNOWN, report.preservation().get("page_content"),
+                "page content is never verified, only the page count is");
         assertEquals(RepairReport.UNKNOWN, report.preservation().get("forms"));
         assertEquals(RepairReport.UNKNOWN, report.preservation().get("outlines"));
         assertEquals(RepairReport.UNKNOWN, report.preservation().get("attachments"));
