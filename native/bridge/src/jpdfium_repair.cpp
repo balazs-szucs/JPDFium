@@ -386,28 +386,65 @@ StructuralFindings analyze_structure(QPDF& pdf) {
     return f;
 }
 
+// Outcome of a bounded page-tree repair pass. The traversal completes before
+// anything is written, so a limit reached mid-walk discards the whole candidate
+// instead of publishing a partially rewritten tree.
+struct PageTreeRepairResult {
+    enum class Status { COMPLETE, TRUNCATED, FAILED };
+    Status status = Status::COMPLETE;
+    long long parent_fixes = 0;
+    long long count_fixes = 0;
+    long long dropped_non_dict = 0;
+    long long dropped_cycles = 0;
+    long long dropped_shared = 0;
+};
+
 // Cycle-safe page-tree repair: fix kid /Parent, drop repeated kid references
 // (the only way to make a cyclic tree finite without inventing pages), and set
-// /Count to the reachable leaves. Bounded; never fails a repair.
-long long repair_page_tree_structure(QPDF& pdf) {
-    long long changes = 0;
+// /Count to the reachable leaves. Analysis, apply and verify are separate
+// stages; a truncated analysis applies nothing.
+PageTreeRepairResult repair_page_tree_structure(QPDF& pdf) {
+    PageTreeRepairResult out;
+
+    struct ParentEdit {
+        QPDFObjectHandle kid;
+        QPDFObjectHandle owner;
+    };
+    struct KidsEdit {
+        QPDFObjectHandle node;
+        std::vector<QPDFObjectHandle> before;
+        std::vector<QPDFObjectHandle> after;
+    };
+    struct CountEdit {
+        QPDFObjectHandle node;
+        long long before = 0;
+        long long after = 0;
+        bool had = false;
+    };
+
+    std::vector<ParentEdit> parent_edits;
+    std::vector<KidsEdit> kids_edits;
+    std::vector<CountEdit> count_edits;
+
     try {
         QPDFObjectHandle root = pdf.getRoot();
         if (!root.hasKey("/Pages")) {
-            return 0;
+            return out;
         }
         QPDFObjectHandle pagesRoot = root.getKey("/Pages");
         if (!pagesRoot.isDictionary()) {
-            return 0;
+            return out;
         }
 
         std::set<std::string> seen;
+        std::set<std::string> on_path;
         if (pagesRoot.isIndirect()) {
             seen.insert(page_leaf_key(pagesRoot));
         }
 
         struct TreeFrame {
             QPDFObjectHandle node;
+            std::string key;
             long long depth = 0;
             int count = 0;
             int next = 0;
@@ -415,13 +452,14 @@ long long repair_page_tree_structure(QPDF& pdf) {
             std::vector<QPDFObjectHandle> kept;
             bool initialized = false;
 
-            TreeFrame(QPDFObjectHandle n, long long d) : node(n), depth(d) {}
+            TreeFrame(QPDFObjectHandle n, std::string k, long long d)
+                : node(n), key(k), depth(d) {}
         };
 
         bool truncated = false;
         long long visits = 0;
         std::vector<TreeFrame> stack;
-        stack.push_back(TreeFrame(pagesRoot, 0));
+        stack.push_back(TreeFrame(pagesRoot, page_leaf_key(pagesRoot), 0));
 
         while (!stack.empty()) {
             TreeFrame& fr = stack.back();
@@ -432,13 +470,17 @@ long long repair_page_tree_structure(QPDF& pdf) {
                     truncated = true;
                     break;
                 }
+                on_path.insert(fr.key);
                 if (!fr.node.isDictionary()) {
+                    on_path.erase(fr.key);
                     stack.pop_back();
                     continue;
                 }
                 QPDFObjectHandle kids = fr.node.getKey("/Kids");
                 if (!kids.isArray()) {
-                    long long leaf = is_name(fr.node.getKey("/Type"), "/Page") ? 1 : 0;
+                    const long long leaf =
+                        is_name(fr.node.getKey("/Type"), "/Page") ? 1 : 0;
+                    on_path.erase(fr.key);
                     stack.pop_back();
                     if (!stack.empty()) {
                         stack.back().leaves += leaf;
@@ -454,51 +496,97 @@ long long repair_page_tree_structure(QPDF& pdf) {
                 QPDFObjectHandle kid = kids.getArrayItem(fr.next);
                 ++fr.next;
                 if (!kid.isDictionary()) {
-                    ++changes;
+                    ++out.dropped_non_dict;
                     continue;
                 }
                 const std::string key = page_leaf_key(kid);
+                if (on_path.count(key) != 0) {
+                    ++out.dropped_cycles;
+                    continue;
+                }
                 if (seen.count(key) != 0) {
-                    ++changes;
+                    ++out.dropped_shared;
                     continue;
                 }
                 seen.insert(key);
                 if (fr.node.isIndirect()) {
                     QPDFObjectHandle p = kid.getKey("/Parent");
-                    const bool parent_ok = p.isIndirect() && p.getObjGen() == fr.node.getObjGen();
+                    const bool parent_ok =
+                        p.isIndirect() && p.getObjGen() == fr.node.getObjGen();
                     if (!parent_ok) {
-                        kid.replaceKey("/Parent", fr.node);
-                        ++changes;
+                        parent_edits.push_back(ParentEdit{kid, fr.node});
                     }
                 }
                 fr.kept.push_back(kid);
-                const long long childDepth = fr.depth + 1;
-                stack.push_back(TreeFrame(kid, childDepth));
+                stack.push_back(TreeFrame(kid, key, fr.depth + 1));
                 continue;
             }
 
-            const long long leaves = fr.leaves;
+            QPDFObjectHandle kids = fr.node.getKey("/Kids");
             if (static_cast<int>(fr.kept.size()) != fr.count) {
-                fr.node.replaceKey("/Kids", QPDFObjectHandle::newArray(fr.kept));
+                std::vector<QPDFObjectHandle> before;
+                before.reserve(static_cast<size_t>(fr.count));
+                for (int i = 0; i < fr.count; ++i) {
+                    before.push_back(kids.getArrayItem(i));
+                }
+                kids_edits.push_back(KidsEdit{fr.node, before, fr.kept});
             }
             QPDFObjectHandle c = fr.node.getKey("/Count");
-            if (!c.isInteger() || c.getIntValue() != leaves) {
-                fr.node.replaceKey("/Count", QPDFObjectHandle::newInteger(leaves));
-                ++changes;
+            const bool had = c.isInteger();
+            const long long before_count = had ? c.getIntValue() : 0;
+            if (!had || before_count != fr.leaves) {
+                count_edits.push_back(CountEdit{fr.node, before_count, fr.leaves, had});
             }
+            on_path.erase(fr.key);
+            const long long leaves = fr.leaves;
             stack.pop_back();
             if (!stack.empty()) {
                 stack.back().leaves += leaves;
             }
         }
+
         if (truncated) {
-            // A partial traversal must not be treated as a complete rewrite.
-            return changes;
+            // Incomplete knowledge: apply none of it and report the discard.
+            out.status = PageTreeRepairResult::Status::TRUNCATED;
+            return out;
+        }
+
+        out.parent_fixes = static_cast<long long>(parent_edits.size());
+        out.count_fixes = static_cast<long long>(count_edits.size());
+
+        for (ParentEdit& e : parent_edits) {
+            e.kid.replaceKey("/Parent", e.owner);
+        }
+        for (KidsEdit& e : kids_edits) {
+            e.node.replaceKey("/Kids", QPDFObjectHandle::newArray(e.after));
+        }
+        for (CountEdit& e : count_edits) {
+            e.node.replaceKey("/Count", QPDFObjectHandle::newInteger(e.after));
+        }
+
+        // Verify the rewritten tree before it can be published; on failure put
+        // every touched node back the way it was.
+        StructuralFindings check = analyze_structure(pdf);
+        if (check.page_tree_broken_parents != 0 || check.page_tree_cycles != 0
+            || check.page_tree_duplicate_refs != 0) {
+            for (CountEdit& e : count_edits) {
+                e.node.replaceKey("/Count", e.had
+                                              ? QPDFObjectHandle::newInteger(e.before)
+                                              : QPDFObjectHandle::newNull());
+            }
+            for (KidsEdit& e : kids_edits) {
+                e.node.replaceKey("/Kids", QPDFObjectHandle::newArray(e.before));
+            }
+            out.status = PageTreeRepairResult::Status::FAILED;
+            out.parent_fixes = 0;
+            out.count_fixes = 0;
         }
     } catch (...) {
-        // Best effort only.
+        out.status = PageTreeRepairResult::Status::FAILED;
+        out.parent_fixes = 0;
+        out.count_fixes = 0;
     }
-    return changes;
+    return out;
 }
 
 }  // namespace
