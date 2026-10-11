@@ -1817,9 +1817,12 @@ bool collect_used_strings(QPDFObjectHandle page,
 }
 
 // Parse an existing /ToUnicode into declared code -> Unicode entries. Handles
-// beginbfchar pairs and scalar beginbfrange runs; array destinations use only
-// the leading value.
-std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd) {
+// beginbfchar pairs and scalar beginbfrange runs. *exact is set false for any
+// construct this parser cannot reproduce byte-for-byte (multi-code destinations,
+// array bfrange, >2-byte source codes), so callers refuse to rewrite a map they
+// cannot preserve.
+std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool* exact) {
+    if (exact) *exact = true;
     std::unordered_map<uint32_t, uint32_t> declared;
     if (!fd.hasKey("/ToUnicode")) return declared;
     QPDFObjectHandle tu = fd.getKey("/ToUnicode");
@@ -1858,9 +1861,15 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd) {
             if (i < n) ++i;
             hexes.push_back(h);
             if (mode == BFCHAR && hexes.size() == 2) {
+                if (hexes[0].size() > 4 || hexes[1].size() > 4) {
+                    if (exact) *exact = false;
+                }
                 declared[hexval(hexes[0])] = hexval(hexes[1]);
                 hexes.clear();
             } else if (mode == BFRANGE && hexes.size() == 3) {
+                if (hexes[0].size() > 4 || hexes[2].size() > 4) {
+                    if (exact) *exact = false;
+                }
                 uint32_t lo = hexval(hexes[0]), hi = hexval(hexes[1]), dst = hexval(hexes[2]);
                 for (uint32_t k = 0; k + lo <= hi && k < 65536; ++k) declared[lo + k] = dst + k;
                 hexes.clear();
@@ -1869,7 +1878,12 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd) {
         }
         if (c == '<' && i + 1 < n && s[i + 1] == '<') { i += 2; continue; }
         if (c == '>' && i + 1 < n && s[i + 1] == '>') { i += 2; continue; }
-        if (c == '[') { i++; hexes.clear(); continue; }
+        if (c == '[') {
+            if (mode == BFRANGE && exact) *exact = false;  // array destination
+            i++;
+            hexes.clear();
+            continue;
+        }
         if (c == ']') { i++; hexes.clear(); continue; }
         if (std::isalpha(static_cast<unsigned char>(c))) {
             size_t st = i;
@@ -1952,6 +1966,14 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
             bool present = false, valid = false;
             tounicode_state(fd, present, valid);
 
+            // Parse the existing map up front. A stream whose constructs cannot
+            // be reproduced exactly is left untouched: rewriting it would corrupt
+            // entries the caller never asked to change.
+            bool exact = true;
+            std::unordered_map<uint32_t, uint32_t> declared;
+            if (present) declared = parse_tounicode(fd, &exact);
+            if (present && !exact) continue;
+
             QPDFObjectHandle descriptor = descriptor_of(fd, cid);
             std::string bytes = program_bytes(descriptor);
             GlyphMaps gm =
@@ -1980,7 +2002,6 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
                 // Valid map: preserve declared entries, add only missing codes the
                 // page uses; if usage is unknown, leave the map alone.
                 if (usedSet.empty()) continue;
-                std::unordered_map<uint32_t, uint32_t> declared = parse_tounicode(fd);
                 std::vector<Mapping> additions;
                 for (const auto& mp : resolved) {
                     if (declared.find(mp.code) != declared.end()) continue;

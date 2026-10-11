@@ -225,7 +225,7 @@ namespace {
 constexpr long long kMaxObjStm = 4096;           // object streams to examine
 constexpr long long kMaxObjStmMembers = 1000000; // declared /N upper bound
 constexpr long long kMaxTreeNodes = 200000;      // page-tree traversal bound
-constexpr long long kMaxTreeDepth = 4096;        // recursion bound
+constexpr long long kMaxTreeDepth = 512;         // traversal depth bound
 
 bool is_name(QPDFObjectHandle const& h, char const* want) {
     return h.isName() && h.getName() == want;
@@ -406,59 +406,95 @@ long long repair_page_tree_structure(QPDF& pdf) {
             seen.insert(page_leaf_key(pagesRoot));
         }
 
-        std::function<long long(QPDFObjectHandle, long long, long long)> visit =
-                [&](QPDFObjectHandle node, long long depth, long long nodes) -> long long {
-            if (depth > kMaxTreeDepth || nodes > kMaxTreeNodes) {
-                return 0;
-            }
-            if (!node.isDictionary()) {
-                return 0;
-            }
-            QPDFObjectHandle kids = node.getKey("/Kids");
-            if (!kids.isArray()) {
-                return is_name(node.getKey("/Type"), "/Page") ? 1 : 0;
-            }
-            const int count = kids.getArrayNItems();
-            std::vector<QPDFObjectHandle> kept;
-            kept.reserve(static_cast<size_t>(count));
+        struct TreeFrame {
+            QPDFObjectHandle node;
+            long long depth = 0;
+            int count = 0;
+            int next = 0;
             long long leaves = 0;
-            for (int i = 0; i < count; ++i) {
-                QPDFObjectHandle kid = kids.getArrayItem(i);
-                if (!kid.isDictionary()) {
-                    ++changes;  // cannot be a page node; drop the reference
+            std::vector<QPDFObjectHandle> kept;
+            bool initialized = false;
+
+            TreeFrame(QPDFObjectHandle n, long long d) : node(n), depth(d) {}
+        };
+
+        bool truncated = false;
+        long long visits = 0;
+        std::vector<TreeFrame> stack;
+        stack.push_back(TreeFrame(pagesRoot, 0));
+
+        while (!stack.empty()) {
+            TreeFrame& fr = stack.back();
+
+            if (!fr.initialized) {
+                fr.initialized = true;
+                if (++visits > kMaxTreeNodes || fr.depth > kMaxTreeDepth) {
+                    truncated = true;
+                    break;
+                }
+                if (!fr.node.isDictionary()) {
+                    stack.pop_back();
                     continue;
                 }
-                {
-                    const std::string key = page_leaf_key(kid);
-                    if (seen.count(key) != 0) {
-                        ++changes;  // cycle or duplicate reference
-                        continue;
+                QPDFObjectHandle kids = fr.node.getKey("/Kids");
+                if (!kids.isArray()) {
+                    long long leaf = is_name(fr.node.getKey("/Type"), "/Page") ? 1 : 0;
+                    stack.pop_back();
+                    if (!stack.empty()) {
+                        stack.back().leaves += leaf;
                     }
-                    seen.insert(key);
+                    continue;
                 }
-                if (node.isIndirect()) {
+                fr.count = kids.getArrayNItems();
+                fr.kept.reserve(static_cast<size_t>(fr.count));
+            }
+
+            if (fr.next < fr.count) {
+                QPDFObjectHandle kids = fr.node.getKey("/Kids");
+                QPDFObjectHandle kid = kids.getArrayItem(fr.next);
+                ++fr.next;
+                if (!kid.isDictionary()) {
+                    ++changes;
+                    continue;
+                }
+                const std::string key = page_leaf_key(kid);
+                if (seen.count(key) != 0) {
+                    ++changes;
+                    continue;
+                }
+                seen.insert(key);
+                if (fr.node.isIndirect()) {
                     QPDFObjectHandle p = kid.getKey("/Parent");
-                    const bool parent_ok = p.isIndirect() && p.getObjGen() == node.getObjGen();
+                    const bool parent_ok = p.isIndirect() && p.getObjGen() == fr.node.getObjGen();
                     if (!parent_ok) {
-                        kid.replaceKey("/Parent", node);
+                        kid.replaceKey("/Parent", fr.node);
                         ++changes;
                     }
                 }
-                kept.push_back(kid);
-                leaves += visit(kid, depth + 1, nodes + 1);
+                fr.kept.push_back(kid);
+                const long long childDepth = fr.depth + 1;
+                stack.push_back(TreeFrame(kid, childDepth));
+                continue;
             }
-            if (static_cast<int>(kept.size()) != count) {
-                node.replaceKey("/Kids", QPDFObjectHandle::newArray(kept));
+
+            const long long leaves = fr.leaves;
+            if (static_cast<int>(fr.kept.size()) != fr.count) {
+                fr.node.replaceKey("/Kids", QPDFObjectHandle::newArray(fr.kept));
             }
-            QPDFObjectHandle c = node.getKey("/Count");
+            QPDFObjectHandle c = fr.node.getKey("/Count");
             if (!c.isInteger() || c.getIntValue() != leaves) {
-                node.replaceKey("/Count", QPDFObjectHandle::newInteger(leaves));
+                fr.node.replaceKey("/Count", QPDFObjectHandle::newInteger(leaves));
                 ++changes;
             }
-            return leaves;
-        };
-
-        visit(pagesRoot, 0, 1);
+            stack.pop_back();
+            if (!stack.empty()) {
+                stack.back().leaves += leaves;
+            }
+        }
+        if (truncated) {
+            // A partial traversal must not be treated as a complete rewrite.
+            return changes;
+        }
     } catch (...) {
         // Best effort only.
     }
@@ -600,12 +636,19 @@ static std::vector<long long> candidate_startxrefs(const std::vector<uint8_t>& d
         while (j < n && (data[j] == '\n' || data[j] == '\r' || data[j] == ' ')) ++j;
         long long v = 0;
         bool any = false;
+        bool inRange = true;
         while (j < n && data[j] >= '0' && data[j] <= '9') {
             v = v * 10 + (data[j] - '0');
             ++j;
             any = true;
+            // An offset at or beyond the file size is not a usable xref start;
+            // stopping here also keeps the accumulator from overflowing.
+            if (v > static_cast<long long>(n)) {
+                inRange = false;
+                break;
+            }
         }
-        if (any) out.push_back(v);
+        if (any && inRange) out.push_back(v);
     }
     // Newest first, deduped, capped so recovery cannot clone the document unbounded times.
     std::sort(out.begin(), out.end(), std::greater<long long>());
