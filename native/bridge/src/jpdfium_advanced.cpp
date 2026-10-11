@@ -1849,6 +1849,11 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
         }
         return v;
     };
+    // A destination that is not a valid Unicode scalar (a lone surrogate or a
+    // value above U+10FFFF) cannot be reproduced, so the map is not exact.
+    auto valid_scalar = [](uint32_t v) {
+        return v <= 0x10FFFFu && !(v >= 0xD800u && v <= 0xDFFFu);
+    };
     enum { NONE, BFCHAR, BFRANGE } mode = NONE;
     std::vector<std::string> hexes;
     const size_t n = s.size();
@@ -1869,13 +1874,20 @@ std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool
                 if (hexes[0].size() > 4 || hexes[1].size() > 4) {
                     if (exact) *exact = false;
                 }
-                declared[hexval(hexes[0])] = hexval(hexes[1]);
+                uint32_t src = hexval(hexes[0]), dst = hexval(hexes[1]);
+                if (!valid_scalar(dst)) {
+                    if (exact) *exact = false;
+                }
+                declared[src] = dst;
                 hexes.clear();
             } else if (mode == BFRANGE && hexes.size() == 3) {
                 if (hexes[0].size() > 4 || hexes[2].size() > 4) {
                     if (exact) *exact = false;
                 }
                 uint32_t lo = hexval(hexes[0]), hi = hexval(hexes[1]), dst = hexval(hexes[2]);
+                if (!valid_scalar(dst) || !valid_scalar(dst + (hi - lo))) {
+                    if (exact) *exact = false;
+                }
                 for (uint32_t k = 0; k + lo <= hi && k < 65536; ++k) declared[lo + k] = dst + k;
                 hexes.clear();
             }
