@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/general/pdfjs_annotation-strikeout.pdf",
+  "sha256": "ca7225dbdc6f8a26814cf0d67f5c509589e2cc09ace6bdb04a375a266db5b708",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 39,
+  "text_sha256": "6ce6fc17efd65f88235d439237fcb0e3d731385f22edcb7bbf18bf44ca40f33a",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "0759d1187d4dbd0ad9242a388112ca1f083bbd6f8b5c1f61247af33ba5dff9d7"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "e97670f062d3955da68508b586f58f89daf750181375b465e71e83513245265d"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

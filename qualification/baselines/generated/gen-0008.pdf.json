@@ -31,9 +31,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmp5nxf5ht6",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmp3qrlq0f0"
-  },
   "verapdf": "skipped_not_installed"
 }

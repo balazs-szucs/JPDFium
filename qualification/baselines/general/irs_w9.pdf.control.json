@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/irs_w9.pdf/save.pdf",
-  "sha256": "c07491cb628f7ed0ba66bc3a434ed61a1e30e265661f0c98819191e345216c91",
+  "sha256": "cfab4b707deff50106274409d2ffda6986ddc2149c6ec81b57935933bd194ca9",
   "qpdf_check": 0,
   "pages": 6,
   "text_len": 53822,
@@ -31,9 +31,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpgdixw95r",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmppmgclvtm"
-  },
   "verapdf": "skipped_not_installed"
 }

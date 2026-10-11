@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0258.pdf/save.pdf",
+  "sha256": "dbd2becf36d56238e991fbc8415492bf1f841d57571ecc919ab558950efde822",
+  "qpdf_check": 3,
+  "pages": 1,
+  "text_len": 1,
+  "text_sha256": "ef6cbd2161eaea7943ce8693b9824d23d1793ffb1c0fca05b600d3899b44c977",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "79a7886d588cd6662f02667d1ad57e682794f7cfb164f3c118a11f88a5d0a208"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "6b8f6505dc3b85b03d6e68128302828455a29b80c867b2335bb9c7f40d33e307"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

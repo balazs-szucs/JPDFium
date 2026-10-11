@@ -1,0 +1,274 @@
+{
+  "generated_by": "qualification/qualify.py",
+  "host": "darwin",
+  "verapdf": "skipped_not_installed",
+  "render_page_cap": 25,
+  "ops": [
+    "save",
+    "font",
+    "font-plan"
+  ],
+  "text_oracle": "multiset",
+  "files_discovered": 6,
+  "files_baselined": 6,
+  "operations_attempted": 12,
+  "operations_written": 12,
+  "expected_refusals": 0,
+  "unexpected_failures": 0,
+  "unexpected_skips": 0,
+  "missing_fixtures": 0,
+  "preservation_regressions": 10,
+  "recovery_successes": 0,
+  "unresolved_oracle_disagreements": 0,
+  "controls_run": 6,
+  "serialization_render_delta": 1,
+  "serialization_attributed": 2,
+  "repair_induced_regressions": 10,
+  "cases": [
+    {
+      "group": "general",
+      "id": "mozilla_tracemonkey.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.16,
+      "out_pages": 14,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": [
+        "poppler_render_changed(1/14 pages)"
+      ],
+      "serialization_render_delta": [
+        "poppler_render_changed(1/14 pages)"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "mozilla_tracemonkey.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.19,
+      "out_pages": 14,
+      "out_qpdf": 0,
+      "serialization_attributed": [
+        "poppler_render_changed(1/14 pages)"
+      ],
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "mozilla_tracemonkey.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.3,
+      "out_pages": 14,
+      "out_qpdf": 0,
+      "serialization_attributed": [
+        "poppler_render_changed(1/14 pages)"
+      ],
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Test-plusminus.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.14,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": []
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Test-plusminus.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Test-plusminus.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.17,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ThuluthFeatures.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": []
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ThuluthFeatures.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ThuluthFeatures.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.18,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Type3WordSpacing.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.14,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": []
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Type3WordSpacing.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.16,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preserved"
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_Type3WordSpacing.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preserved"
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_XiaoBiaoSong.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.14,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": []
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_XiaoBiaoSong.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_XiaoBiaoSong.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.17,
+      "out_pages": 1,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ZapfDingbats.pdf",
+      "op": "save",
+      "lane": "save_control",
+      "rc": 0,
+      "elapsed_s": 0.14,
+      "out_pages": 2,
+      "out_qpdf": 0,
+      "result": "control",
+      "regressions_vs_input": []
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ZapfDingbats.pdf",
+      "op": "font",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.15,
+      "out_pages": 2,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    },
+    {
+      "group": "general",
+      "id": "pdfjs_ZapfDingbats.pdf",
+      "op": "font-plan",
+      "lane": "healthy_preservation",
+      "rc": 0,
+      "elapsed_s": 0.18,
+      "out_pages": 2,
+      "out_qpdf": 0,
+      "result": "preservation_regression",
+      "regressions": [
+        "text_changed"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-font-broken-tounicode-cmap.pdf/save.pdf",
-  "sha256": "6651fe333076bb810ee6a4a4c1d625dd12ab19d9f8807d687dec803bcd75fce5",
+  "sha256": "acfe805469859f298613671bcdf8295b295325668abeaa855758411263a2b6b9",
   "qpdf_check": 0,
   "pages": 1,
   "text_len": 13,
@@ -21,9 +21,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp6ydadet7",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp6cqi5l11"
-  },
   "verapdf": "skipped_not_installed"
 }

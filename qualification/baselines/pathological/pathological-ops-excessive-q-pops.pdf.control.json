@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-ops-excessive-q-pops.pdf/save.pdf",
+  "sha256": "35bab429e0e413cc02a2b5d7bcf37bb37c8ef25ecde188fffe15c815170d604c",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 13,
+  "text_sha256": "39afaec2393a105ec7c3e050ea47b8f71b09d2810eb8a00d2a6fbaaeb31b9bb7",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "e32ea90ea404d15cf96ec8ee53806a2d20dab249266a262f73d603521ab12c71"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "e0d04da51ac2208b9b230708a67bb31ae533e2b6c2d35f3a5dc03e919bb19b3f"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

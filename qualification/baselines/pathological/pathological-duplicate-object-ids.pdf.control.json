@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-duplicate-object-ids.pdf/save.pdf",
-  "sha256": "0e92494195d2b2c4136a5ddd2d0c7b17271d4c97b5a4606e4e2b7899d48fd458",
+  "sha256": "3d4a302892a09e6cbac7f41e60c56128e297589bd991555b96e64789f3138614",
   "qpdf_check": 0,
   "pages": 2,
   "text_len": 52,
@@ -23,9 +23,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpkmevd_kf",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmppmrgo76_"
-  },
   "verapdf": "skipped_not_installed"
 }

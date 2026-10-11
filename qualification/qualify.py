@@ -136,6 +136,11 @@ def probe(path: Path, tmp: Path, timeout: int) -> dict:
     rec["text_len"] = len(out)
     rec["text_sha256"] = sha256_bytes(out)
     rec["text_ok"] = rc == 0
+    # Order- and whitespace-insensitive fingerprint of the same extraction, used
+    # only by the diagnostic `--text-oracle multiset` mode to tell a real
+    # character loss from a pure layout/line-break reflow.
+    _norm = "".join(out.decode("utf-8", "replace").split())
+    rec["text_multiset_sha256"] = sha256_bytes("".join(sorted(_norm)).encode("utf-8"))
 
     if 0 < pages <= RENDER_PAGE_CAP:
         tmp_p = Path(tempfile.mkdtemp(dir=tmp))
@@ -169,8 +174,18 @@ def qpdf_rank(rc):
     return 3  # None/missing/error
 
 
-def compare(src: dict, out: dict, lane: str, op: str) -> tuple[list[str], list[str]]:
-    """Return (regressions, notes). Regressions are hard preservation failures."""
+def compare(src: dict, out: dict, lane: str, op: str,
+            text_oracle: str = "raw") -> tuple[list[str], list[str]]:
+    """Return (regressions, notes). Regressions are hard preservation failures.
+
+    ``text_oracle`` selects how extracted text is compared:
+      * ``raw`` (default) — byte-for-byte, including whitespace and line breaks.
+        Strictest, and the published result.
+      * ``multiset`` — order- and whitespace-insensitive (the sorted character
+        multiset). Diagnostic only: it separates a real character loss from a
+        pure layout/line-break reflow. It cannot see a reordering, so it must
+        never be the published verdict.
+    """
     regressions, notes = [], []
     if lane == "robustness_containment":
         return regressions, notes  # containment is checked separately
@@ -180,6 +195,13 @@ def compare(src: dict, out: dict, lane: str, op: str) -> tuple[list[str], list[s
 
     if src["text_len"] == 0 and out["text_len"] == 0:
         notes.append("text_oracle_weak:both_extractors_empty")
+    elif text_oracle == "multiset":
+        a = src.get("text_multiset_sha256")
+        b = out.get("text_multiset_sha256")
+        if a is None or b is None:
+            notes.append("text_oracle_limited:missing_multiset_baseline")
+        elif a != b:
+            regressions.append("text_changed")
     elif src["text_sha256"] != out["text_sha256"]:
         regressions.append("text_changed")
 
@@ -607,6 +629,11 @@ def main():
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     ap.add_argument("--idempotence", action="store_true",
                     help="also re-run font-plan on its own output and require no further repair")
+    ap.add_argument("--text-oracle", choices=("raw", "multiset"), default="raw",
+                    help="raw (published, byte-exact) or multiset (diagnostic: "
+                         "order/whitespace-insensitive, separates loss from reflow)")
+    ap.add_argument("--only", default="",
+                    help="comma-separated id substrings; keep only matching inputs")
     args = ap.parse_args()
 
     if not CLASSPATH_FILE.exists():
@@ -616,6 +643,9 @@ def main():
     rows = [json.loads(l) for l in MANIFEST.read_text().splitlines() if l.strip()]
     if args.group != "all":
         rows = [r for r in rows if r["group"] == args.group]
+    if args.only:
+        subs = [s for s in args.only.split(",") if s]
+        rows = [r for r in rows if any(s in r["id"] for s in subs)]
 
     if args.lane == "recovery":
         rows.sort(key=lambda r: (r["group"], r["id"]))
@@ -660,6 +690,7 @@ def main():
         "verapdf": "skipped_not_installed" if not shutil.which("verapdf") else "available",
         "render_page_cap": RENDER_PAGE_CAP,
         "ops": ops,
+        "text_oracle": args.text_oracle,
         "files_discovered": len(rows),
         "files_baselined": 0,
         "operations_attempted": 0,
@@ -757,7 +788,8 @@ def main():
                         out_probe = probe(outp, tmp, args.timeout)
                         case["out_pages"] = out_probe.get("pages")
                         case["out_qpdf"] = out_probe.get("qpdf_check")
-                        reg_vs_input, notes = compare(src_probe, out_probe, lane, op)
+                        reg_vs_input, notes = compare(src_probe, out_probe, lane, op,
+                                                      args.text_oracle)
 
                         if op == "save":
                             # Serialization control: bytes, and possibly raster

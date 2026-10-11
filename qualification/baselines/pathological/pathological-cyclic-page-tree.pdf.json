@@ -19,9 +19,5 @@
     "err": " repairing PDF document\nformat error: cycle in page tree\nwarning: page tree load failed; falling back to slow lookup\nwarning: dropping unclosed output\nformat error: cycle in page tree\ncannot draw '/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-cyclic-page-tree.pdf'\n"
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-14caabja/tmpenpglh7j",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-14caabja/tmp88d83fxk"
-  },
   "verapdf": "skipped_not_installed"
 }

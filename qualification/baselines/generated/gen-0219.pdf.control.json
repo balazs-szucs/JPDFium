@@ -1,0 +1,45 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0219.pdf/save.pdf",
+  "sha256": "0d40b449001daeef9173e56328a9f893b7c3c63bb839b1926a5f44403875afcd",
+  "qpdf_check": 0,
+  "pages": 11,
+  "text_len": 11794,
+  "text_sha256": "d3561d306ac9945e6d6670adc187c074cd0c8c5bcc01ecea502ac567e64ba394",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 11,
+    "sha": [
+      "d852ff3bd6e8e0300c9a3aeeca3329a7f9a5b4fa84f19e3bc127e43c04876810",
+      "796e1250b3876368c64ea4052790e466c3e564de4dd521d66ac712658af7aeb6",
+      "6a6a383c24a469c673aba4e6feec8bd69254b80b27f68aa8f91d518dc6e18c38",
+      "c52a6e37ed06e50045eca698213d5eff3a253bb20b6c7480a80b1bd940adac23",
+      "5f7e1513b188c28b6fd3ac10df2534173fe1aed97793c67e616c757c21da4cba",
+      "0a83709a0124e8bc101329a483a53340b7afc0c01ebd1cad84467f93056db47e",
+      "2e62ed12e3eab4bd2385591bd88e83fdf475c911f6f4d5c469d63b86b5b68e57",
+      "af363e1f65c03ac33b6864690f4130c6c0d60c64fd98162c7e2b2873227d6c73",
+      "4eea74e71107991790f1976ca3c5a9ca829089cd997f5cb3ff58ca141ea29f3a",
+      "3965aa0abef6c44245fd8f26be93c0ac30fe6aa460777ff2046d5399344fb0a4",
+      "e3c6f30b5bb6cd849a4eb53514680c42f03ce4dc8a370c3f77f7ddc2f0ec82d7"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 11,
+    "sha": [
+      "810570b230b147d604432a84b6db33a88cbf0409fe776f0b74c6ebce45281d72",
+      "4a456bd9cc64177ddfef9f753cab691c57276fbc446f330b128f0421e96c890d",
+      "01c655a622e5c291ae48681209d6245436cae5a503871838fce33f8ebf696e9b",
+      "01ffa2a1432aeefc6aa1572079a39fc481b2238965095ce1a12d6e186cb38caf",
+      "502a93279473839787a6db0546c29eef7d6058ddf94b4d84377e46f61ab75e7f",
+      "580c47808e0e59c137c55f744c1b210f017ef75f328c6c7e5aca2ab7421d0512",
+      "2053d888fd55e48e2a923a87d0978f9f4c5cacfacab220207e98ad44c9766737",
+      "83000758cec4179ed81dc32c070d0e7ffe0ef5f98fc10ce04f4313d3f28c97d0",
+      "198f43da2024ac565162b6be681c24cf65e3c22ed93d1f79df69313611c85d18",
+      "67223295959231cdbe60ba8978d226b35b9305d5cae62551b81e5578676bde89",
+      "1a3d53d76565d940e4dc560b8053550b8fd2e50f59c0684b0d2e14e3b90e3e0a"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

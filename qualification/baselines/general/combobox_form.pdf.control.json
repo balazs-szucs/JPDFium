@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/combobox_form.pdf/save.pdf",
-  "sha256": "f2e0399c0588ae045becb93eab052d7992a1440d55b7e3d29345db2dd9fffa42",
+  "sha256": "0cc4c9cb71bd52770a137597753cd5112e7d5216ef47ab51ada72e17c19cd185",
   "qpdf_check": 0,
   "pages": 1,
   "text_len": 20,
@@ -21,9 +21,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpe5_uor13",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp1ctke9ul"
-  },
   "verapdf": "skipped_not_installed"
 }

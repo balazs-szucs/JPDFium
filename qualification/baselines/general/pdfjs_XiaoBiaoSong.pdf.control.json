@@ -1,0 +1,26 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/pdfjs_XiaoBiaoSong.pdf/save.pdf",
+  "sha256": "51120477495f0ca04f8985d6a6659ed12bdc50492fbb4bf56e067932a325d0a9",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 1424,
+  "text_sha256": "81233ebc5024e72da1ffcc70984cbebd719a67fd08ae52b60fe79443596266ca",
+  "text_ok": true,
+  "text_multiset_sha256": "eb21c1c5204517fc55e05f22ddadc995f35fa8d34618137c745a34b6da116b9f",
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "19185dd7fac67ef081a651a15627872c7af6ee6ee12d29d3bcfb956c5f1f95df"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "4f344cdc0a20bfb98f7fdf79e5e82a9eebb6049a7cab8e804022d2614a919c81"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

@@ -74,7 +74,17 @@ python3 qualification/qualify.py \
 # 5. run the paired-mutation recovery lane (separate report, never overwrites step 4)
 python3 qualification/qualify.py --lane recovery --group general   --limit 0 --timeout 60
 python3 qualification/qualify.py --lane recovery --group generated --limit 0 --timeout 60
+
+# 6. full corpus (slow).  Optional flags: --only <id-substr,...> to re-run a
+#    subset, --text-oracle multiset for the diagnostic (never published) oracle.
+python3 qualification/qualify.py --group all --limit 0 \
+  --ops save,font,font-plan,preserve --idempotence --timeout 60
 ```
+
+Diagnostic options: `--only <id-substr,...>` restricts inputs by id substring;
+`--text-oracle multiset` compares the sorted character multiset instead of raw
+bytes. The multiset oracle is **diagnostic only** — it is order-insensitive, so
+it cannot see a reordering and is never the published verdict.
 
 The driver launches exactly one JVM per (input, operation) so a native crash is
 contained to one case. It does not start Gradle per PDF.
@@ -209,14 +219,50 @@ claimed as recovery.
 ```
 unexpected_failures            = 0
 repair_induced_regressions     = 0
+missing_fixtures               = 0
 ```
 
 plus, reported and kept in the denominator rather than removed: safe refusals,
 unsupported cases, `serialization_render_delta`, limited render scopes, and
 `unresolved_oracle_disagreements`.
 
+## Full-corpus result: FAIL
+
+The full frozen corpus (391 inputs, 1564 cases) has now been run end to end
+(`reports/summary.json`, `reports/run-full.log`, `reports/FINDINGS-full-sweep.md`):
+
+```
+unexpected_failures 1   preservation_regressions 10   repair_induced_regressions 10
+serialization_render_delta 201   serialization_attributed 404
+expected_refusals 10   unexpected_skips 0   missing_fixtures 0   exit 1  =>  FAIL
+```
+
+Of the 11 flagged cases, **one is a genuine hard-gate failure**:
+`pdfjs_ZapfDingbats.pdf` (both `font` and `font-plan`) synthesises an ASCII
+**identity** `/ToUnicode` for a built-in-encoded ZapfDingbats Type1 font, so ~180
+dingbat codepoints (U+27xx) are replaced by their ASCII code values in the text
+layer (rendering is unchanged). The other ten are: one pure line-break reflow
+(`pdfjs_Type3WordSpacing.pdf` `save`, char multiset equal), one Unicode
+compatibility-only difference (`mozilla_tracemonkey.pdf`, `NFKC`-equal), two
+genuine *improvements* on documents whose fallback extraction was garbage
+(`pdfjs_ThuluthFeatures.pdf`, `pdfjs_Test-plusminus.pdf`), and one neutral
+hyphen↔soft-hyphen substitution (`pdfjs_XiaoBiaoSong.pdf`). See the findings
+document for the per-case evidence and the exact commands.
+
+This is reported as-is: the gate fails, the failure is reproducible from a
+committed fixture, and it is not excused by the oracle weaknesses.
+
 ## Documented gaps (honest, not over-claimed)
 
+- **`pdfjs_ZapfDingbats.pdf` is an open hard failure**: the planner emits an
+  identity `/ToUnicode` for a font with a built-in symbolic encoding. Not fixed
+  on this branch.
+- The **text oracle** is byte-exact and unconditional: it flags a pure reflow
+  (1 case, separable with the diagnostic `--text-oracle multiset`) and has no
+  `NFKC` tolerance or capability-aware notion of "the input declared no usable
+  `/ToUnicode`" (so a genuine recovery on a garbage-fallback document is scored
+  as a regression). Making the gate capability-aware is a semantic change and is
+  not applied.
 - No **independent `/ToUnicode` mapping oracle** yet: declared-mapping
   preservation is currently proxied by `pdftotext` + render + `qpdf`, not by a
   decoder-independent comparison of the decoded CMap.
@@ -244,5 +290,6 @@ unsupported cases, `serialization_render_delta`, limited render scopes, and
   still absent.
 - Render comparison covers documents ≤ 25 pages and only the first N pages when
   the cap applies; it is not an all-page claim.
-- The full frozen corpus (391 inputs) has not been run to completion in CI; only
-  bounded `--limit` sets have been exercised.
+- The full frozen corpus (391 inputs) has been run end to end once, on this host,
+  and **failed** (see above). It is not yet wired into CI, and no full run is
+  currently green: the `pdfjs_ZapfDingbats.pdf` mapping regression is open.

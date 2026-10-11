@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/pdfjs_annotation-stamp.pdf/save.pdf",
+  "sha256": "288742f5ccc9b2afd85f1c58af21621be355662f9750e05f85e802c330277ac9",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 7,
+  "text_sha256": "d771499830eb43f1811a5da804d41fbd355f971c6e05a6a52b0e672aaff009e0",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "d3adf8c61d515473256a92161967000bb128d428451c00dee2d0135684e3edad"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "0eee7083835200234f3808595e1b34a26d01a3fba8828fff30dcc19c588ff5c3"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

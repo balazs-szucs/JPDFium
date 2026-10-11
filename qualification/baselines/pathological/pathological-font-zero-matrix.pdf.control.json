@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-font-zero-matrix.pdf/save.pdf",
-  "sha256": "2abf2abdb9d66268041b3d880d74cbede67d9fbf6e191640d3be71aab6c4e317",
+  "sha256": "825f39aaf1a4e1e00d0def562f493f0bbe32cdb2eb5061455e1c1b623e2ccbb6",
   "qpdf_check": 0,
   "pages": 1,
   "text_len": 13,
@@ -21,9 +21,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp2kc9omq8",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpgpmgwris"
-  },
   "verapdf": "skipped_not_installed"
 }

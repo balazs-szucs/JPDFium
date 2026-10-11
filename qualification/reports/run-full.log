@@ -1,0 +1,17 @@
+== qualification summary ==
+files_discovered                 391
+files_baselined                  391
+controls_run                     391
+operations_attempted             1173
+operations_written               1164
+expected_refusals                10
+unexpected_failures              1
+unexpected_skips                 0
+preservation_regressions         10
+repair_induced_regressions       10
+serialization_render_delta       201
+serialization_attributed         404
+recovery_successes               0
+unresolved_oracle_disagreements  0
+FAIL: see qualification/reports/summary.json and qualification/failures/
+EXIT=1

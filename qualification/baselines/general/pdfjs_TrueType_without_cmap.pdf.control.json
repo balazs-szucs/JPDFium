@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/pdfjs_TrueType_without_cmap.pdf/save.pdf",
+  "sha256": "cf4e8c2b4fab28fa1dd216bc2a99dd1fe01813d5448ba969f69410d1b16e18aa",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 8,
+  "text_sha256": "362eaed6d5e6226da51505210400c2ab415dcf5dc1d14b34a532b526bd906544",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "8809877f13a58b884737dd19f0ea2b6e5b5ea28c97cca9bb0745d122418a120c"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "7a9e3d6ca20b21ec4266304eb72b9a7f6f92d7f3ad3a8e4c82d113f83dd9f89e"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

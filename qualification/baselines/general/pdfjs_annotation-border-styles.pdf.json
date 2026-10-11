@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/general/pdfjs_annotation-border-styles.pdf",
+  "sha256": "ba3a3c67030f9be2ad2c1989b78ec302501f71cecb4e5ebf193f6ce9ca51ff56",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 47,
+  "text_sha256": "3229d4f5bdb3a6e69f63ad7580605310c5b4fe09aba393c307196549a7e029b5",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "5fadfaf0af96403f2c4ae9c0bdac33f158926d997673dfcf0613daf70b378a23"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "7d7e1b2b15eb942e044186a5faf638033ec69287f7809fc9f49eec4f4e24f923"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

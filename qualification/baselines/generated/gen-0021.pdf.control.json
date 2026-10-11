@@ -1,0 +1,43 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0021.pdf/save.pdf",
+  "sha256": "d9c1c34f2436022704ac1062c4577b3b3bd42e1f856bcf4dcfb015c37a97a915",
+  "qpdf_check": 0,
+  "pages": 10,
+  "text_len": 7149,
+  "text_sha256": "90bc11b6eb16e8d753176a766bf0f3400d936856501337a9b38dc8bb5ef7ad78",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 10,
+    "sha": [
+      "809757f70ca9fadfc33c7a941e1d2f676f891bf53b7c0b3c0fe08a6686919435",
+      "c4d140d7be10134d857a97f0c36bb4cbbfbae1eda631894f5a9c21ae523a4aec",
+      "3ce13ea9761acc161b0ded73d3d36d7569a17294a5197445dd12bad240cfab4c",
+      "76c6ee1b39a8ee3bc9ba662536c28df484096217adf9c9f12219427d5d1503e4",
+      "d1c2edb83ecf6b29a38f256f2007f16badb8e8653264bfa153d4a05207cc88e9",
+      "f0a4b3b10889a9f4f678254766ae70edb1430529bf3af930a56939e25a386208",
+      "3a1e9ff96fc0ce1ffa0d2c00a465f29861f9128c5cd87e05d9f61d8271b20bc0",
+      "fd12acf8285da72da33429bab5652a7cefcdf1c885f8faa9e83c529c9c0bceb4",
+      "5cf93a3b43b80d84d1d75a6ad1d83d14d0310177defc03b10076e3e59b84fc97",
+      "62c1c14afa50a70bfbb52ef63b5edebb78c2896cc951fe79e889eb731b7369cf"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 10,
+    "sha": [
+      "d7105f0b4d376531256da49ce3a77c50eb4230e9ca99890fc0266f6da8b748bd",
+      "a793545104365d6e9440642c59c9413929972a6f5eb16915b2f21d91da04b5a0",
+      "dd3427a095a29a4410d9e75e0755423b7466b6a0068a7a9397a7c528be0b8750",
+      "15cddaf3fa8730b4829289633f2982934af93801b0d60695624fd16958a38c8d",
+      "998af8c58278717b6b617a1446b877bdaed1e96ac9edd44f8b89f712ce8f375d",
+      "01c42d9d11f9df635aa0fb60fa4339415fc21662a1374e6a2d138e6522961faf",
+      "c6ea5f59d6928e543d3737448e897cb481dc2a1e5b5846fca63d239cb8caf4b9",
+      "8714151d5526ff2df4c2b41856b989390697f746358a5622cc1b219a3520b86d",
+      "b5ecd2095e6982d4686236ed3289baeb4814a41ebcf5b2e2b25fbf4711304b07",
+      "74254160588b54f2ed9e9af8bb51dfa994e6beb02b4e3f33275df4dc63b18361"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

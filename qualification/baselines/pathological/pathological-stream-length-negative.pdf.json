@@ -1,0 +1,27 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-stream-length-negative.pdf",
+  "sha256": "ba998928b97796e5cc3fabe90c1cc5d293435426073375341ea9ee7479618dcf",
+  "qpdf_check": 3,
+  "pages": 2,
+  "text_len": 27,
+  "text_sha256": "b0bb1f1156f40d67bc7caa28bfe4589dabe37e7e00c1059a3039b75d779ae95b",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 2,
+    "sha": [
+      "abeea15a8f407e9ba59f3f43ccc17f9a3786ef7ad701507542008a73617f96e5",
+      "aaa758693af7946c26d9296325e2dbcaf8fa5bee2446139e7a1d1298f57488df"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 2,
+    "sha": [
+      "48e341e153221e527fea9ee8c2f0262f1f7a5c2c2635edfea78d4bbdf5fff7ab",
+      "103ce5d9dc994459f0e933d91469f2cb53285222ad8bd7f3491ffbdd9072c64b"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

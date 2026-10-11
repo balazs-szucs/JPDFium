@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/irs_fw4.pdf/save.pdf",
-  "sha256": "0bf98e0edf3480262005d0a2878b18f8978b2272c33b38e59f64f4eb9c1da715",
+  "sha256": "e12437f94b797a21fdd7917578ef68452f61b67594214ffa09502841f3a445d3",
   "qpdf_check": 0,
   "pages": 5,
   "text_len": 35636,
@@ -29,9 +29,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpu2q5x2uc",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp7a5ajnnf"
-  },
   "verapdf": "skipped_not_installed"
 }

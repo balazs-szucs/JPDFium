@@ -1,0 +1,11 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-stream-length-zero.pdf",
+  "sha256": "68891cd12908e32b6d67aed39ca77c4744d9d05ddf4610c79776bb778987e9a3",
+  "qpdf_check": 3,
+  "pages": -1,
+  "text_len": 0,
+  "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "text_ok": false,
+  "render_scope": "skipped_no_pages",
+  "verapdf": "skipped_not_installed"
+}

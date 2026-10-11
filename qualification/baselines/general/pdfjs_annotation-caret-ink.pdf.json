@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/general/pdfjs_annotation-caret-ink.pdf",
+  "sha256": "afdc6fb72e8dcb8f0796a48388fc011e9db212e18d1d7b8cf95b327e88cf6ce9",
+  "qpdf_check": 3,
+  "pages": 1,
+  "text_len": 29,
+  "text_sha256": "4f607e5eb80855a08ce12fe7123ecd8412ae5386691bc5733bb8dde68afe2e9a",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "360d73e9d3a58de0cc17d820a5100b44d67a722507ba1295db42838c52f5124b"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "e0d8aef646a25c60de7bfeac8ee766c9bce5640ea665e575ceda10593cb17f71"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

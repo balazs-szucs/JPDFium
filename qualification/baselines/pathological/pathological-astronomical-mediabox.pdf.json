@@ -19,9 +19,5 @@
     "err": "syntax error: expected generation number (0 ? obj)\nwarning: repairing PDF document\nwarning: dropping unclosed output\nlimit error: Overly large image\ncannot draw '/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-astronomical-mediabox.pdf'\n"
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-14caabja/tmpkaxfiurc",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-14caabja/tmpafc67j0e"
-  },
   "verapdf": "skipped_not_installed"
 }

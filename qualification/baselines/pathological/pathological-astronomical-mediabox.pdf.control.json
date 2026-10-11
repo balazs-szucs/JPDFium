@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-astronomical-mediabox.pdf/save.pdf",
-  "sha256": "1e5c39fa45a2d2d98b014da2eb07b114e9c95d3cf90122eda58b7869453838e8",
+  "sha256": "b4d26dcbd28b5103f8f31e4eff87ddff5c1621b2e63aa5cb76ab620ba25a5834",
   "qpdf_check": 3,
   "pages": 1,
   "text_len": 1,
@@ -19,9 +19,5 @@
     "err": "warning: dropping unclosed output\nlimit error: Overly large image\ncannot draw '/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-astronomical-mediabox.pdf/save.pdf'\n"
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpx8wl4gm7",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpleuu1s0w"
-  },
   "verapdf": "skipped_not_installed"
 }

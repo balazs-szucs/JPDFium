@@ -1,0 +1,25 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/pdfjs_PDFBOX-4352-0.pdf/save.pdf",
+  "sha256": "d619f22f739b6f963b5726b3f07ce1e827fd3d6435dee50d6a7c53acfb831fba",
+  "qpdf_check": 2,
+  "pages": 1,
+  "text_len": 1,
+  "text_sha256": "ef6cbd2161eaea7943ce8693b9824d23d1793ffb1c0fca05b600d3899b44c977",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "110e96ebb1857a62a15a566874a115c706dd4796faea62e24c8f9112e63f8ca1"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "fb3ed554d85becd4071b8e8e690ca3c51b11c137616ecd7b46d0bdf605c78ac9"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

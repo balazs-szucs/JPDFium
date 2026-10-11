@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-cyclic-indirect-refs.pdf/save.pdf",
-  "sha256": "87c4c442cde82cca9e790f2f6b18b8fde33d0e77dbd48b1dc8cf3cab58a0c6d1",
+  "sha256": "9dc9f6ff6d55f7c493ce0154e9acb7183e8854f6cd1c9fd0392145c60f2fff2f",
   "qpdf_check": 3,
   "pages": 1,
   "text_len": 1,
@@ -21,9 +21,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpdt7enbii",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp0y0zyviy"
-  },
   "verapdf": "skipped_not_installed"
 }

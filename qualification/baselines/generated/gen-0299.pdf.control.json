@@ -1,0 +1,35 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0299.pdf/save.pdf",
+  "sha256": "b007bc4982e120765ec192c5b97b958ad3e0c05b95f6ef7897e0499e4c2bd321",
+  "qpdf_check": 0,
+  "pages": 6,
+  "text_len": 6647,
+  "text_sha256": "bff085cafd1e31d2e245e36dc5887fdb3c4c429c6021f904bf18c944e4e3c0a3",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 6,
+    "sha": [
+      "6ba3ce93d6674f0d0cad9a37d2c2e76126bd4d5028747a731ca7ecf9ef6bd9a8",
+      "66ee973cb2f69534fbb705ee3482158fb505890d1462e97778457540434543ad",
+      "9ea8034e169f9879ab63bce017295edb0cd9cc17da4397758f101423e2e9679b",
+      "af89468209c95d7b4093ac886232c3d2a543bf70e2d6c30b929b1d157bc23bd5",
+      "55b884c94069be24997568e771b996ebbfab5e7aaef94d3e08fb34eb041a7826",
+      "bac9f56bfa53ca26d01cf200f15b2eca804a8e373681878ad2e10d5fc0c267ee"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 6,
+    "sha": [
+      "b250fb17d8c22e01202140e525990a3b68c10d493fc65387b82b8ee746acaf94",
+      "421583a9833f8a178638ffa8e35565c66d5d30fc56976257005764f2b5963917",
+      "5e1c6fb94dfd6b3c7eaf9c4bce2c5064a88ac69787ae87dd34b6d5ce3e6f5a76",
+      "dd200d7b90eb251005ad453e215c187c1dbb42fe72f19f04fae471722f43ba13",
+      "3654d8550b2c54bedeeb3be31bff06078b3079b8591270af707379135e2f7864",
+      "d7b11accec78dd7eaa3a561d47345508cbd1495a6d3bba3c761119e91784552f"
+    ]
+  },
+  "render_scope": "all_pages",
+  "verapdf": "skipped_not_installed"
+}

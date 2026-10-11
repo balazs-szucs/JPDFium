@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/irs_f1040a.pdf/save.pdf",
-  "sha256": "52a960b0eaafb5775fcd2551cf1010d4ca0c59f85c269c786fe9c899948a8eb0",
+  "sha256": "7ea6afa46638f26698e9c5f23d06b24f03b0baf05fadfd4e2d2685226bf4eb13",
   "qpdf_check": 0,
   "pages": 2,
   "text_len": 17505,
@@ -23,9 +23,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpq47l3go8",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpwwai5kq9"
-  },
   "verapdf": "skipped_not_installed"
 }

@@ -1,0 +1,11 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/general/pdfjs_Brotli-Prototype-FileA.pdf",
+  "sha256": "88d7f8b3f6e8cb26fdde69bbcd27990f2f61f807472afce7b5dbe2ae8f4f3ff7",
+  "qpdf_check": 2,
+  "pages": -1,
+  "text_len": 0,
+  "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "text_ok": false,
+  "render_scope": "skipped_no_pages",
+  "verapdf": "skipped_not_installed"
+}

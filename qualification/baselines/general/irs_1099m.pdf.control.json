@@ -1,6 +1,6 @@
 {
   "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/irs_1099m.pdf/save.pdf",
-  "sha256": "0b5b5ef587f99a89f283a033548cdd90698a9544d086dd78a60076e043afb6e9",
+  "sha256": "0a8dfb8045afe728fea3d265ea34015cf1a14364df3773178ada21e806ebf1d5",
   "qpdf_check": 0,
   "pages": 6,
   "text_len": 23740,
@@ -31,9 +31,5 @@
     ]
   },
   "render_scope": "all_pages",
-  "render_artifacts": {
-    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp8cx_rohu",
-    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp3vzoe22w"
-  },
   "verapdf": "skipped_not_installed"
 }
