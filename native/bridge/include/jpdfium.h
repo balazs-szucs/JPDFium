@@ -202,6 +202,13 @@ JPDFIUM_EXPORT int32_t jpdfium_text_get_chars(int64_t page, char** json);
 JPDFIUM_EXPORT int32_t jpdfium_text_find(int64_t page, const char* query, char** json);
 JPDFIUM_EXPORT void jpdfium_free_string(char* str) JPDFIUM_NOEXCEPT;
 
+// Diagnostics: number of whole-document QPDF snapshot operations performed by
+// the bridge (one increment per internal snapshot load). Monotonically
+// increasing, relaxed-atomic and thread-safe. Side-effect free except the
+// reset. Not part of the document semantics: use it only to measure I/O.
+JPDFIUM_EXPORT int64_t jpdfium_native_op_count(void) JPDFIUM_NOEXCEPT;
+JPDFIUM_EXPORT void jpdfium_native_op_reset(void) JPDFIUM_NOEXCEPT;
+
 JPDFIUM_EXPORT int32_t jpdfium_redact_region(int64_t page, float x, float y, float w, float h,
                                              uint32_t argb,
                                              int32_t remove_content) JPDFIUM_NOEXCEPT;
@@ -396,6 +403,15 @@ JPDFIUM_EXPORT int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* p
 // un-authorised resource can never be modified. Caller frees *json with
 // jpdfium_free_string.
 JPDFIUM_EXPORT int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json);
+
+// Plan every page's /ToUnicode repairs from ONE document view, analysing each
+// distinct font program once. The output is a JSON array of per-page plan
+// objects, each with the single-page shape:
+//   [{"page_index":0,"repairs":[...],"skipped":[...],"references":[...]}, ...]
+// Each "references" array lists every (page, resource) the repaired resource's
+// shared font object is reached by (rows carry owner_page/owner). Caller frees
+// *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_plan_pages(int64_t doc, char** json);
 
 // Per-codepoint glyph coverage using the font's charmap.
 // out_covered[i] is 1 when the font has a glyph for codepoints[i], else 0.

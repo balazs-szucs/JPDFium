@@ -221,6 +221,39 @@ public final class FontLib {
         });
     }
 
+    /**
+     * Plan every page's {@code /ToUnicode} repairs from a single native document
+     * view, analysing each distinct font program once. The payload is a JSON
+     * array of per-page plan objects, each with the same shape as
+     * {@link #planJson}.
+     */
+    public static String planPages(long doc) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_plan_pages(doc, ptrSeg), "fontPlanPages");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Number of whole-document QPDF snapshot operations the native bridge has
+     * performed since the last {@link #resetNativeOpCount()}. Diagnostics only:
+     * used to measure planning/apply I/O, never to gate behaviour.
+     */
+    public static long nativeOpCount() {
+        return JpdfiumH.jpdfium_native_op_count();
+    }
+
+    /** Reset the snapshot-operation counter before a measured section. */
+    public static void resetNativeOpCount() {
+        JpdfiumH.jpdfium_native_op_reset();
+    }
+
     public static int fixToUnicode(long doc, int pageIndex) {
         return PdfiumRuntime.execute(() -> {
             try (Arena a = Arena.ofConfined()) {
