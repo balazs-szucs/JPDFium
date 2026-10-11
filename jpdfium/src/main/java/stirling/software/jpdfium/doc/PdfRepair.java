@@ -1,6 +1,7 @@
 package stirling.software.jpdfium.doc;
 
 import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.PdfPage;
 import stirling.software.jpdfium.panama.RepairLib;
 
 import java.io.IOException;
@@ -26,8 +27,10 @@ import java.util.List;
  * <li><b>Post-repair</b>: ICC profile validation (lcms2), JPEG2000 validation
  * (OpenJPEG). Requested validation is reported in the diagnostics; this module has
  * no per-stream extractor.</li>
- * <li><b>Verification</b>: a usable candidate is reopened as a PDF before publication;
- * an unreadable candidate is reported {@code FAILED} with no bytes.</li>
+ * <li><b>Verification</b>: every stage that produces a candidate is independently
+ * reopened and its pages are opened before the candidate can be adopted, and again
+ * before publication. An unreadable candidate is reported {@code FAILED} with no
+ * bytes. A declared page count is never treated as proof of a traversable tree.</li>
  * </ol>
  *
  * <h3>Usage</h3>
@@ -145,27 +148,36 @@ public final class PdfRepair {
         if (transcodeBrotli) {
             report.attempted("brotli_transcode");
             byte[] transcoded = RepairLib.brotliToFlate(current);
-            if (transcoded != null) {
+            if (transcoded == null) {
+                report.warn("brotli_transcode_unsupported: per-stream /BrotliDecode transcoding is "
+                        + "not implemented; no whole-document transcode was applied");
+            } else if (verifyStage("brotli_transcode", transcoded, report)) {
                 current = transcoded;
                 brotliApplied = true;
                 report.succeeded("brotli_transcode");
             } else {
-                report.warn("brotli_transcode_unsupported: per-stream /BrotliDecode transcoding is "
-                        + "not implemented; no whole-document transcode was applied");
+                report.warn("brotli_transcode_verification_failed: the transcoded document did not "
+                        + "reopen; the original input is used instead");
             }
         }
 
         report.attempted("core_qpdf");
         RepairResult coreResult = RepairLib.repair(current, flags);
-        if (coreResult.isUsable()) {
+        if (coreResult.isUsable() && verifyStage("core_qpdf", coreResult.repairedPdf(), report)) {
             report.succeeded("core_qpdf");
+        } else if (coreResult.isUsable()) {
+            report.warn("core_qpdf_verification_failed: the repaired candidate did not reopen; "
+                    + "later stages may still recover the document");
+            coreResult = new RepairResult(RepairResult.Status.FAILED, null,
+                    coreResult.diagnosticJson());
         }
 
         if (usePdfioFallback) {
             report.attempted("pdfio_page_salvage");
             if (!coreResult.isUsable()) {
                 RepairResult pdfioResult = RepairLib.pdfioRepair(current);
-                if (pdfioResult.isUsable()) {
+                if (pdfioResult.isUsable()
+                        && verifyStage("pdfio_page_salvage", pdfioResult.repairedPdf(), report)) {
                     coreResult = pdfioResult;
                 }
             }
@@ -180,7 +192,8 @@ public final class PdfRepair {
             report.attempted("lopdf_rewrite");
             if (!coreResult.isUsable()) {
                 RepairResult rustResult = RepairLib.rustRepair(current);
-                if (rustResult.isUsable()) {
+                if (rustResult.isUsable()
+                        && verifyStage("lopdf_rewrite", rustResult.repairedPdf(), report)) {
                     coreResult = rustResult;
                 }
             }
@@ -195,7 +208,8 @@ public final class PdfRepair {
         if (recoverRevision && !coreResult.isUsable()) {
             report.attempted("revision_recovery");
             RepairResult earlier = firstUsableRevision(current, flags);
-            if (earlier != null) {
+            if (earlier != null
+                    && verifyStage("revision_recovery", earlier.repairedPdf(), report)) {
                 coreResult = earlier;
                 revisionRecovered = true;
                 report.succeeded("revision_recovery");
@@ -205,16 +219,19 @@ public final class PdfRepair {
         }
 
         // Verify before publication: a usable candidate must reopen as a PDF and
-        // have a traversable page tree, else report FAILED with no bytes.
+        // every page must be openable up to a bound; a declared page count alone
+        // is not proof of a traversable page tree. Failure publishes no bytes.
         int verifiedPages = -1;
         if (coreResult.isUsable()) {
             report.attempted("candidate_reopen");
-            int pages = candidatePageCount(coreResult.repairedPdf());
-            if (pages >= 0) {
-                verifiedPages = pages;
+            CandidateCheck check = verifyCandidate(coreResult.repairedPdf());
+            if (check.reopened()) {
+                verifiedPages = check.pageCount();
                 report.succeeded("candidate_reopen");
                 report.validation("pdfium_loaded", "true");
-                report.validation("enumerated_pages", Integer.toString(pages));
+                report.validation("enumerated_pages", Integer.toString(check.pageCount()));
+                report.validation("page_traversal",
+                        check.completeTraversal() ? "complete" : "bounded");
             } else {
                 report.validation("pdfium_loaded", "false");
                 report.warn("candidate_reopen_failed: repaired candidate could not be reopened; "
@@ -249,12 +266,14 @@ public final class PdfRepair {
         // the pre-sanitize verification; failure publishes nothing.
         if (sanitize && coreResult.isUsable()) {
             report.attempted("final_reverify");
-            int finalPages = candidatePageCount(coreResult.repairedPdf());
-            if (finalPages >= 0) {
-                verifiedPages = finalPages;
+            CandidateCheck check = verifyCandidate(coreResult.repairedPdf());
+            if (check.reopened()) {
+                verifiedPages = check.pageCount();
                 report.succeeded("final_reverify");
                 report.validation("final_pdfium_loaded", "true");
-                report.validation("final_enumerated_pages", Integer.toString(finalPages));
+                report.validation("final_enumerated_pages", Integer.toString(check.pageCount()));
+                report.validation("final_page_traversal",
+                        check.completeTraversal() ? "complete" : "bounded");
             } else {
                 report.validation("final_pdfium_loaded", "false");
                 report.warn("final_reverify_failed: sanitized candidate could not be reopened; "
@@ -389,19 +408,72 @@ public final class PdfRepair {
     }
 
     /**
+     * Upper bound on pages opened while verifying a candidate. A declared page
+     * count alone does not prove the page tree can be walked, so verification
+     * opens every page up to this bound; beyond it the traversal is reported as
+     * bounded rather than claimed complete.
+     */
+    private static final int MAX_VERIFIED_PAGES = 1000;
+
+    /** Independent verification of one candidate document. */
+    private record CandidateCheck(int pageCount, boolean completeTraversal) {
+        boolean reopened() {
+            return pageCount >= 0;
+        }
+    }
+
+    /**
+     * Reopens a candidate as a PDF and opens every page up to
+     * {@link #MAX_VERIFIED_PAGES}, so a traversal failure is observed rather
+     * than inferred from a count. Returns the declared page count ({@code -1}
+     * when the document cannot be reopened) and whether the whole tree was
+     * walked. Never throws.
+     */
+    private static CandidateCheck verifyCandidate(byte[] candidate) {
+        if (candidate == null || candidate.length == 0) {
+            return new CandidateCheck(-1, false);
+        }
+        try (PdfDocument doc = PdfDocument.open(candidate)) {
+            int pages = doc.pageCount();
+            if (pages < 0) {
+                return new CandidateCheck(-1, false);
+            }
+            int limit = Math.min(pages, MAX_VERIFIED_PAGES);
+            for (int i = 0; i < limit; i++) {
+                try (PdfPage page = doc.page(i)) {
+                    page.size();
+                }
+            }
+            return new CandidateCheck(pages, pages <= MAX_VERIFIED_PAGES);
+        } catch (Exception | LinkageError e) {
+            return new CandidateCheck(-1, false);
+        }
+    }
+
+    /**
      * Reopens a repaired candidate as a PDF and returns its page count, or
      * {@code -1} when it cannot be reopened. Never throws.
      */
     private static int candidatePageCount(byte[] candidate) {
-        if (candidate == null || candidate.length == 0) {
-            return -1;
+        return verifyCandidate(candidate).pageCount();
+    }
+
+    /**
+     * Independently verifies a mutating stage's candidate before it can be
+     * adopted, recording the outcome under {@code stage}. Returns whether the
+     * candidate reopened with a walkable page tree.
+     */
+    private static boolean verifyStage(String stage, byte[] candidate, RepairReport.Builder report) {
+        CandidateCheck check = verifyCandidate(candidate);
+        if (!check.reopened()) {
+            report.validation(stage + "_verified", "false");
+            return false;
         }
-        try (PdfDocument doc = PdfDocument.open(candidate)) {
-            int pages = doc.pageCount();
-            return pages >= 0 ? pages : -1;
-        } catch (Exception | LinkageError e) {
-            return -1;
-        }
+        report.validation(stage + "_verified", "true");
+        report.validation(stage + "_pages", Integer.toString(check.pageCount()));
+        report.validation(stage + "_page_traversal",
+                check.completeTraversal() ? "complete" : "bounded");
+        return true;
     }
 
     /** Number of explicit revisions in a PDF: one {@code %%EOF} per revision. */

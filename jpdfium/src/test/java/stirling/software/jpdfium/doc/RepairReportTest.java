@@ -43,6 +43,12 @@ class RepairReportTest {
         assertEquals(RepairReport.INVALIDATED_OR_UNKNOWN, report.preservation().get("signatures"));
         assertEquals("true", report.outputValidation().get("pdfium_loaded"));
         assertEquals("3", report.outputValidation().get("enumerated_pages"));
+        // Every mutating stage that produced this candidate was verified, and the
+        // traversal is reported rather than inferred from the page count.
+        assertEquals("true", report.outputValidation().get("core_qpdf_verified"));
+        assertEquals("3", report.outputValidation().get("core_qpdf_pages"));
+        assertEquals("complete", report.outputValidation().get("core_qpdf_page_traversal"));
+        assertEquals("complete", report.outputValidation().get("page_traversal"));
     }
 
     @Test
