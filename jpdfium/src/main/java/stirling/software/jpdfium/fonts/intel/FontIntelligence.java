@@ -1,9 +1,13 @@
 package stirling.software.jpdfium.fonts.intel;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.model.ShapedGlyph;
@@ -133,11 +137,16 @@ public final class FontIntelligence {
                 stateFingerprint(e)));
     }
 
-    /** Opaque identity of the evidence a plan was derived from. */
+    /**
+     * Opaque identity of the evidence a plan was derived from: declared-map state,
+     * mapping counts, encoding, and font-program identity (base name, program size,
+     * glyph count). Any drift in these makes a prepared plan stale.
+     */
     private static String stateFingerprint(FontEvidence e) {
         return e.kind() + "|" + e.hasToUnicode() + "|" + e.toUnicodeValid() + "|"
-                + e.mappingCount() + "|" + e.unresolvedCount() + "|" + e.ambiguousCount()
-                + "|" + e.encoding();
+                + e.toUnicodeState() + "|" + e.mappingCount() + "|" + e.unresolvedCount()
+                + "|" + e.ambiguousCount() + "|" + e.encoding() + "|" + e.baseFont()
+                + "|" + e.glyphBytes() + "|" + e.numGlyphs();
     }
 
     /** Repair plans for a whole document, in page order. */
@@ -151,25 +160,65 @@ public final class FontIntelligence {
     }
 
     /**
-     * Apply one plan to the document it was prepared against and return the number
-     * of font resources repaired.
+     * Apply one plan to the document it was prepared against.
      *
-     * <p>The plan is re-validated against the current document before any change:
-     * if the targeted resource moved, disappeared, or its evidence changed, a
-     * {@link StaleRepairPlanException} is thrown and nothing is written. The native
-     * repair also re-checks each font's state, so it never overwrites a
-     * {@code /ToUnicode} that has since become trustworthy.
+     * <p>The native {@code /ToUnicode} repair is page-wide: it repairs every
+     * eligible font resource on the page, not only the planned one. A single plan
+     * is therefore refused when its page carries any other pending repair, so a
+     * repair never changes a font the caller did not authorise. Use
+     * {@link #applyRepairs(PdfDocument, List)} to authorise the whole page
+     * explicitly.
      *
-     * @throws StaleRepairPlanException when the plan no longer matches the document
+     * @throws StaleRepairPlanException when the plan is stale or the page is not
+     *     fully authorised
      */
     public static int applyRepair(PdfDocument document, FontRepairPlan plan) {
-        Objects.requireNonNull(document, "document");
         Objects.requireNonNull(plan, "plan");
-        if (!plan.mutates()) {
-            return 0;
+        return applyRepairs(document, List.of(plan));
+    }
+
+    /**
+     * Apply an explicit set of plans, one page at a time.
+     *
+     * <p>Every plan must still match the current document, and the set must list
+     * every pending repair on each page it touches, so the page-wide native
+     * operation is exactly as wide as the authorisation and no other resource is
+     * changed. Pages are repaired in ascending order; a stale or under-specified
+     * page throws before that page is written.
+     *
+     * @return total number of font resources repaired
+     * @throws StaleRepairPlanException when a plan is stale or a page is not fully
+     *     authorised
+     */
+    public static int applyRepairs(PdfDocument document, List<FontRepairPlan> plans) {
+        Objects.requireNonNull(document, "document");
+        Objects.requireNonNull(plans, "plans");
+
+        Map<Integer, List<FontRepairPlan>> byPage = new LinkedHashMap<>();
+        for (FontRepairPlan plan : plans) {
+            if (plan.mutates()) {
+                byPage.computeIfAbsent(plan.pageIndex(), k -> new ArrayList<>()).add(plan);
+            }
         }
-        requireFresh(document, plan);
-        return repairPage(document, plan.pageIndex());
+
+        int total = 0;
+        for (Map.Entry<Integer, List<FontRepairPlan>> entry : byPage.entrySet()) {
+            int pageIndex = entry.getKey();
+            Set<String> authorised = new HashSet<>();
+            for (FontRepairPlan plan : entry.getValue()) {
+                requireFresh(document, plan);
+                authorised.add(plan.resourceName());
+            }
+            for (FontEvidence e : inspectPage(document, pageIndex)) {
+                if (!authorised.contains(e.resourceName()) && !repairPlans(e).isEmpty()) {
+                    throw new StaleRepairPlanException("page " + pageIndex
+                            + " has a pending repair for font resource " + e.resourceName()
+                            + " that the plan set does not authorise");
+                }
+            }
+            total += repairPage(document, pageIndex);
+        }
+        return total;
     }
 
     /** Refuse a plan whose evidence no longer matches the current document. */
