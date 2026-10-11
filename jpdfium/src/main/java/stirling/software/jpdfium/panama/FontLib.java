@@ -162,11 +162,179 @@ public final class FontLib {
         });
     }
 
+    /**
+     * Typed font evidence for every font resource used on a page, including
+     * per-code Unicode mappings with provenance.
+     */
+    public static String evidence(long doc, int pageIndex) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_evidence(doc, pageIndex, ptrSeg), "fontEvidence");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Typed font evidence for many pages, collected from one document view with
+     * each distinct font program analysed once. The flattened payload carries a
+     * {@code page_index} on every row; parse it with
+     * {@link stirling.software.jpdfium.fonts.intel.FontEvidence#listFromJson}.
+     * An empty {@code pages} array collects nothing.
+     */
+    public static String evidencePages(long doc, int[] pages) {
+        if (pages == null) throw new IllegalArgumentException("pages must not be null");
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment pagesSeg = a.allocateFrom(JAVA_INT, pages);
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_evidence_pages(
+                        doc, pagesSeg, pages.length, ptrSeg), "fontEvidencePages");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Exact set of font resources the page-wide {@code fixToUnicode} pass would
+     * change, reported before anything is mutated. The caller authorises by
+     * resource name; because the planner and the fixer share one native
+     * decision function, an un-authorised resource is never modified.
+     */
+    public static String planJson(long doc, int pageIndex) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_plan(doc, pageIndex, ptrSeg), "fontPlan");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Plan every page's {@code /ToUnicode} repairs from a single native document
+     * view, analysing each distinct font program once. The payload is a JSON
+     * array of per-page plan objects, each with the same shape as
+     * {@link #planJson}.
+     */
+    public static String planPages(long doc) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_plan_pages(doc, ptrSeg), "fontPlanPages");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
+     * Number of whole-document QPDF snapshot operations the native bridge has
+     * performed since the last {@link #resetNativeOpCount()}. Diagnostics only:
+     * used to measure planning/apply I/O, never to gate behaviour.
+     */
+    public static long nativeOpCount() {
+        return JpdfiumH.jpdfium_native_op_count();
+    }
+
+    /** Reset the snapshot-operation counter before a measured section. */
+    public static void resetNativeOpCount() {
+        JpdfiumH.jpdfium_native_op_reset();
+    }
+
+    /**
+     * Work counters for the font-reference graph and program cache, measured
+     * since the last {@link #resetNativeMetrics()}. Diagnostics only: used to
+     * benchmark the scaling of the plan/apply paths, never to gate behaviour.
+     * {@code referenceNodes} is the number of resource dictionaries visited while
+     * building the reference graph, {@code referenceLookups} the number of
+     * font-object lookups against the reverse index, {@code programsAnalyzed} the
+     * number of distinct font programs actually decoded, and {@code
+     * programBytesHashed} the total program bytes hashed.
+     */
+    public record NativeMetrics(long snapshotOps, long referenceNodes, long referenceLookups,
+                                long programsAnalyzed, long programBytesHashed) {}
+
+    /** Read and reset the font plan/apply work counters. */
+    public static NativeMetrics nativeMetrics() {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_native_metrics(ptrSeg), "nativeMetrics");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return new NativeMetrics(
+                        jsonLong(result, "\"snapshot_ops\""),
+                        jsonLong(result, "\"reference_nodes\""),
+                        jsonLong(result, "\"reference_lookups\""),
+                        jsonLong(result, "\"programs_analyzed\""),
+                        jsonLong(result, "\"program_bytes_hashed\""));
+            }
+        });
+    }
+
+    /** Reset every font plan/apply work counter before a measured section. */
+    public static void resetNativeMetrics() {
+        JpdfiumH.jpdfium_native_metrics_reset();
+    }
+
+    private static long jsonLong(String json, String key) {
+        int at = json.indexOf(key);
+        if (at < 0) {
+            return -1;
+        }
+        int from = at + key.length();
+        while (from < json.length()
+                && !Character.isDigit(json.charAt(from)) && json.charAt(from) != '-') {
+            from++;
+        }
+        int to = from;
+        while (to < json.length()
+                && (Character.isDigit(json.charAt(to)) || json.charAt(to) == '-')) {
+            to++;
+        }
+        if (to == from) {
+            return -1;
+        }
+        return Long.parseLong(json.substring(from, to));
+    }
+
     public static int fixToUnicode(long doc, int pageIndex) {
         return PdfiumRuntime.execute(() -> {
             try (Arena a = Arena.ofConfined()) {
                 MemorySegment cSeg = a.allocate(JAVA_INT);
                 JpdfiumLib.check(JpdfiumH.jpdfium_font_fix_tounicode(doc, pageIndex, cSeg), "fontFixToUnicode");
+                return cSeg.get(JAVA_INT, 0);
+            }
+        });
+    }
+
+    /**
+     * Repair many pages' {@code /ToUnicode} from one document view with a single
+     * write and reload, analysing each distinct font program once. Invalid page
+     * indices are skipped. Returns the total number of fonts repaired.
+     */
+    public static int fixToUnicodePages(long doc, int[] pages) {
+        if (pages == null) throw new IllegalArgumentException("pages must not be null");
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment pagesSeg = a.allocateFrom(JAVA_INT, pages);
+                MemorySegment cSeg = a.allocate(JAVA_INT);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_fix_tounicode_pages(
+                        doc, pagesSeg, pages.length, cSeg), "fontFixToUnicodePages");
                 return cSeg.get(JAVA_INT, 0);
             }
         });
