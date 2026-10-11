@@ -1308,12 +1308,24 @@ uint32_t resolve_glyph_name(const std::string& name, const GlyphMaps& gm,
     return agl != agl_subset().end() ? agl->second : 0;
 }
 
+// Defined below, after descriptor_of(); declared here so the map builders can
+// refuse a symbolic font that declares no explicit /Encoding.
+bool is_symbolic_font(QPDFObjectHandle fd);
+
 // Simple (non-CID) font: code -> Unicode from the /Encoding. Base encodings are
 // the standard tables; /Differences glyph names resolve against the font program.
-bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<Mapping>& out) {
+bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<Mapping>& out,
+                      std::string* code = nullptr) {
     std::string baseName = "/StandardEncoding";
     QPDFObjectHandle diffs;
     QPDFObjectHandle enc = fontDict.getKey("/Encoding");
+    bool explicitEncoding = enc.isName() || enc.isDictionary();
+    if (!explicitEncoding && is_symbolic_font(fontDict)) {
+        // No /Encoding and a symbolic descriptor: the glyph codes are in the
+        // program's own built-in encoding. Do not fall back to StandardEncoding.
+        if (code) *code = "SYMBOLIC_FONT_UNSUPPORTED";
+        return false;
+    }
     if (enc.isName()) {
         baseName = enc.getName();
     } else if (enc.isDictionary()) {
@@ -1329,8 +1341,10 @@ bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vecto
         fill_macroman(base);
     else if (baseName == "/StandardEncoding")
         fill_standard(base);
-    else
+    else {
+        if (code) *code = "BUILTIN_ENCODING_UNSUPPORTED";
         return false;  // unknown / font built-in encoding: deferred, not guessed
+    }
 
     std::vector<Mapping> maps;
     maps.reserve(base.size());
@@ -1368,19 +1382,27 @@ bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vecto
 // Composite font with an Identity encoding and Identity /CIDToGIDMap:
 // code == CID == GID -> Unicode via the embedded program's cmap.
 bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<Mapping>& out,
-                   bool* truncated = nullptr) {
+                   bool* truncated = nullptr, std::string* code = nullptr) {
     QPDFObjectHandle enc = fontDict.getKey("/Encoding");
     std::string encName = enc.isName() ? enc.getName() : "";
-    if (encName != "/Identity-H" && encName != "/Identity-V")
+    if (encName != "/Identity-H" && encName != "/Identity-V") {
+        if (code) *code = "CFF_CID_MAPPING_UNSUPPORTED";
         return false;  // embedded CMap streams: deferred
-    if (!gm.ok) return false;
+    }
+    if (!gm.ok) {
+        if (code) *code = "CFF_CID_MAPPING_UNSUPPORTED";
+        return false;
+    }
 
     QPDFObjectHandle desc;
     if (fontDict.hasKey("/DescendantFonts")) {
         QPDFObjectHandle arr = fontDict.getKey("/DescendantFonts");
         if (arr.isArray() && arr.getArrayNItems() > 0) desc = arr.getArrayItem(0);
     }
-    if (!desc.isDictionary()) return false;
+    if (!desc.isDictionary()) {
+        if (code) *code = "CFF_CID_MAPPING_UNSUPPORTED";
+        return false;
+    }
 
     std::vector<uint16_t> cid2gid;
     bool identity = true;
@@ -1525,6 +1547,16 @@ QPDFObjectHandle descriptor_of(QPDFObjectHandle fd, bool cid) {
         if (d.isDictionary()) return d;
     }
     return QPDFObjectHandle();
+}
+
+// A simple font is symbolic when its descriptor sets bit 3 (value 4) of /Flags.
+// Such a font with no explicit /Encoding names glyphs in its own built-in
+// encoding, which this layer does not decode, so it must not be guessed at.
+bool is_symbolic_font(QPDFObjectHandle fd) {
+    QPDFObjectHandle d = descriptor_of(fd, false);
+    if (!d.isDictionary() || !d.hasKey("/Flags")) return false;
+    QPDFObjectHandle f = d.getKey("/Flags");
+    return f.isInteger() && (f.getIntValue() & 4) != 0;
 }
 
 std::string program_bytes(QPDFObjectHandle descriptor) {
@@ -2119,7 +2151,8 @@ struct FontRepairDecision {
     bool eligible = false;
     bool cid = false;
     std::string mode;      // "extend" (valid map, add missing used codes) | "replace"
-    std::string reason;    // why not eligible, when !eligible
+    std::string reason;    // why not eligible, when !eligible (human detail)
+    std::string code;      // stable diagnostic reason code, when one applies
     std::string cmap;      // the /ToUnicode stream to install, when eligible
     std::string identity;  // opaque snapshot identity
     size_t used = 0;       // distinct codes this page shows under the resource
@@ -2144,10 +2177,12 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
     TounicodeState st = parse_tounicode(fd, &declared);
     if (st == TounicodeState::UNSUPPORTED) {
         d.reason = "declared_map_unsupported";
+        d.code = "DECLARED_CMAP_UNSUPPORTED";
         return d;
     }
     if (st == TounicodeState::MALFORMED) {
         d.reason = "declared_map_malformed";
+        d.code = "DECLARED_CMAP_UNSUPPORTED";
         return d;
     }
     bool present = st != TounicodeState::ABSENT;
@@ -2158,24 +2193,41 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
     GlyphMaps const& gm = glyph_maps_cached(bytes, cache);
 
     std::vector<Mapping> maps;
+    std::string mapCode;
     bool mapTruncated = gm.cmap_truncated;
     if (cid)
-        build_cid_map(fd, gm, maps, &mapTruncated);
+        build_cid_map(fd, gm, maps, &mapTruncated, &mapCode);
     else
-        build_simple_map(fd, gm, maps);
+        build_simple_map(fd, gm, maps, &mapCode);
     // An incomplete analysis cannot justify a mapping decision: refuse to
     // mutate rather than install a map built from partial evidence.
     if (mapTruncated) {
         d.reason = "analysis_truncated";
+        d.code = "ANALYSIS_LIMIT_REACHED";
         return d;
     }
 
     std::vector<Mapping> resolved;
+    bool ambiguousOnly = false;
     resolved.reserve(maps.size());
-    for (const auto& mp : maps)
-        if (mp.uni != 0) resolved.push_back(mp);
+    for (const auto& mp : maps) {
+        if (mp.uni != 0)
+            resolved.push_back(mp);
+        else if (std::strcmp(mp.provenance, "AMBIGUOUS") == 0)
+            ambiguousOnly = true;
+    }
     if (resolved.empty()) {
-        d.reason = "no_evidence";
+        // Distinguish an unexplained gap from a cause we can name: a mapping
+        // that could not be built, or one built entirely from ambiguous codes.
+        if (!mapCode.empty()) {
+            d.reason = "no_evidence";
+            d.code = mapCode;
+        } else if (ambiguousOnly) {
+            d.reason = "no_evidence";
+            d.code = "AMBIGUOUS_GLYPH_SEMANTICS";
+        } else {
+            d.reason = "no_evidence";
+        }
         return d;
     }
 
@@ -2351,7 +2403,9 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
                 if (!firstSkip) skipped += ",";
                 firstSkip = false;
                 skipped += "{\"resource\":" + escape_json(fe.key)
-                           + ",\"reason\":" + escape_json(d.reason) + "}";
+                           + ",\"reason\":" + escape_json(d.reason);
+                if (!d.code.empty()) skipped += ",\"code\":" + escape_json(d.code);
+                skipped += "}";
                 continue;
             }
             if (!firstRepair) repairs += ",";

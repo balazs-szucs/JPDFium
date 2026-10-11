@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import stirling.software.jpdfium.fonts.intel.FontDiagnostic;
+
 /**
  * A structured account of what a repair run actually did.
  *
@@ -73,6 +75,23 @@ public record RepairReport(
             case PARTIAL -> OUTCOME_PARTIAL;
             case FAILED -> OUTCOME_FAILED;
         };
+    }
+
+    /**
+     * Structured diagnostics explaining how this report was reached.
+     *
+     * <p>A salvage strategy means the document could not be repaired in place and
+     * only its pages were recovered, so anything held outside the page tree is
+     * reported as lost. A clean in-place rewrite carries no diagnostic: nothing
+     * was withheld.
+     */
+    public List<FontDiagnostic> diagnostics() {
+        if (STRATEGY_PDFIO_PAGE_SALVAGE.equals(strategy)
+                || STRATEGY_LOPDF_REWRITE.equals(strategy)
+                || STRATEGY_REVISION_RECOVERY.equals(strategy)) {
+            return List.of(FontDiagnostic.STRUCTURAL_SALVAGE_REQUIRED);
+        }
+        return List.of();
     }
 
     /**

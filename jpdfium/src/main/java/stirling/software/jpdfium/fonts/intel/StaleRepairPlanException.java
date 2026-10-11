@@ -15,4 +15,12 @@ public class StaleRepairPlanException extends IllegalStateException {
     public StaleRepairPlanException(String message) {
         super(message);
     }
+
+    /**
+     * The stable reason this refusal exists. A stale plan is always a source-state
+     * change: the document moved on between planning and application.
+     */
+    public FontDiagnostic diagnostic() {
+        return FontDiagnostic.SOURCE_STATE_CHANGED;
+    }
 }

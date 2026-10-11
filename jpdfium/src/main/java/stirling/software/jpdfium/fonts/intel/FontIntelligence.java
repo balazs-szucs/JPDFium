@@ -219,10 +219,47 @@ public final class FontIntelligence {
         return plans;
     }
 
+    /**
+     * Structured reasons the native planner withheld a repair on this page, in
+     * the order the resources appear. Only skips carrying a recognised
+     * {@link FontDiagnostic} become findings; an unclassified skip stays out.
+     */
+    public static List<FontDiagnosticFinding> diagnostics(PdfDocument document, int pageIndex) {
+        Objects.requireNonNull(document, "document");
+        if (pageIndex < 0 || pageIndex >= document.pageCount()) {
+            throw new IllegalArgumentException("pageIndex out of range: " + pageIndex);
+        }
+        List<FontDiagnosticFinding> out = new ArrayList<>();
+        for (Map<String, String> row : nativeSkips(document, pageIndex)) {
+            FontDiagnostic.fromCode(row.get("code")).ifPresent(diagnostic -> out.add(
+                    new FontDiagnosticFinding(
+                            pageIndex, row.getOrDefault("resource", ""), diagnostic)));
+        }
+        return out;
+    }
+
+    /** Structured reasons for every page, in page order. */
+    public static List<FontDiagnosticFinding> diagnostics(PdfDocument document) {
+        Objects.requireNonNull(document, "document");
+        List<FontDiagnosticFinding> out = new ArrayList<>();
+        for (int pageIndex = 0; pageIndex < document.pageCount(); pageIndex++) {
+            out.addAll(diagnostics(document, pageIndex));
+        }
+        return out;
+    }
+
     /** The native page-wide mutation plan: the exact resources the fixer would change. */
     private static List<Map<String, String>> nativeRepairs(PdfDocument document, int pageIndex) {
-        String json = FontLib.planJson(document.nativeHandle(), pageIndex);
-        int start = json.indexOf("\"repairs\":[");
+        return jsonArray(FontLib.planJson(document.nativeHandle(), pageIndex), "\"repairs\":[");
+    }
+
+    /** The native plan's withheld resources, with their human reason and code. */
+    private static List<Map<String, String>> nativeSkips(PdfDocument document, int pageIndex) {
+        return jsonArray(FontLib.planJson(document.nativeHandle(), pageIndex), "\"skipped\":[");
+    }
+
+    private static List<Map<String, String>> jsonArray(String json, String key) {
+        int start = json.indexOf(key);
         if (start < 0) {
             return List.of();
         }
