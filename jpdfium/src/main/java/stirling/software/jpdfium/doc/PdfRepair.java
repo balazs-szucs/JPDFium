@@ -206,10 +206,12 @@ public final class PdfRepair {
 
         // Verify before publication: a usable candidate must reopen as a PDF and
         // have a traversable page tree, else report FAILED with no bytes.
+        int verifiedPages = -1;
         if (coreResult.isUsable()) {
             report.attempted("candidate_reopen");
             int pages = candidatePageCount(coreResult.repairedPdf());
             if (pages >= 0) {
+                verifiedPages = pages;
                 report.succeeded("candidate_reopen");
                 report.validation("pdfium_loaded", "true");
                 report.validation("enumerated_pages", Integer.toString(pages));
@@ -243,13 +245,32 @@ public final class PdfRepair {
             }
         }
 
+        // Re-verify the FINAL candidate (after sanitization) rather than trusting
+        // the pre-sanitize verification; failure publishes nothing.
+        if (sanitize && coreResult.isUsable()) {
+            report.attempted("final_reverify");
+            int finalPages = candidatePageCount(coreResult.repairedPdf());
+            if (finalPages >= 0) {
+                verifiedPages = finalPages;
+                report.succeeded("final_reverify");
+                report.validation("final_pdfium_loaded", "true");
+                report.validation("final_enumerated_pages", Integer.toString(finalPages));
+            } else {
+                report.validation("final_pdfium_loaded", "false");
+                report.warn("final_reverify_failed: sanitized candidate could not be reopened; "
+                        + "reported FAILED with no bytes");
+                coreResult = new RepairResult(RepairResult.Status.FAILED, null,
+                        coreResult.diagnosticJson());
+            }
+        }
+
         // Post-repair validation (ICC/JPX): no document-level stream extractor
-        // here, so the pass is reported as not executed rather than dropped.
+        // here, so a requested pass is recorded as unsupported, not attempted.
         if (validateIcc) {
-            report.attempted("validate_icc");
+            report.validation("validate_icc", "unsupported");
         }
         if (validateJpx) {
-            report.attempted("validate_jpx");
+            report.validation("validate_jpx", "unsupported");
         }
         if (validateIcc || validateJpx) {
             report.warn("post_validation_unsupported: no document-level ICC/JPX stream extraction");
@@ -263,12 +284,15 @@ public final class PdfRepair {
                     withTranscodeNote(coreResult.diagnosticJson()));
         }
 
+        int inputPages = candidatePageCount(current);
+
         report.outcome(RepairReport.outcomeFor(coreResult.status()));
         String finalStrategy = revisionRecovered
                 ? RepairReport.STRATEGY_REVISION_RECOVERY
                 : coreResult.report().strategy();
         report.strategy(finalStrategy);
-        describePreservation(report, coreResult.isUsable(), finalStrategy);
+        describePreservation(report, coreResult.isUsable(), finalStrategy, inputPages,
+                verifiedPages);
         RepairReport finalReport = report.build();
         coreResult = new RepairResult(coreResult.status(), coreResult.repairedPdf(),
                 coreResult.diagnosticJson(), finalReport);
@@ -286,11 +310,17 @@ public final class PdfRepair {
      * from recovered pages, so anything outside those pages is an explicit loss.
      */
     private static void describePreservation(
-            RepairReport.Builder report, boolean ok, String strategy) {
+            RepairReport.Builder report, boolean ok, String strategy,
+            int inputPages, int outputPages) {
         boolean revision = RepairReport.STRATEGY_REVISION_RECOVERY.equals(strategy);
         boolean salvage = RepairReport.STRATEGY_PDFIO_PAGE_SALVAGE.equals(strategy)
                 || RepairReport.STRATEGY_LOPDF_REWRITE.equals(strategy);
-        report.preservation("pages", ok ? RepairReport.PRESERVED : RepairReport.UNKNOWN);
+        // Pages are preserved only when the output page count is known and matches
+        // the input; otherwise the claim is left unknown.
+        boolean pagesPreserved = ok && inputPages >= 0 && outputPages >= 0
+                && inputPages == outputPages;
+        report.preservation("pages",
+                pagesPreserved ? RepairReport.PRESERVED : RepairReport.UNKNOWN);
         if (revision) {
             // An earlier revision is intact up to its own %%EOF; everything the
             // later revisions added is gone.
