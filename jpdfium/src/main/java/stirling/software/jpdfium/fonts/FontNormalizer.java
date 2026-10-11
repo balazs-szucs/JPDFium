@@ -26,6 +26,21 @@ import java.lang.System.Logger.Level;
  *   <li><strong>qpdf</strong> (Apache 2.0) - stream replacement, incremental save, font dict edit</li>
  * </ul>
  *
+ * <p><b>Implementation status:</b> the native
+ * pipeline is partial. Call
+ * {@link stirling.software.jpdfium.fonts.intel.FontIntelligence#capabilities()}
+ * for the authoritative capability report. In this build:
+ * <ul>
+ *   <li>{@code /ToUnicode} repair covers simple fonts with a
+ *       standard or {@code /Differences} encoding and Type0 {@code Identity-H/V}
+ *       with an Identity or array {@code /CIDToGIDMap}; other encodings are
+ *       reported as deferred.</li>
+ *   <li>{@code fontsProcessed}, {@code type1Converted} and {@code resubset} are
+ *       not produced by the native call and currently report {@code 0}.</li>
+ *   <li>Width repair is not implemented: {@code /W} repair can move text and
+ *       needs an explicit preservation policy.</li>
+ * </ul>
+ *
  * <p><b>Usage</b></p>
  * <pre>{@code
  * try (PdfDocument doc = PdfDocument.open(path)) {

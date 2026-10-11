@@ -162,6 +162,23 @@ public final class FontLib {
         });
     }
 
+    /**
+     * Typed font evidence for every font resource used on a page, including
+     * per-code Unicode mappings with provenance.
+     */
+    public static String evidence(long doc, int pageIndex) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_evidence(doc, pageIndex, ptrSeg), "fontEvidence");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
     public static int fixToUnicode(long doc, int pageIndex) {
         return PdfiumRuntime.execute(() -> {
             try (Arena a = Arena.ofConfined()) {

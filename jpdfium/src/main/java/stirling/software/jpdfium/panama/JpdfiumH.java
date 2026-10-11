@@ -4174,6 +4174,68 @@ public class JpdfiumH extends JpdfiumH$shared {
         }
     }
 
+    private static class jpdfium_font_evidence {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(
+            JpdfiumH.C_INT,
+            JpdfiumH.C_LONG,
+            JpdfiumH.C_INT,
+            JpdfiumH.C_POINTER
+        );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("jpdfium_font_evidence");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * Function descriptor for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char **json)
+     * }
+     */
+    public static FunctionDescriptor jpdfium_font_evidence$descriptor() {
+        return jpdfium_font_evidence.DESC;
+    }
+
+    /**
+     * Downcall method handle for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char **json)
+     * }
+     */
+    public static MethodHandle jpdfium_font_evidence$handle() {
+        return jpdfium_font_evidence.HANDLE;
+    }
+
+    /**
+     * Address for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char **json)
+     * }
+     */
+    public static MemorySegment jpdfium_font_evidence$address() {
+        return jpdfium_font_evidence.ADDR;
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char **json)
+     * }
+     */
+    public static int jpdfium_font_evidence(long doc, int page_index, MemorySegment json) {
+        var mh$ = jpdfium_font_evidence.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("jpdfium_font_evidence", doc, page_index, json);
+            }
+            return (int)mh$.invokeExact(doc, page_index, json);
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
     private static class jpdfium_font_repair_widths {
         public static final FunctionDescriptor DESC = FunctionDescriptor.of(
             JpdfiumH.C_INT,

@@ -1,5 +1,6 @@
 package stirling.software.jpdfium.panama;
 
+import stirling.software.jpdfium.doc.RepairReport;
 import stirling.software.jpdfium.doc.RepairResult;
 import stirling.software.jpdfium.exception.JPDFiumException;
 
@@ -84,16 +85,15 @@ public final class RepairLib {
 
                 byte[] outputBytes = null;
                 if (status != RepairResult.Status.FAILED) {
-                    MemorySegment outPtr = outputPtrSeg.get(ADDRESS, 0);
-                    long outLen = outputLenSeg.get(JAVA_LONG, 0);
-                    if (outLen > 0) {
-                        outputBytes = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                        JpdfiumH.jpdfium_free_buffer(outPtr);
-                    }
+                    outputBytes = copyNativeBuffer(outputPtrSeg.get(ADDRESS, 0),
+                            outputLenSeg.get(JAVA_LONG, 0));
                 }
 
                 String diagnostics = inspect(input);
-                return new RepairResult(status, outputBytes, diagnostics);
+                String strategy = rc == ERR_NATIVE ? RepairReport.STRATEGY_UNAVAILABLE
+                        : RepairReport.STRATEGY_QPDF_REWRITE;
+                return new RepairResult(status, outputBytes, diagnostics,
+                        RepairReport.strategy(status, strategy));
             }
         });
     }
@@ -192,9 +192,7 @@ public final class RepairLib {
                         jsonPtrSeg);
 
                 MemorySegment strPtr = jsonPtrSeg.get(ADDRESS, 0);
-                String result = FfmHelper.readNativeString(strPtr);
-                JpdfiumH.jpdfium_free_string(strPtr);
-                return result;
+                return copyNativeString(strPtr);
             }
         });
     }
@@ -230,9 +228,7 @@ public final class RepairLib {
                 if (outLen <= 0)
                     return null;
 
-                byte[] result = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                JpdfiumH.jpdfium_free_buffer(outPtr);
-                return result;
+                return copyNativeBuffer(outPtr, outLen);
             }
         });
     }
@@ -265,9 +261,7 @@ public final class RepairLib {
                 if (outLen <= 0)
                     return null;
 
-                byte[] result = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                JpdfiumH.jpdfium_free_buffer(outPtr);
-                return result;
+                return copyNativeBuffer(outPtr, outLen);
             }
         });
     }
@@ -313,14 +307,14 @@ public final class RepairLib {
                     MemorySegment outPtr = outPtrSeg.get(ADDRESS, 0);
                     long outLen = outLenSeg.get(JAVA_LONG, 0);
                     if (outLen > 0) {
-                        outputBytes = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                        JpdfiumH.jpdfium_free_buffer(outPtr);
+                        outputBytes = copyNativeBuffer(outPtr, outLen);
                     }
                 }
 
                 int pagesRecovered = pagesSeg.get(JAVA_INT, 0);
                 String diag = "{\"source\":\"pdfio\",\"pages_recovered\":" + pagesRecovered + "}";
-                return new RepairResult(status, outputBytes, diag);
+                return new RepairResult(status, outputBytes, diag,
+                        RepairReport.strategy(status, RepairReport.STRATEGY_PDFIO_PAGE_SALVAGE));
             }
         });
     }
@@ -347,10 +341,7 @@ public final class RepairLib {
                         dataSeg, profileData.length,
                         expectedComponents, jsonPtrSeg);
 
-                MemorySegment strPtr = jsonPtrSeg.get(ADDRESS, 0);
-                String result = FfmHelper.readNativeString(strPtr);
-                JpdfiumH.jpdfium_free_string(strPtr);
-                return result;
+                return copyNativeString(jsonPtrSeg.get(ADDRESS, 0));
             }
         });
     }
@@ -378,9 +369,7 @@ public final class RepairLib {
                 if (outLen <= 0)
                     return null;
 
-                byte[] result = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                JpdfiumH.jpdfium_free_buffer(outPtr);
-                return result;
+                return copyNativeBuffer(outPtr, outLen);
             }
         });
     }
@@ -403,10 +392,7 @@ public final class RepairLib {
                 int rc = JpdfiumH.jpdfium_validate_jpx_stream(
                         dataSeg, jpxData.length, jsonPtrSeg);
 
-                MemorySegment strPtr = jsonPtrSeg.get(ADDRESS, 0);
-                String result = FfmHelper.readNativeString(strPtr);
-                JpdfiumH.jpdfium_free_string(strPtr);
-                return result;
+                return copyNativeString(jsonPtrSeg.get(ADDRESS, 0));
             }
         });
     }
@@ -440,10 +426,14 @@ public final class RepairLib {
             byte[] repaired = RustBridgeBindings.rustRepairLopdf(input);
             if (repaired != null && repaired.length > 0) {
                 String diag = "{\"source\":\"rust-lopdf\",\"status\":\"fixed\"}";
-                return new RepairResult(RepairResult.Status.FIXED, repaired, diag);
+                return new RepairResult(RepairResult.Status.FIXED, repaired, diag,
+                        RepairReport.strategy(RepairResult.Status.FIXED,
+                                RepairReport.STRATEGY_LOPDF_REWRITE));
             }
             return new RepairResult(RepairResult.Status.FAILED, null,
-                    "{\"source\":\"rust-lopdf\",\"status\":\"failed\"}");
+                    "{\"source\":\"rust-lopdf\",\"status\":\"failed\"}",
+                    RepairReport.strategy(RepairResult.Status.FAILED,
+                            RepairReport.STRATEGY_LOPDF_REWRITE));
         });
     }
 
@@ -478,10 +468,43 @@ public final class RepairLib {
                 if (outLen <= 0)
                     return null;
 
-                byte[] result = outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
-                JpdfiumH.jpdfium_free_buffer(outPtr);
-                return result;
+                return copyNativeBuffer(outPtr, outLen);
             }
         });
+    }
+
+    /**
+     * Copies a native-owned byte buffer into the Java heap and releases the
+     * native allocation in a {@code finally}, so a failed copy cannot leak it.
+     * Returns {@code null} for a null/empty buffer (after releasing any pointer).
+     */
+    private static byte[] copyNativeBuffer(MemorySegment outPtr, long outLen) {
+        if (outPtr == null || outPtr.equals(MemorySegment.NULL)) {
+            return null;
+        }
+        try {
+            if (outLen <= 0) {
+                return null;
+            }
+            return outPtr.reinterpret(outLen).toArray(JAVA_BYTE);
+        } finally {
+            JpdfiumH.jpdfium_free_buffer(outPtr);
+        }
+    }
+
+    /**
+     * Reads a native-owned C string and releases the native allocation in a
+     * {@code finally}, so a failed read cannot leak it. Returns {@code null} for
+     * a null pointer.
+     */
+    private static String copyNativeString(MemorySegment strPtr) {
+        if (strPtr == null || strPtr.equals(MemorySegment.NULL)) {
+            return null;
+        }
+        try {
+            return FfmHelper.readNativeString(strPtr);
+        } finally {
+            JpdfiumH.jpdfium_free_string(strPtr);
+        }
     }
 }

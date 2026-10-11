@@ -1055,6 +1055,14 @@ int32_t jpdfium_font_classify(const uint8_t*, int64_t, char** json) {
     return JPDFIUM_OK;
 }
 
+int32_t jpdfium_font_evidence(int64_t, int32_t page_index, char** json) {
+    if (!json) return JPDFIUM_ERR_INVALID;
+    std::string out = "{\"page_index\":" + std::to_string(page_index) +
+                      ",\"fonts\":[],\"mappings\":[]}";
+    *json = dup_cstring(out.c_str());
+    return JPDFIUM_OK;
+}
+
 int32_t jpdfium_font_fix_tounicode(int64_t, int32_t, int32_t* fonts_fixed) {
     if (fonts_fixed) *fonts_fixed = 0;
     return JPDFIUM_OK;

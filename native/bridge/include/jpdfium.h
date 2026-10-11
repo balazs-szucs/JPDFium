@@ -360,6 +360,25 @@ JPDFIUM_EXPORT int32_t jpdfium_font_get_data(int64_t page, int32_t font_index, u
 //                "units_per_em":2048,"has_kerning":true,"is_subset":true}
 JPDFIUM_EXPORT int32_t jpdfium_font_classify(const uint8_t* data, int64_t len, char** json);
 
+// Structured, evidence-backed analysis of one page's font *resources* (subtype,
+// Encoding, /ToUnicode presence/validity, descriptor embedding, CID mapping),
+// unlike jpdfium_font_classify which only inspects embedded program bytes.
+//
+// page_index is zero-based. Returns JSON:
+// {"page_index":0,"fonts":[{"resource":"/F1","base_font":"ABCDEF+Arial",
+//   "family":"Arial","subtype":"TrueType","kind":"simple","embedded":true,
+//   "sfnt":true,"cff":false,"cid":false,"subset":true,"num_glyphs":245,
+//   "units_per_em":2048,"has_cmap":true,"has_tounicode":false,
+//   "tounicode_valid":false,"encoding":"WinAnsiEncoding",
+//   "embedding_permission":0,"glyph_bytes":12345,
+//   "mappings":[{"code":65,"unicode":65,"provenance":"RECOVERED","note":"encoding:WinAnsiEncoding"}],
+//   "unresolved":[{"code":128,"unicode":-1,"provenance":"UNRESOLVED","note":"differences:unknown"}]}]}
+//
+// "provenance" is one of DECLARED, RECOVERED, AMBIGUOUS, UNRESOLVED, INVALID,
+// UNSUPPORTED. Ambiguous and unresolved codes are preserved in the output.
+// Caller frees *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json);
+
 // Per-codepoint glyph coverage using the font's charmap.
 // out_covered[i] is 1 when the font has a glyph for codepoints[i], else 0.
 // Used to decide rewrite-vs-regenerate before editing text with a font.
@@ -374,10 +393,21 @@ JPDFIUM_EXPORT int32_t jpdfium_font_covers_text(const uint8_t* data, int64_t len
 JPDFIUM_EXPORT int32_t jpdfium_text_shape(const uint8_t* font_data, int64_t font_len,
                                           const char* utf8_text, float font_size, char** json);
 
-// Fix /ToUnicode CMap for all fonts on a page using the font's internal cmap table.
+// Repair /ToUnicode CMap for all fonts on a page.
 // This is the most critical step for reliable auto-redact: wrong ToUnicode -> wrong text
 // extraction -> patterns miss -> redact silently fails.
-// Returns the number of fonts repaired via *fonts_fixed.
+//
+// Reconstruction from evidence:
+//   - simple fonts (/TrueType, /Type1): code -> Unicode from /Encoding
+//     (WinAnsi/MacRoman/Standard base + /Differences glyph names resolved
+//     against the embedded program's cmap and glyph names).
+//   - /Type0 fonts with an Identity encoding and Identity /CIDToGIDMap:
+//     code -> CID -> GID -> Unicode via the embedded program's cmap.
+// A font is repaired only when it has no /ToUnicode, or its existing CMap is
+// structurally empty (no bfchar/bfrange); fonts that cannot be mapped are left
+// untouched and not counted, and unsupported encodings are skipped.
+//
+// page_index is zero-based. Returns the number of fonts repaired via *fonts_fixed.
 JPDFIUM_EXPORT int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index,
                                                   int32_t* fonts_fixed);
 

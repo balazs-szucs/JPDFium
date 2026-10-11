@@ -192,4 +192,38 @@ public final class RepairCorpus {
         }
         return copy;
     }
+
+    /**
+     * Push the {@code %PDF} header down with blank lines. The header stays within
+     * the 1024-byte scan window while every recorded xref offset becomes wrong.
+     */
+    static byte[] padHeader(byte[] pdf) {
+        byte[] pad = new byte[200];
+        Arrays.fill(pad, (byte) '\n');
+        byte[] result = new byte[pad.length + pdf.length];
+        System.arraycopy(pad, 0, result, 0, pad.length);
+        System.arraycopy(pdf, 0, result, pad.length, pdf.length);
+        return result;
+    }
+
+    /**
+     * Insert comment lines after the header line. Comments are legal outside a
+     * stream body; this also shifts all xref offsets.
+     */
+    static byte[] injectComments(byte[] pdf) {
+        String s = new String(pdf, StandardCharsets.ISO_8859_1);
+        int nl = s.indexOf('\n');
+        if (nl < 0) {
+            return pdf;
+        }
+        String comment = "%JPDFium corpus comment: ignored by parsers\n"
+                + "%a second comment line\n";
+        return (s.substring(0, nl + 1) + comment + s.substring(nl + 1))
+                .getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    /** Only the PDF header line, with no body objects or trailer. */
+    static byte[] headerOnly() {
+        return "%PDF-1.4\n".getBytes(StandardCharsets.ISO_8859_1);
+    }
 }

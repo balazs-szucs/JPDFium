@@ -463,10 +463,14 @@ tasks.register<Test>("corpusTest") {
     classpath       = sourceSets.test.get().runtimeClasspath
     systemProperty("jpdfium.integration", "true")
     systemProperty("jpdfium.corpus", "true")
-    // Forward corpus shard selection (used by the sharded CI job).
+    // Forward corpus tuning/shard selection from either -D system properties
+    // or -P project properties (used by the sharded CI job).
     System.getProperties().forEach { k, v ->
         val key = k.toString()
         if (key.startsWith("jpdfium.corpus.")) systemProperty(key, v.toString())
+    }
+    project.properties.forEach { (k, v) ->
+        if (k.startsWith("jpdfium.corpus.") && v != null) systemProperty(k, v.toString())
     }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     maxHeapSize = System.getProperty("jpdfium.bench.xmx", "4g")
