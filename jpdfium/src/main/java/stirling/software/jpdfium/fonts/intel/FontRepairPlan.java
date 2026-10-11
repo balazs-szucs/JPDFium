@@ -19,6 +19,11 @@ import java.util.List;
  * @param mappings the mappings that justify the action
  * @param rationale human-readable explanation of the expected semantic change
  * @param stateFingerprint opaque identity of the evidence snapshot this plan targets
+ * @param nativeIdentity the native plan identity this plan was prepared against; empty
+ *     for an advisory plan built from evidence alone that cannot authorise a write
+ * @param affectedReferences every {@code page\u0000resource} reference the target font
+ *     object is shared with, so a caller can refuse a write that would reach a
+ *     reference it did not authorise
  */
 public record FontRepairPlan(
         int pageIndex,
@@ -28,7 +33,9 @@ public record FontRepairPlan(
         String action,
         List<UnicodeMapping> mappings,
         String rationale,
-        String stateFingerprint) {
+        String stateFingerprint,
+        String nativeIdentity,
+        List<String> affectedReferences) {
 
     public static final String ACTION_FIX_TOUNICODE = "fix_tounicode";
 
@@ -38,7 +45,17 @@ public record FontRepairPlan(
         action = action == null ? "" : action;
         rationale = rationale == null ? "" : rationale;
         stateFingerprint = stateFingerprint == null ? "" : stateFingerprint;
+        nativeIdentity = nativeIdentity == null ? "" : nativeIdentity;
         mappings = mappings == null ? List.of() : List.copyOf(mappings);
+        affectedReferences = affectedReferences == null ? List.of() : List.copyOf(affectedReferences);
+    }
+
+    /**
+     * Encode a font reference as {@code pageIndex\u0000resource}, the form used by
+     * {@link #affectedReferences()}.
+     */
+    public static String referenceKey(int pageIndex, String resourceName) {
+        return pageIndex + "\u0000" + (resourceName == null ? "" : resourceName);
     }
 
     /** True when this plan changes the document when applied. */
@@ -56,7 +73,8 @@ public record FontRepairPlan(
         StringBuilder sb = new StringBuilder(64);
         sb.append(pageIndex).append('|').append(resourceName).append('|').append(baseFont)
                 .append('|').append(capability).append('|').append(action)
-                .append('|').append(stateFingerprint);
+                .append('|').append(stateFingerprint).append('|').append(nativeIdentity);
+        affectedReferences.stream().sorted().forEach(r -> sb.append('|').append(r));
         mappings.stream()
                 .sorted(Comparator.comparingInt(UnicodeMapping::code)
                         .thenComparingInt(UnicodeMapping::unicode)

@@ -214,14 +214,24 @@ class FontIntelligenceNativeTest {
                 if (source == null) {
                     continue;
                 }
-                FontRepairPlan plan = FontIntelligence.repairPlans(source).get(0);
+                FontRepairPlan plan = null;
+                for (FontRepairPlan candidate : FontIntelligence.repairPlans(doc, source.pageIndex())) {
+                    if (candidate.resourceName().equals(source.resourceName())) {
+                        plan = candidate;
+                        break;
+                    }
+                }
+                if (plan == null) {
+                    continue;
+                }
 
                 // Mutation moves the document past the plan's snapshot.
                 int fixed = FontIntelligence.repairPage(doc, source.pageIndex());
                 assertTrue(fixed >= 0);
 
+                final FontRepairPlan authorised = plan;
                 assertThrows(StaleRepairPlanException.class,
-                        () -> FontIntelligence.applyRepair(doc, plan),
+                        () -> FontIntelligence.applyRepair(doc, authorised),
                         "a plan whose font is already repaired must be refused, not re-applied");
                 exercised = true;
                 break;
@@ -246,10 +256,23 @@ class FontIntelligenceNativeTest {
                 if (source == null) {
                     continue;
                 }
-                FontRepairPlan plan = FontIntelligence.repairPlans(source).get(0);
+                FontRepairPlan plan = null;
+                for (FontRepairPlan candidate : FontIntelligence.repairPlans(doc)) {
+                    if (candidate.resourceName().equals(source.resourceName())) {
+                        plan = candidate;
+                        break;
+                    }
+                }
+                if (plan == null) {
+                    continue;
+                }
                 assertFalse(plan.stateFingerprint().isEmpty(),
                         "a plan must carry the evidence snapshot it targets");
-                int fixed = FontIntelligence.applyRepair(doc, plan);
+                assertFalse(plan.nativeIdentity().isEmpty(),
+                        "an authorisable plan must carry the native plan identity");
+                // A font object may be shared by several references; authorising
+                // the whole document covers every reference the plans disclose.
+                int fixed = FontIntelligence.applyRepairs(doc, FontIntelligence.repairPlans(doc));
                 assertTrue(fixed >= 1, "a fresh plan against an untouched document must apply");
                 exercised = true;
                 break;

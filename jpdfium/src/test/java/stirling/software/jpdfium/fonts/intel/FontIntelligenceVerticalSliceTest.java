@@ -132,7 +132,7 @@ class FontIntelligenceVerticalSliceTest {
             assertEquals(FontCapability.MAPPING_REPAIR_AVAILABLE, capability,
                     "an embedded CID font must be recoverable from its cmap: " + target);
 
-            List<FontRepairPlan> plans = FontIntelligence.repairPlans(target);
+            List<FontRepairPlan> plans = FontIntelligence.repairPlans(doc, 0);
             assertEquals(1, plans.size(), "one repair plan for the missing /ToUnicode");
             assertEquals(1, FontIntelligence.applyRepair(doc, plans.get(0)));
 

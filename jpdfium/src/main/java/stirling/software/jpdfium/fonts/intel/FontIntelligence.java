@@ -154,7 +154,9 @@ public final class FontIntelligence {
                 FontRepairPlan.ACTION_FIX_TOUNICODE,
                 e.resolvedMappings(),
                 rationale,
-                stateFingerprint(e)));
+                stateFingerprint(e),
+                "",
+                List.of()));
     }
 
     /**
@@ -194,6 +196,7 @@ public final class FontIntelligence {
         for (FontEvidence e : inspectPage(document, pageIndex)) {
             byResource.put(e.resourceName(), e);
         }
+        Map<String, List<String>> affected = affectedReferences(document, pageIndex);
         List<FontRepairPlan> plans = new ArrayList<>();
         for (Map<String, String> row : nativeRepairs(document, pageIndex)) {
             String resource = row.get("resource");
@@ -214,7 +217,9 @@ public final class FontIntelligence {
                     FontRepairPlan.ACTION_FIX_TOUNICODE,
                     e.resolvedMappings(),
                     rationale,
-                    stateFingerprint(e)));
+                    stateFingerprint(e),
+                    row.getOrDefault("identity", ""),
+                    affected.getOrDefault(pageIndex + "\u0000" + resource, List.of())));
         }
         return plans;
     }
@@ -256,6 +261,36 @@ public final class FontIntelligence {
     /** The native plan's withheld resources, with their human reason and code. */
     private static List<Map<String, String>> nativeSkips(PdfDocument document, int pageIndex) {
         return jsonArray(FontLib.planJson(document.nativeHandle(), pageIndex), "\"skipped\":[");
+    }
+
+    /** The native plan's font sharing: which references each repaired resource reaches. */
+    private static List<Map<String, String>> nativeReferences(PdfDocument document, int pageIndex) {
+        return jsonArray(FontLib.planJson(document.nativeHandle(), pageIndex), "\"references\":[");
+    }
+
+    /**
+     * Every (page, resource) reference the document shares with each repaired
+     * resource on {@code pageIndex}, keyed by the owner reference. A shared font
+     * dictionary is mutated for all of them at once, so a plan must carry the
+     * full set and the caller must authorise all of it.
+     */
+    private static Map<String, List<String>> affectedReferences(PdfDocument document, int pageIndex) {
+        Map<String, List<String>> byOwner = new LinkedHashMap<>();
+        for (Map<String, String> ref : nativeReferences(document, pageIndex)) {
+            String owner = ref.get("owner_page") + "\u0000" + ref.get("owner");
+            String key = FontRepairPlan.referenceKey(
+                    parsePageIndex(ref.get("page_index")), ref.get("resource"));
+            byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(key);
+        }
+        return byOwner;
+    }
+
+    private static int parsePageIndex(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException | NullPointerException e) {
+            return -1;
+        }
     }
 
     private static List<Map<String, String>> jsonArray(String json, String key) {
@@ -318,11 +353,35 @@ public final class FontIntelligence {
             return 0;
         }
 
+        // A shared font dictionary is mutated for every reference at once, so the
+        // authorised set must cover all of them, not just the page that names them.
+        Set<String> authorisedRefs = new HashSet<>();
+        for (FontRepairPlan plan : plans) {
+            if (plan.mutates()) {
+                authorisedRefs.add(FontRepairPlan.referenceKey(plan.pageIndex(), plan.resourceName()));
+            }
+        }
+        for (FontRepairPlan plan : plans) {
+            if (!plan.mutates()) {
+                continue;
+            }
+            requireFresh(document, plan);
+            for (String ref : plan.affectedReferences()) {
+                if (!authorisedRefs.contains(ref)) {
+                    int sep = ref.indexOf('\u0000');
+                    String shared = sep < 0 ? ref : ref.substring(sep + 1);
+                    throw new StaleRepairPlanException("font resource " + plan.resourceName()
+                            + " on page " + plan.pageIndex()
+                            + " is shared with another reference (" + shared
+                            + ") that the plan set does not authorise");
+                }
+            }
+        }
+
         for (Map.Entry<Integer, List<FontRepairPlan>> entry : byPage.entrySet()) {
             int pageIndex = entry.getKey();
             Set<String> authorised = new HashSet<>();
             for (FontRepairPlan plan : entry.getValue()) {
-                requireFresh(document, plan);
                 authorised.add(plan.resourceName());
             }
             for (Map<String, String> row : nativeRepairs(document, pageIndex)) {
@@ -340,34 +399,43 @@ public final class FontIntelligence {
         return total;
     }
 
-    /** Refuse a plan whose evidence no longer matches the current document. */
+    /** Refuse a plan whose native identity no longer matches the current document. */
     private static void requireFresh(PdfDocument document, FontRepairPlan plan) {
         if (plan.pageIndex() < 0 || plan.pageIndex() >= document.pageCount()) {
             throw new StaleRepairPlanException(
                     "plan targets page " + plan.pageIndex() + " which is not present");
         }
-        String expected = plan.fingerprint();
+        if (plan.nativeIdentity().isEmpty()) {
+            throw new StaleRepairPlanException("plan for font resource " + plan.resourceName()
+                    + " on page " + plan.pageIndex()
+                    + " was not prepared against the native plan and cannot authorise a write");
+        }
         boolean present = false;
-        List<FontRepairPlan> fresh = new ArrayList<>(repairPlans(document, plan.pageIndex()));
-        for (FontEvidence e : inspectPage(document, plan.pageIndex())) {
-            if (!e.resourceName().equals(plan.resourceName())) {
+        for (Map<String, String> row : nativeRepairs(document, plan.pageIndex())) {
+            if (!plan.resourceName().equals(row.get("resource"))) {
                 continue;
             }
             present = true;
-            fresh.addAll(repairPlans(e));
+            if (!plan.nativeIdentity().equals(row.getOrDefault("identity", ""))) {
+                throw new StaleRepairPlanException("font resource " + plan.resourceName()
+                        + " on page " + plan.pageIndex()
+                        + " changed since the plan was prepared");
+            }
         }
         if (!present) {
             throw new StaleRepairPlanException("font resource " + plan.resourceName() + " on page "
                     + plan.pageIndex() + " is no longer present");
         }
-        for (FontRepairPlan current : fresh) {
-            if (current.resourceName().equals(plan.resourceName())
-                    && current.fingerprint().equals(expected)) {
-                return;
-            }
+        List<String> currentAffected = affectedReferences(document, plan.pageIndex())
+                .getOrDefault(pageIndexKey(plan), List.of());
+        if (!new HashSet<>(currentAffected).equals(new HashSet<>(plan.affectedReferences()))) {
+            throw new StaleRepairPlanException("the shared-font references of " + plan.resourceName()
+                    + " on page " + plan.pageIndex() + " changed since the plan was prepared");
         }
-        throw new StaleRepairPlanException("font resource " + plan.resourceName()
-                + " on page " + plan.pageIndex() + " changed since the plan was prepared");
+    }
+
+    private static String pageIndexKey(FontRepairPlan plan) {
+        return plan.pageIndex() + "\u0000" + plan.resourceName();
     }
 
     /** Repair one page's {@code /ToUnicode} where evidence supports it. */

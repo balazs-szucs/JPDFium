@@ -1796,6 +1796,23 @@ bool same_font(QPDFObjectHandle const& a, QPDFObjectHandle const& b) {
     return a.unparse() == b.unparse();
 }
 
+// Every (page, resource) reference in the document that denotes the same font
+// object as `fd`. A mutation of `fd` reaches all of them, so a plan that
+// authorises one reference must see the others before it writes.
+std::vector<std::pair<int32_t, std::string>> font_references(
+    QPDF& pdf, QPDFObjectHandle const& fd) {
+    std::vector<std::pair<int32_t, std::string>> refs;
+    std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
+    for (size_t p = 0; p < pages.size(); ++p) {
+        std::vector<FontEntry> fonts;
+        if (!page_font_dicts(pdf, static_cast<int32_t>(p), fonts)) continue;
+        for (const auto& fe : fonts)
+            if (same_font(fe.dict, fd))
+                refs.emplace_back(static_cast<int32_t>(p), fe.key);
+    }
+    return refs;
+}
+
 void scan_content(const std::string& data, QPDFObjectHandle const& resources,
                   const std::unordered_map<std::string, QPDFObjectHandle>& pageFonts,
                   UsageScan& out);
@@ -2174,7 +2191,9 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
 // that the document moved underneath it.
 std::string font_plan_identity(QPDFObjectHandle const& fd, TounicodeState st,
                                const std::unordered_map<uint32_t, uint32_t>& declared,
-                               const std::vector<Mapping>& resolved, bool cid) {
+                               const std::vector<Mapping>& resolved, bool cid,
+                               const std::string& programHash,
+                               const std::vector<uint32_t>& usedCodes) {
     std::vector<uint32_t> codes;
     codes.reserve(declared.size());
     for (const auto& kv : declared) codes.push_back(kv.first);
@@ -2187,11 +2206,27 @@ std::string font_plan_identity(QPDFObjectHandle const& fd, TounicodeState st,
     };
     mix(static_cast<uint64_t>(st));
     mix(cid ? 1u : 2u);
+    // Every accepted declaration, by code and destination value, so a changed
+    // value with an unchanged count still changes the identity.
     for (uint32_t c : codes) {
         mix(c);
         mix(declared.at(c));
     }
-    mix(resolved.size());
+    // Every recovered mapping's contents, not merely how many there are.
+    std::vector<Mapping> sorted = resolved;
+    std::sort(sorted.begin(), sorted.end(),
+              [](const Mapping& a, const Mapping& b) { return a.code < b.code; });
+    for (const auto& mp : sorted) {
+        mix(mp.code);
+        mix(mp.uni);
+    }
+    // The embedded program bytes: a different program is a different plan.
+    for (unsigned char ch : programHash) mix(ch);
+    // The codes the page actually shows: changed content changes the plan.
+    std::vector<uint32_t> usedSorted = usedCodes;
+    std::sort(usedSorted.begin(), usedSorted.end());
+    usedSorted.erase(std::unique(usedSorted.begin(), usedSorted.end()), usedSorted.end());
+    for (uint32_t u : usedSorted) mix(u);
     std::string enc = fd.hasKey("/Encoding") && fd.getKey("/Encoding").isName()
                           ? fd.getKey("/Encoding").getName()
                           : "";
@@ -2250,6 +2285,7 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
     QPDFObjectHandle descriptor = descriptor_of(fd, cid);
     std::string bytes = program_bytes(descriptor);
     GlyphMaps const& gm = glyph_maps_cached(bytes, cache);
+    std::string programHash = program_content_hash(bytes);
 
     std::vector<Mapping> maps;
     std::string mapCode;
@@ -2296,7 +2332,7 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
     std::unordered_set<uint32_t> usedSet(used.begin(), used.end());
     d.used = usedSet.size();
 
-    d.identity = font_plan_identity(fd, st, declared, resolved, cid);
+    d.identity = font_plan_identity(fd, st, declared, resolved, cid, programHash, used);
 
     if (present && valid) {
         // Valid map: preserve declared entries, add only missing codes the page
@@ -2422,7 +2458,11 @@ int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages, int32_t c
 // with an opaque per-resource identity:
 //   {"page_index":N,
 //    "repairs":[{"resource":"F1","mode":"replace|extend","used":U,"additions":A,"identity":"..."}],
-//    "skipped":[{"resource":"F2","reason":"already_complete"}]}
+//    "skipped":[{"resource":"F2","reason":"already_complete"}],
+//    "references":[{"page_index":P,"resource":"R","owner_page":N,"owner":"F1"}]}
+// `references` lists every (page, resource) in the document that denotes the
+// same font object as each repaired resource, so a caller can see that a shared
+// font dictionary will be mutated for every one of its references.
 // Callers authorise by resource and apply with jpdfium_font_fix_tounicode; because
 // both use decide_font_repair(), the authorised set is exactly the mutation set.
 // Caller frees *json with jpdfium_free_string.
@@ -2453,6 +2493,7 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
         bool firstRepair = true;
         bool firstSkip = true;
         ProgramCache cache;
+        std::vector<std::pair<std::string, QPDFObjectHandle>> eligible;
         for (auto& fe : fonts) {
             const std::vector<std::string>* used = nullptr;
             auto itU = usedRaw.find(fe.key);
@@ -2473,10 +2514,29 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
                        + "\",\"used\":" + std::to_string(d.used)
                        + ",\"additions\":" + std::to_string(d.additions)
                        + ",\"identity\":\"" + d.identity + "\"}";
+            eligible.emplace_back(fe.key, fe.dict);
         }
 
+        // Every font object a repair would mutate, and every (page, resource)
+        // reference to it. Mutating a shared font dictionary reaches all of its
+        // references, so the plan discloses them and the caller must authorise
+        // the whole set. Emitted as a flat array of flat objects so a simple
+        // parser can read it beside `repairs` and `skipped`.
+        std::string references;
+        bool firstRef = true;
+        for (const auto& owner : eligible) {
+            for (const auto& ref : font_references(pdf, owner.second)) {
+                if (!firstRef) references += ",";
+                firstRef = false;
+                references += "{\"page_index\":" + std::to_string(ref.first)
+                              + ",\"resource\":" + escape_json(ref.second)
+                              + ",\"owner_page\":" + std::to_string(page_index)
+                              + ",\"owner\":" + escape_json(owner.first) + "}";
+            }
+        }
         std::string out = "{\"page_index\":" + std::to_string(page_index)
-                          + ",\"repairs\":[" + repairs + "],\"skipped\":[" + skipped + "]}";
+                          + ",\"repairs\":[" + repairs + "],\"skipped\":[" + skipped
+                          + "],\"references\":[" + references + "]}";
         *json = strdup(out.c_str());
         return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
     } catch (std::exception&) {
