@@ -179,6 +179,25 @@ public final class FontLib {
         });
     }
 
+    /**
+     * Exact set of font resources the page-wide {@code fixToUnicode} pass would
+     * change, reported before anything is mutated. The caller authorises by
+     * resource name; because the planner and the fixer share one native
+     * decision function, an un-authorised resource is never modified.
+     */
+    public static String planJson(long doc, int pageIndex) {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_plan(doc, pageIndex, ptrSeg), "fontPlan");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
     public static int fixToUnicode(long doc, int pageIndex) {
         return PdfiumRuntime.execute(() -> {
             try (Arena a = Arena.ofConfined()) {

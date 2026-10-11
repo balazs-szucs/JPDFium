@@ -380,6 +380,15 @@ JPDFIUM_EXPORT int32_t jpdfium_font_classify(const uint8_t* data, int64_t len, c
 // Caller frees *json with jpdfium_free_string.
 JPDFIUM_EXPORT int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json);
 
+// Reports the exact set of font resources jpdfium_font_fix_tounicode would
+// change on a page, before anything is mutated. "repairs" lists the resources
+// (each with an opaque identity and whether the existing map is extended or
+// replaced); "skipped" lists the resources left untouched with a reason. The
+// caller authorises by resource name and applies the page-wide fix, so an
+// un-authorised resource can never be modified. Caller frees *json with
+// jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json);
+
 // Per-codepoint glyph coverage using the font's charmap.
 // out_covered[i] is 1 when the font has a glyph for codepoints[i], else 0.
 // Used to decide rewrite-vs-regenerate before editing text with a font.

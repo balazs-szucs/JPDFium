@@ -2,6 +2,7 @@
 
 #include <fpdf_save.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -2000,6 +2001,153 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
     return TounicodeState::SUPPORTED_EMPTY;
 }
 
+// Opaque identity of the input state a repair decision was derived from. Any
+// change to the declared map, its validity, the code→Unicode evidence set, or
+// the base encoding produces a different value, so a prepared plan can detect
+// that the document moved underneath it.
+std::string font_plan_identity(QPDFObjectHandle const& fd, TounicodeState st,
+                               const std::unordered_map<uint32_t, uint32_t>& declared,
+                               const std::vector<Mapping>& resolved, bool cid) {
+    std::vector<uint32_t> codes;
+    codes.reserve(declared.size());
+    for (const auto& kv : declared) codes.push_back(kv.first);
+    std::sort(codes.begin(), codes.end());
+
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ull;
+    };
+    mix(static_cast<uint64_t>(st));
+    mix(cid ? 1u : 2u);
+    for (uint32_t c : codes) {
+        mix(c);
+        mix(declared.at(c));
+    }
+    mix(resolved.size());
+    std::string enc = fd.hasKey("/Encoding") && fd.getKey("/Encoding").isName()
+                          ? fd.getKey("/Encoding").getName()
+                          : "";
+    for (unsigned char ch : enc) mix(ch);
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+    return buf;
+}
+
+// One font's repair decision, derived without mutating anything. This is the
+// single definition of "eligible for /ToUnicode repair": both the planner the
+// caller authorises against and the applier consume it, so a resource the plan
+// does not list can never be modified.
+struct FontRepairDecision {
+    bool eligible = false;
+    bool cid = false;
+    std::string mode;      // "extend" (valid map, add missing used codes) | "replace"
+    std::string reason;    // why not eligible, when !eligible
+    std::string cmap;      // the /ToUnicode stream to install, when eligible
+    std::string identity;  // opaque snapshot identity
+    size_t used = 0;       // distinct codes this page shows under the resource
+    size_t additions = 0;  // mappings the decision would add
+};
+
+FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
+                                      const std::vector<std::string>* usedStrings) {
+    FontRepairDecision d;
+    bool cid = is_cid_font(fd);
+    d.cid = cid;
+    if (!cid && !is_simple_subtype(fd)) {
+        d.reason = "unsupported_subtype";
+        return d;
+    }
+
+    // Parse the existing map up front. A stream that inherits mappings, is
+    // malformed, or uses constructs the writer cannot reproduce is left
+    // untouched: rewriting it would drop or corrupt entries.
+    std::unordered_map<uint32_t, uint32_t> declared;
+    TounicodeState st = parse_tounicode(fd, &declared);
+    if (st == TounicodeState::UNSUPPORTED) {
+        d.reason = "declared_map_unsupported";
+        return d;
+    }
+    if (st == TounicodeState::MALFORMED) {
+        d.reason = "declared_map_malformed";
+        return d;
+    }
+    bool present = st != TounicodeState::ABSENT;
+    bool valid = st == TounicodeState::SUPPORTED_COMPLETE;
+
+    QPDFObjectHandle descriptor = descriptor_of(fd, cid);
+    std::string bytes = program_bytes(descriptor);
+    GlyphMaps gm =
+        build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+
+    std::vector<Mapping> maps;
+    bool mapTruncated = gm.cmap_truncated;
+    if (cid)
+        build_cid_map(fd, gm, maps, &mapTruncated);
+    else
+        build_simple_map(fd, gm, maps);
+    // An incomplete analysis cannot justify a mapping decision: refuse to
+    // mutate rather than install a map built from partial evidence.
+    if (mapTruncated) {
+        d.reason = "analysis_truncated";
+        return d;
+    }
+
+    std::vector<Mapping> resolved;
+    resolved.reserve(maps.size());
+    for (const auto& mp : maps)
+        if (mp.uni != 0) resolved.push_back(mp);
+    if (resolved.empty()) {
+        d.reason = "no_evidence";
+        return d;
+    }
+
+    std::vector<uint32_t> used;
+    if (usedStrings)
+        for (const auto& s : *usedStrings) decode_shown_codes(s, cid, used);
+    std::unordered_set<uint32_t> usedSet(used.begin(), used.end());
+    d.used = usedSet.size();
+
+    d.identity = font_plan_identity(fd, st, declared, resolved, cid);
+
+    if (present && valid) {
+        // Valid map: preserve declared entries, add only missing codes the page
+        // uses; if usage is unknown, leave the map alone.
+        if (usedSet.empty()) {
+            d.reason = "no_used_codes";
+            return d;
+        }
+        std::vector<Mapping> additions;
+        for (const auto& mp : resolved) {
+            if (declared.find(mp.code) != declared.end()) continue;
+            if (usedSet.find(mp.code) == usedSet.end()) continue;
+            additions.push_back(mp);
+        }
+        if (additions.empty()) {
+            d.reason = "already_complete";
+            return d;
+        }
+        std::vector<Mapping> merged;
+        merged.reserve(declared.size() + additions.size());
+        for (const auto& kv : declared)
+            if (kv.second != 0) merged.push_back({kv.first, kv.second, "DECLARED", "existing"});
+        for (const auto& mp : additions) merged.push_back(mp);
+        d.cmap = build_tounicode_cmap(merged, cid);
+        d.mode = "extend";
+        d.additions = additions.size();
+        d.eligible = true;
+        return d;
+    }
+
+    // Absent or structurally empty: recover the evidence-backed set.
+    d.cmap = build_tounicode_cmap(resolved, cid);
+    d.mode = "replace";
+    d.additions = resolved.size();
+    d.eligible = true;
+    return d;
+}
+
 }  // namespace
 
 int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json) {
@@ -2035,6 +2183,69 @@ int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json) {
     }
 }
 
+// Plan the /ToUnicode repairs for a page without mutating the document.
+//
+// Returns the exact set of resources `jpdfium_font_fix_tounicode` would change,
+// with an opaque per-resource identity:
+//   {"page_index":N,
+//    "repairs":[{"resource":"F1","mode":"replace|extend","used":U,"additions":A,"identity":"..."}],
+//    "skipped":[{"resource":"F2","reason":"already_complete"}]}
+// Callers authorise by resource and apply with jpdfium_font_fix_tounicode; because
+// both use decide_font_repair(), the authorised set is exactly the mutation set.
+// Caller frees *json with jpdfium_free_string.
+int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
+    if (!json) return JPDFIUM_ERR_INVALID;
+    *json = nullptr;
+    DocWrapper* w = decodeDoc(doc);
+    if (!w || !w->core->doc) return JPDFIUM_ERR_INVALID;
+
+    try {
+        std::vector<uint8_t> backing;  // must outlive `pdf`
+        QPDF pdf;
+        if (!load_qpdf(w->core->doc, pdf, "font_plan", backing)) return JPDFIUM_ERR_IO;
+        std::vector<FontEntry> fonts;
+        if (!page_font_dicts(pdf, page_index, fonts)) return JPDFIUM_ERR_NOT_FOUND;
+
+        std::unordered_map<std::string, std::vector<std::string>> usedRaw;
+        {
+            std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
+            if (page_index >= 0 && static_cast<size_t>(page_index) < pages.size())
+                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw);
+        }
+
+        std::string repairs;
+        std::string skipped;
+        bool firstRepair = true;
+        bool firstSkip = true;
+        for (auto& fe : fonts) {
+            const std::vector<std::string>* used = nullptr;
+            auto itU = usedRaw.find(fe.key);
+            if (itU != usedRaw.end()) used = &itU->second;
+            FontRepairDecision d = decide_font_repair(fe.dict, used);
+            if (!d.eligible) {
+                if (!firstSkip) skipped += ",";
+                firstSkip = false;
+                skipped += "{\"resource\":" + escape_json(fe.key)
+                           + ",\"reason\":" + escape_json(d.reason) + "}";
+                continue;
+            }
+            if (!firstRepair) repairs += ",";
+            firstRepair = false;
+            repairs += "{\"resource\":" + escape_json(fe.key) + ",\"mode\":\"" + d.mode
+                       + "\",\"used\":" + std::to_string(d.used)
+                       + ",\"additions\":" + std::to_string(d.additions)
+                       + ",\"identity\":\"" + d.identity + "\"}";
+        }
+
+        std::string out = "{\"page_index\":" + std::to_string(page_index)
+                          + ",\"repairs\":[" + repairs + "],\"skipped\":[" + skipped + "]}";
+        *json = strdup(out.c_str());
+        return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
+    } catch (std::exception&) {
+        return JPDFIUM_ERR_NATIVE;
+    }
+}
+
 int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fonts_fixed) {
     if (fonts_fixed) *fonts_fixed = 0;
     DocWrapper* w = decodeDoc(doc);
@@ -2059,71 +2270,12 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
         int fixed = 0;
         for (auto& fe : fonts) {
             QPDFObjectHandle fd = fe.dict;
-            bool cid = is_cid_font(fd);
-            if (!cid && !is_simple_subtype(fd)) continue;  // unsupported subtype: skip
-            // Parse the existing map up front. A stream that inherits mappings,
-            // is malformed, or uses constructs the writer cannot reproduce is
-            // left untouched: rewriting it would drop or corrupt entries.
-            std::unordered_map<uint32_t, uint32_t> declared;
-            TounicodeState st = parse_tounicode(fd, &declared);
-            if (st == TounicodeState::UNSUPPORTED || st == TounicodeState::MALFORMED) continue;
-            bool present = st != TounicodeState::ABSENT;
-            bool valid = st == TounicodeState::SUPPORTED_COMPLETE;
-
-            QPDFObjectHandle descriptor = descriptor_of(fd, cid);
-            std::string bytes = program_bytes(descriptor);
-            GlyphMaps gm =
-                build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
-
-            std::vector<Mapping> maps;
-            bool mapTruncated = gm.cmap_truncated;
-            if (cid)
-                build_cid_map(fd, gm, maps, &mapTruncated);
-            else
-                build_simple_map(fd, gm, maps);
-            // An incomplete analysis cannot justify a mapping decision: refuse to
-            // mutate rather than install a map built from partial evidence.
-            if (mapTruncated) continue;
-
-            std::vector<Mapping> resolved;
-            resolved.reserve(maps.size());
-            for (const auto& mp : maps)
-                if (mp.uni != 0) resolved.push_back(mp);
-            if (resolved.empty()) continue;  // nothing evidence-backed: skip
-
-            // Codes this page actually shows under this resource.
-            std::vector<uint32_t> used;
+            const std::vector<std::string>* used = nullptr;
             auto itU = usedRaw.find(fe.key);
-            if (itU != usedRaw.end())
-                for (const auto& s : itU->second) decode_shown_codes(s, cid, used);
-            std::unordered_set<uint32_t> usedSet(used.begin(), used.end());
-
-            if (present && valid) {
-                // Valid map: preserve declared entries, add only missing codes the
-                // page uses; if usage is unknown, leave the map alone.
-                if (usedSet.empty()) continue;
-                std::vector<Mapping> additions;
-                for (const auto& mp : resolved) {
-                    if (declared.find(mp.code) != declared.end()) continue;
-                    if (usedSet.find(mp.code) == usedSet.end()) continue;
-                    additions.push_back(mp);
-                }
-                if (additions.empty()) continue;  // already complete: no-op
-                std::vector<Mapping> merged;
-                merged.reserve(declared.size() + additions.size());
-                for (const auto& kv : declared)
-                    if (kv.second != 0)
-                        merged.push_back({kv.first, kv.second, "DECLARED", "existing"});
-                for (const auto& mp : additions) merged.push_back(mp);
-                std::string cmap = build_tounicode_cmap(merged, cid);
-                fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, cmap));
-                ++fixed;
-                continue;
-            }
-
-            // Absent or structurally empty: recover the evidence-backed set.
-            std::string cmap = build_tounicode_cmap(resolved, cid);
-            fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, cmap));
+            if (itU != usedRaw.end()) used = &itU->second;
+            FontRepairDecision d = decide_font_repair(fd, used);
+            if (!d.eligible) continue;
+            fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, d.cmap));
             ++fixed;
         }
 
@@ -2140,6 +2292,11 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
 #else  // !JPDFIUM_HAS_FREETYPE
 
 int32_t jpdfium_font_evidence(int64_t, int32_t, char** json) {
+    if (json) *json = nullptr;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+
+int32_t jpdfium_font_plan(int64_t, int32_t, char** json) {
     if (json) *json = nullptr;
     return JPDFIUM_ERR_NOT_FOUND;
 }
@@ -2164,6 +2321,10 @@ int32_t jpdfium_strip_fonts(int64_t, int32_t* fonts_removed) {
     return JPDFIUM_ERR_NOT_FOUND;
 }
 int32_t jpdfium_font_evidence(int64_t, int32_t, char** json) {
+    if (json) *json = nullptr;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+int32_t jpdfium_font_plan(int64_t, int32_t, char** json) {
     if (json) *json = nullptr;
     return JPDFIUM_ERR_NOT_FOUND;
 }

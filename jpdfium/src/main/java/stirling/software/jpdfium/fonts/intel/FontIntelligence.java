@@ -12,6 +12,7 @@ import java.util.Set;
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.model.ShapedGlyph;
 import stirling.software.jpdfium.panama.FontLib;
+import stirling.software.jpdfium.util.NativeJsonParser;
 
 /**
  * The font-intelligence entry point.
@@ -153,10 +154,65 @@ public final class FontIntelligence {
     public static List<FontRepairPlan> repairPlans(PdfDocument document) {
         Objects.requireNonNull(document, "document");
         List<FontRepairPlan> plans = new ArrayList<>();
-        for (FontEvidence e : FontCatalog.inspect(document)) {
-            plans.addAll(repairPlans(e));
+        for (int pageIndex = 0; pageIndex < document.pageCount(); pageIndex++) {
+            plans.addAll(repairPlans(document, pageIndex));
         }
         return plans;
+    }
+
+    /**
+     * Repair plans for one page, derived from the native mutation plan so the
+     * authorised set equals exactly what the page-wide fixer would change.
+     *
+     * <p>Unlike {@link #repairPlans(FontEvidence)}, which only offers
+     * reconstruction of an absent map, this also yields a plan for a resource
+     * whose declared map is valid but partial and would be extended with the
+     * missing page-used codes.
+     */
+    public static List<FontRepairPlan> repairPlans(PdfDocument document, int pageIndex) {
+        Objects.requireNonNull(document, "document");
+        Map<String, FontEvidence> byResource = new LinkedHashMap<>();
+        for (FontEvidence e : inspectPage(document, pageIndex)) {
+            byResource.put(e.resourceName(), e);
+        }
+        List<FontRepairPlan> plans = new ArrayList<>();
+        for (Map<String, String> row : nativeRepairs(document, pageIndex)) {
+            String resource = row.get("resource");
+            FontEvidence e = byResource.get(resource);
+            if (e == null) {
+                continue;
+            }
+            String rationale = "extend".equals(row.get("mode"))
+                    ? "Extend /ToUnicode with " + row.getOrDefault("additions", "?")
+                            + " missing page-used code mappings"
+                    : "Reconstruct /ToUnicode from " + e.mappingCount()
+                            + " evidence-backed code mappings";
+            plans.add(new FontRepairPlan(
+                    pageIndex,
+                    resource,
+                    e.baseFont(),
+                    capability(e),
+                    FontRepairPlan.ACTION_FIX_TOUNICODE,
+                    e.resolvedMappings(),
+                    rationale,
+                    stateFingerprint(e)));
+        }
+        return plans;
+    }
+
+    /** The native page-wide mutation plan: the exact resources the fixer would change. */
+    private static List<Map<String, String>> nativeRepairs(PdfDocument document, int pageIndex) {
+        String json = FontLib.planJson(document.nativeHandle(), pageIndex);
+        int start = json.indexOf("\"repairs\":[");
+        if (start < 0) {
+            return List.of();
+        }
+        int from = json.indexOf('[', start);
+        int end = json.indexOf(']', from);
+        if (from < 0 || end < 0) {
+            return List.of();
+        }
+        return NativeJsonParser.parseArray(json.substring(from, end + 1));
     }
 
     /**
@@ -209,10 +265,10 @@ public final class FontIntelligence {
                 requireFresh(document, plan);
                 authorised.add(plan.resourceName());
             }
-            for (FontEvidence e : inspectPage(document, pageIndex)) {
-                if (!authorised.contains(e.resourceName()) && !repairPlans(e).isEmpty()) {
+            for (Map<String, String> row : nativeRepairs(document, pageIndex)) {
+                if (!authorised.contains(row.get("resource"))) {
                     throw new StaleRepairPlanException("page " + pageIndex
-                            + " has a pending repair for font resource " + e.resourceName()
+                            + " has a pending repair for font resource " + row.get("resource")
                             + " that the plan set does not authorise");
                 }
             }
@@ -228,20 +284,27 @@ public final class FontIntelligence {
                     "plan targets page " + plan.pageIndex() + " which is not present");
         }
         String expected = plan.fingerprint();
+        boolean present = false;
+        List<FontRepairPlan> fresh = new ArrayList<>(repairPlans(document, plan.pageIndex()));
         for (FontEvidence e : inspectPage(document, plan.pageIndex())) {
             if (!e.resourceName().equals(plan.resourceName())) {
                 continue;
             }
-            for (FontRepairPlan current : repairPlans(e)) {
-                if (current.fingerprint().equals(expected)) {
-                    return;
-                }
-            }
-            throw new StaleRepairPlanException("font resource " + plan.resourceName()
-                    + " on page " + plan.pageIndex() + " changed since the plan was prepared");
+            present = true;
+            fresh.addAll(repairPlans(e));
         }
-        throw new StaleRepairPlanException("font resource " + plan.resourceName() + " on page "
-                + plan.pageIndex() + " is no longer present");
+        if (!present) {
+            throw new StaleRepairPlanException("font resource " + plan.resourceName() + " on page "
+                    + plan.pageIndex() + " is no longer present");
+        }
+        for (FontRepairPlan current : fresh) {
+            if (current.resourceName().equals(plan.resourceName())
+                    && current.fingerprint().equals(expected)) {
+                return;
+            }
+        }
+        throw new StaleRepairPlanException("font resource " + plan.resourceName()
+                + " on page " + plan.pageIndex() + " changed since the plan was prepared");
     }
 
     /** Repair one page's {@code /ToUnicode} where evidence supports it. */
