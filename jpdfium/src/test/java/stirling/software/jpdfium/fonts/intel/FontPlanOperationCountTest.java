@@ -1,10 +1,6 @@
 package stirling.software.jpdfium.fonts.intel;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,13 +16,18 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont;
-import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.fonts.PinnedFonts;
 import stirling.software.jpdfium.panama.FontLib;
 import stirling.software.jpdfium.panama.NativeRuntime;
+
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.PARTIAL;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.formStream;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.installToUnicode;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.loadFont;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.save;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -308,10 +309,7 @@ class FontPlanOperationCountTest {
             for (int i = 0; i < pages; i++) {
                 PDPage page = new PDPage(PDRectangle.LETTER);
                 doc.addPage(page);
-                PDTrueTypeFont f;
-                try (InputStream in = Files.newInputStream(font)) {
-                    f = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-                }
+                PDTrueTypeFont f = loadFont(doc, font);
                 f.getCOSObject().removeItem(COSName.TO_UNICODE);
                 PDResources res = new PDResources();
                 res.put(COSName.getPDFName("F1"), f);
@@ -324,9 +322,7 @@ class FontPlanOperationCountTest {
                     cs.endText();
                 }
             }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            doc.save(out);
-            return out.toByteArray();
+            return save(doc);
         }
     }
 
@@ -365,26 +361,6 @@ class FontPlanOperationCountTest {
     private record Work(int plans, int nodes, int lookups, int programs, long bytesHashed,
                         int planJsonBytes, long heapGrowthBytes, double elapsedMillis) {}
 
-    private static final String HEADER =
-            "/CIDInit /ProcSet findresource begin\n"
-            + "12 dict begin\n"
-            + "begincmap\n"
-            + "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
-            + "/CMapName /test-UCS def\n"
-            + "/CMapType 2 def\n"
-            + "1 begincodespacerange\n"
-            + "<00> <FF>\n"
-            + "endcodespacerange\n";
-
-    private static final String FOOTER =
-            "endcmap\n"
-            + "CMapName currentdict /CMap defineresource pop\n"
-            + "end\n"
-            + "end\n";
-
-    /** Declares only the code for 'A'; the code for 'B' (0x42) is missing. */
-    private static final String PARTIAL = "1 beginbfchar\n<41> <0041>\nendbfchar\n";
-
     /**
      * Plan one document and time it, recording the native reference/program
      * counters and the plan JSON size, heap growth and wall clock. The plan JSON is
@@ -420,10 +396,7 @@ class FontPlanOperationCountTest {
     private static byte[] sharedFontPdf(int pages) throws Exception {
         Path font = PinnedFonts.primary();
         try (PDDocument doc = new PDDocument()) {
-            PDTrueTypeFont shared;
-            try (InputStream in = Files.newInputStream(font)) {
-                shared = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-            }
+            PDTrueTypeFont shared = loadFont(doc, font);
             shared.getCOSObject().removeItem(COSName.TO_UNICODE);
             for (int i = 0; i < pages; i++) {
                 PDPage page = new PDPage(PDRectangle.LETTER);
@@ -449,10 +422,7 @@ class FontPlanOperationCountTest {
             for (int i = 0; i < pages; i++) {
                 PDPage page = new PDPage(PDRectangle.LETTER);
                 doc.addPage(page);
-                PDTrueTypeFont f;
-                try (InputStream in = Files.newInputStream(font)) {
-                    f = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-                }
+                PDTrueTypeFont f = loadFont(doc, font);
                 if (i % 2 == 0) {
                     f.getCOSObject().removeItem(COSName.TO_UNICODE);
                 } else {
@@ -475,10 +445,7 @@ class FontPlanOperationCountTest {
     private static byte[] nestedFormPdf(int depth) throws Exception {
         Path font = PinnedFonts.primary();
         try (PDDocument doc = new PDDocument()) {
-            PDTrueTypeFont shared;
-            try (InputStream in = Files.newInputStream(font)) {
-                shared = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-            }
+            PDTrueTypeFont shared = loadFont(doc, font);
             shared.getCOSObject().removeItem(COSName.TO_UNICODE);
             COSDictionary fd = shared.getCOSObject();
 
@@ -515,17 +482,6 @@ class FontPlanOperationCountTest {
         }
     }
 
-    private static COSStream formStream(PDDocument doc, byte[] content) throws Exception {
-        COSStream form = doc.getDocument().createCOSStream();
-        form.setItem(COSName.TYPE, COSName.getPDFName("XObject"));
-        form.setItem(COSName.SUBTYPE, COSName.getPDFName("Form"));
-        form.setItem(COSName.BBOX, new PDRectangle(300, 300).getCOSArray());
-        try (OutputStream os = form.createOutputStream(COSName.FLATE_DECODE)) {
-            os.write(content);
-        }
-        return form;
-    }
-
     private static void show(PDDocument doc, PDPage page, PDTrueTypeFont font, String text)
             throws Exception {
         try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
@@ -535,21 +491,5 @@ class FontPlanOperationCountTest {
             cs.showText(text);
             cs.endText();
         }
-    }
-
-    private static void installToUnicode(PDDocument doc, COSDictionary fontDict, String cmap)
-            throws Exception {
-        fontDict.removeItem(COSName.TO_UNICODE);
-        COSStream stream = doc.getDocument().createCOSStream();
-        try (OutputStream os = stream.createOutputStream()) {
-            os.write((HEADER + cmap + FOOTER).getBytes(StandardCharsets.ISO_8859_1));
-        }
-        fontDict.setItem(COSName.TO_UNICODE, stream);
-    }
-
-    private static byte[] save(PDDocument doc) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        doc.save(out);
-        return out.toByteArray();
     }
 }

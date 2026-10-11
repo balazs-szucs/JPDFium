@@ -1,10 +1,5 @@
 package stirling.software.jpdfium.fonts.intel;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -14,7 +9,6 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont;
-import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
@@ -22,6 +16,10 @@ import stirling.software.jpdfium.exception.JPDFiumException;
 import stirling.software.jpdfium.fonts.PinnedFonts;
 import stirling.software.jpdfium.panama.FontLib;
 import stirling.software.jpdfium.panama.NativeRuntime;
+
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.loadFont;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.save;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.setContent;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -166,27 +164,5 @@ class FontNativeFaultTest {
             setContent(doc, page, "BT /F1 24 Tf 72 700 Td (AB) Tj ET\n");
             return save(doc);
         }
-    }
-
-    // ------------------------------------------------------------- plumbing
-
-    private static PDTrueTypeFont loadFont(PDDocument doc, Path font) throws Exception {
-        try (InputStream in = Files.newInputStream(font)) {
-            return PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-        }
-    }
-
-    private static void setContent(PDDocument doc, PDPage page, String content) throws Exception {
-        org.apache.pdfbox.cos.COSStream stream = doc.getDocument().createCOSStream();
-        try (OutputStream os = stream.createOutputStream()) {
-            os.write(content.getBytes(StandardCharsets.ISO_8859_1));
-        }
-        page.getCOSObject().setItem(COSName.CONTENTS, stream);
-    }
-
-    private static byte[] save(PDDocument doc) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        doc.save(out);
-        return out.toByteArray();
     }
 }

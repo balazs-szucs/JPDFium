@@ -1,15 +1,9 @@
 package stirling.software.jpdfium.fonts.intel;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.cos.COSBase;
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.cos.COSStream;
@@ -18,12 +12,20 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDTrueTypeFont;
-import org.apache.pdfbox.pdmodel.font.encoding.WinAnsiEncoding;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.fonts.PinnedFonts;
 
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.PARTIAL;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.emptyResources;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.formContent;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.formStream;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.installToUnicode;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.loadFont;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.save;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.setContent;
+import static stirling.software.jpdfium.fonts.intel.FontTestFixtures.toUnicodeText;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -42,26 +44,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * as a plan. A reached reference that is neither passed nor consented refuses.
  */
 class FontReferenceGraphTest {
-
-    private static final String HEADER =
-            "/CIDInit /ProcSet findresource begin\n"
-            + "12 dict begin\n"
-            + "begincmap\n"
-            + "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
-            + "/CMapName /test-UCS def\n"
-            + "/CMapType 2 def\n"
-            + "1 begincodespacerange\n"
-            + "<00> <FF>\n"
-            + "endcodespacerange\n";
-
-    private static final String FOOTER =
-            "endcmap\n"
-            + "CMapName currentdict /CMap defineresource pop\n"
-            + "end\n"
-            + "end\n";
-
-    /** Declares only the code for 'A'; the code for 'B' (0x42) is missing. */
-    private static final String PARTIAL = "1 beginbfchar\n<41> <0041>\nendbfchar\n";
 
     @Test
     void formScopedReferenceIsDisclosedWithItsScopePath() throws Exception {
@@ -278,94 +260,4 @@ class FontReferenceGraphTest {
         }
     }
 
-    // ------------------------------------------------------------- plumbing
-
-    private static PDTrueTypeFont loadFont(PDDocument doc, Path font) throws Exception {
-        try (InputStream in = Files.newInputStream(font)) {
-            return PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
-        }
-    }
-
-    private static COSStream formStream(PDDocument doc, byte[] content) throws Exception {
-        COSStream form = doc.getDocument().createCOSStream();
-        form.setItem(COSName.TYPE, COSName.getPDFName("XObject"));
-        form.setItem(COSName.SUBTYPE, COSName.getPDFName("Form"));
-        form.setItem(COSName.BBOX, new PDRectangle(300, 300).getCOSArray());
-        try (OutputStream os = form.createOutputStream(COSName.FLATE_DECODE)) {
-            os.write(content);
-        }
-        return form;
-    }
-
-    private static COSDictionary emptyResources() {
-        return new COSDictionary();
-    }
-
-    private static void setContent(PDDocument doc, PDPage page, String content) throws Exception {
-        COSStream stream = doc.getDocument().createCOSStream();
-        try (OutputStream os = stream.createOutputStream()) {
-            os.write(content.getBytes(StandardCharsets.ISO_8859_1));
-        }
-        page.getCOSObject().setItem(COSName.CONTENTS, stream);
-    }
-
-    private static byte[] save(PDDocument doc) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        doc.save(out);
-        return out.toByteArray();
-    }
-
-    private static void installToUnicode(PDDocument doc, COSDictionary fontDict, String cmap)
-            throws Exception {
-        fontDict.removeItem(COSName.TO_UNICODE);
-        COSStream stream = doc.getDocument().createCOSStream();
-        try (OutputStream os = stream.createOutputStream()) {
-            os.write((HEADER + cmap + FOOTER).getBytes(StandardCharsets.ISO_8859_1));
-        }
-        fontDict.setItem(COSName.TO_UNICODE, stream);
-    }
-
-    /** Decoded bytes of the named page's form XObject content stream. */
-    private static byte[] formContent(byte[] pdf, int pageIndex, String formName) {
-        try (PDDocument doc = Loader.loadPDF(pdf)) {
-            COSDictionary xobjects = doc.getPage(pageIndex).getResources().getCOSObject()
-                    .getCOSDictionary(COSName.XOBJECT);
-            COSBase form = xobjects.getDictionaryObject(COSName.getPDFName(formName));
-            if (form instanceof COSStream stream) {
-                try (InputStream in = stream.createInputStream()) {
-                    return in.readAllBytes();
-                }
-            }
-            return new byte[0];
-        } catch (Exception e) {
-            throw new AssertionError("could not read the form XObject content", e);
-        }
-    }
-
-    /** The first font's declared {@code /ToUnicode} stream text on a page, or null. */
-    private static String toUnicodeText(byte[] pdf, int pageIndex) {
-        try (PDDocument doc = Loader.loadPDF(pdf)) {
-            PDPage page = doc.getPage(pageIndex);
-            PDResources res = page.getResources();
-            if (res == null) {
-                return null;
-            }
-            COSDictionary fonts = res.getCOSObject().getCOSDictionary(COSName.FONT);
-            if (fonts == null) {
-                return null;
-            }
-            for (COSName key : new java.util.ArrayList<>(fonts.keySet())) {
-                COSBase fd = fonts.getDictionaryObject(key);
-                if (fd instanceof COSDictionary dict
-                        && dict.getDictionaryObject(COSName.TO_UNICODE) instanceof COSStream stream) {
-                    try (InputStream in = stream.createInputStream()) {
-                        return new String(in.readAllBytes(), StandardCharsets.ISO_8859_1);
-                    }
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            throw new AssertionError("could not read the declared /ToUnicode map", e);
-        }
-    }
 }
