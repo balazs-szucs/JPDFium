@@ -27,6 +27,7 @@ import stirling.software.jpdfium.fonts.PinnedFonts;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -173,6 +174,85 @@ class FontToUnicodeContainmentTest {
         assertEquals(1, fixed,
                 "exactly one font should receive the missing used codes");
         assertEquals(0, secondFixed, "repair must converge, not oscillate");
+    }
+
+    // ----------------------------------------------------- structured scanning
+
+    @Test
+    void danglingOperandInsideBfcharIsRefused() throws Exception {
+        // One hex code with no destination leaves a pending operand at endbfchar:
+        // the block is malformed and must not be rewritten.
+        assertRefused("1 beginbfchar\n<0048>\nendbfchar\n");
+    }
+
+    @Test
+    void nestedBfcharBlockIsRefused() throws Exception {
+        // A begin inside an open block is a nested block, not a flat one.
+        assertRefused("1 beginbfchar\n<0048> <0048>\n1 beginbfchar\n<0049> <0049>\n"
+                + "endbfchar\nendbfchar\n");
+    }
+
+    @Test
+    void inlineImageCannotInventUsedCodes() throws Exception {
+        Path font = requireFont();
+        String cmap = identityMapFor(font, SAMPLE);
+
+        // The page shows no text: its only content is an inline image whose bytes
+        // deliberately contain text-like tokens. Image bytes are opaque, so no code
+        // may be attributed to any font and the partial map must not be extended.
+        byte[] head = "BI /W 8 /H 8 /CS /G /BPC 8 ID ".getBytes(StandardCharsets.US_ASCII);
+        byte[] bait = "(AB) Tj (0001) Tj".getBytes(StandardCharsets.US_ASCII);
+        byte[] tail = " EI\n".getBytes(StandardCharsets.US_ASCII);
+        byte[] content = concat(head, bait, tail);
+
+        byte[] pdf = installToUnicode(withContent(cidPdf(font), content), cmap);
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            assertTrue(FontIntelligence.repairPlans(doc).isEmpty(),
+                    "no code shown outside an image means no plan may be invented");
+            assertEquals(0, repairAll(doc), "an inline image must not justify a repair");
+        }
+    }
+
+    @Test
+    void formRedefiningAFontNameMakesUsageUnknown() throws Exception {
+        Path font = requireFont();
+        String cmap = identityMapFor(font, SAMPLE);
+        String name = firstFontName(cidPdf(font));
+        byte[] shown = encodedBytes(font, SAMPLE);
+        byte[] pageContent = ("q /Ff Do Q\n").getBytes(StandardCharsets.US_ASCII);
+        byte[] formContent = ("q /" + name + " 12 Tf (" + new String(shown, StandardCharsets.ISO_8859_1)
+                + ") Tj Q\n").getBytes(StandardCharsets.ISO_8859_1);
+
+        // The form brings its OWN /F1 pointing at a different font object, so the
+        // name no longer denotes the page font and usage cannot be attributed.
+        byte[] pdf = installToUnicode(
+                withForm(cidPdf(font), pageContent, formContent, PinnedFonts.pair().get(1)), cmap);
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            assertTrue(FontIntelligence.repairPlans(doc).isEmpty(),
+                    "a redefined font name must make usage unknown, not extend a partial map");
+            assertEquals(0, repairAll(doc), "ambiguous usage must not justify a repair");
+        }
+    }
+
+    @Test
+    void formInheritingPageResourcesIsAttributedToThePageFont() throws Exception {
+        Path font = requireFont();
+        String cmap = identityMapFor(font, SAMPLE);
+        String name = firstFontName(cidPdf(font));
+        byte[] shown = encodedBytes(font, SAMPLE);
+        byte[] pageContent = ("q /Ff Do Q\n").getBytes(StandardCharsets.US_ASCII);
+        byte[] formContent = ("q /" + name + " 12 Tf (" + new String(shown, StandardCharsets.ISO_8859_1)
+                + ") Tj Q\n").getBytes(StandardCharsets.ISO_8859_1);
+
+        // The form declares no /Resources, so it inherits the page's font table and
+        // the code it shows is attributable to the page font.
+        byte[] pdf = installToUnicode(withForm(cidPdf(font), pageContent, formContent, null), cmap);
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            assertFalse(FontIntelligence.repairPlans(doc).isEmpty(),
+                    "a form inheriting page resources must be attributed to the page font");
+            assertEquals(1, repairAll(doc),
+                    "the form's shown code makes the partial map extendable");
+        }
     }
 
     // ------------------------------------------------------------- assertions
@@ -324,6 +404,99 @@ class FontToUnicodeContainmentTest {
             }
         }
         return null;
+    }
+
+    // ------------------------------------------------------------ structured content
+
+    private static byte[] concat(byte[]... parts) {
+        int n = 0;
+        for (byte[] p : parts) n += p.length;
+        byte[] out = new byte[n];
+        int at = 0;
+        for (byte[] p : parts) { System.arraycopy(p, 0, out, at, p.length); at += p.length; }
+        return out;
+    }
+
+    private static COSStream cosStream(PDDocument doc, byte[] data) throws Exception {
+        COSStream s = doc.getDocument().createCOSStream();
+        try (OutputStream os = s.createOutputStream(COSName.FLATE_DECODE)) {
+            os.write(data);
+        }
+        return s;
+    }
+
+    /** Replaces the first page's content stream with {@code content}. */
+    private static byte[] withContent(byte[] pdf, byte[] content) throws Exception {
+        try (PDDocument doc = Loader.loadPDF(pdf)) {
+            doc.getPage(0).getCOSObject().setItem(COSName.CONTENTS, cosStream(doc, content));
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            doc.save(out);
+            return out.toByteArray();
+        }
+    }
+
+    /**
+     * Replaces the page content with {@code pageContent} and registers a form
+     * XObject as {@code /Ff}. When {@code redefineFontFrom} is non-null the form
+     * carries its own {@code /Resources} whose single font entry is a fresh font
+     * object; otherwise the form has no {@code /Resources} and inherits the page's.
+     */
+    private static byte[] withForm(byte[] pdf, byte[] pageContent, byte[] formContent,
+            Path redefineFontFrom) throws Exception {
+        try (PDDocument doc = Loader.loadPDF(pdf)) {
+            PDPage page = doc.getPage(0);
+            String name = firstFontName(pdf);
+            COSStream form = cosStream(doc, formContent);
+            form.setItem(COSName.TYPE, COSName.getPDFName("XObject"));
+            form.setItem(COSName.SUBTYPE, COSName.getPDFName("Form"));
+            form.setItem(COSName.BBOX, new PDRectangle(300, 300).getCOSArray());
+            if (redefineFontFrom != null) {
+                PDType0Font other;
+                try (InputStream in = Files.newInputStream(redefineFontFrom)) {
+                    other = PDType0Font.load(doc, in, false);
+                }
+                COSDictionary fonts = new COSDictionary();
+                fonts.setItem(COSName.getPDFName(name), other.getCOSObject());
+                COSDictionary own = new COSDictionary();
+                own.setItem(COSName.FONT, fonts);
+                form.setItem(COSName.RESOURCES, own);
+            }
+            COSDictionary res = page.getCOSObject().getCOSDictionary(COSName.RESOURCES);
+            COSDictionary xobjects = res.getCOSDictionary(COSName.XOBJECT);
+            if (xobjects == null) {
+                xobjects = new COSDictionary();
+                res.setItem(COSName.XOBJECT, xobjects);
+            }
+            xobjects.setItem(COSName.getPDFName("Ff"), form);
+            page.getCOSObject().setItem(COSName.CONTENTS, cosStream(doc, pageContent));
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            doc.save(out);
+            return out.toByteArray();
+        }
+    }
+
+    /** Name of the first font resource on the first page (without the slash). */
+    private static String firstFontName(byte[] pdf) throws Exception {
+        try (PDDocument doc = Loader.loadPDF(pdf)) {
+            COSDictionary fonts = doc.getPage(0).getResources().getCOSObject()
+                    .getCOSDictionary(COSName.FONT);
+            return fonts.keySet().iterator().next().getName();
+        }
+    }
+
+    /** The two-byte CID-encoded bytes for {@code text} under {@code font}. */
+    private static byte[] encodedBytes(Path font, String text) throws Exception {
+        try (PDDocument doc = new PDDocument()) {
+            try (InputStream in = Files.newInputStream(font)) {
+                return PDType0Font.load(doc, in, false).encode(text);
+            }
+        }
+    }
+
+    /** An otherwise-complete map that declares only the first shown code. */
+    private static String identityMapFor(Path font, String text) throws Exception {
+        String hex = String.format("%04X", firstShownCode(font, text));
+        return header() + "1 beginbfchar\n<" + hex + "> <" + hex + ">\nendbfchar\n" + footer();
     }
 
     private static int repairAll(PdfDocument doc) {

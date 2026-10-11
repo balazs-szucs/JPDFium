@@ -772,9 +772,12 @@ int32_t jpdfium_redact_glyph_aware(int64_t, const char**, int32_t, uint32_t, flo
 #ifdef JPDFIUM_HAS_QPDF
 
 #include <qpdf/Buffer.hh>
+#include <qpdf/BufferInputSource.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
 #include <qpdf/QPDFObjectHandle.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
+#include <qpdf/QPDFTokenizer.hh>
 #include <qpdf/QPDFWriter.hh>
 
 // Save an FPDF_DOCUMENT to a byte vector.
@@ -1563,8 +1566,9 @@ bool page_font_dicts(QPDF& pdf, int32_t page_index, std::vector<FontEntry>& out)
     std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
     if (page_index < 0 || static_cast<size_t>(page_index) >= pages.size()) return false;
     QPDFObjectHandle page = pages[static_cast<size_t>(page_index)];
-    if (!page.hasKey("/Resources")) return true;
-    QPDFObjectHandle res = page.getKey("/Resources");
+    // /Resources is inheritable: a page with none of its own uses the nearest
+    // ancestor /Pages node's. QPDFPageObjectHelper resolves that for us.
+    QPDFObjectHandle res = QPDFPageObjectHelper(page).getAttribute("/Resources", false);
     if (!res.isDictionary() || !res.hasKey("/Font")) return true;
     QPDFObjectHandle fonts = res.getKey("/Font");
     if (!fonts.isDictionary()) return true;
@@ -1693,164 +1697,193 @@ void decode_shown_codes(const std::string& s, bool twoByte, std::vector<uint32_t
     }
 }
 
-// Collect, per font resource name, the raw bytes of strings shown by the page
-// content streams (Tj/TJ/'/" operands, attributed to the most recent Tf). An
-// over-approximation: it never includes a code the page does not reference.
-bool collect_used_strings(QPDFObjectHandle page,
-                          std::unordered_map<std::string, std::vector<std::string>>& out) {
-    if (!page.isDictionary() || !page.hasKey("/Contents")) return true;
-    QPDFObjectHandle contents = page.getKey("/Contents");
-    std::string data;
-    if (contents.isStream()) {
-        data = stream_bytes(contents);
-    } else if (contents.isArray()) {
-        for (const auto& s : contents.getArrayAsVector()) {
-            if (s.isStream()) {
-                data += stream_bytes(s);
-                data += "\n";
-            }
-        }
-    } else {
-        return true;
-    }
+// Structured used-code scanning (Commit C).
+//
+// QPDF's tokenizer decodes literal escapes, line continuations and hex
+// strings, so this pass cannot mis-read them the way a hand-rolled byte
+// scanner can. Graphics state is threaded through q/Q, form XObjects are
+// followed with their own (inherited) resources, and inline images are skipped
+// via the tokenizer's ID..EI support so a binary payload can never be mistaken
+// for shown text. A scope that cannot be established exactly sets
+// `complete = false`; callers then treat used-code knowledge as unknown rather
+// than as a smaller set, and never extend a partial map from partial evidence.
+struct UsageScan {
+    std::unordered_map<std::string, std::vector<std::string>> shown;
+    bool complete = true;
+    int depth = 0;
+};
 
-    const size_t n = data.size();
-    size_t i = 0;
-    std::string curFont;
-    std::string pendingName;
-    std::vector<std::string> pendingStrings;
-    auto flush_show = [&]() {
-        if (!curFont.empty()) {
-            auto& vec = out[curFont];
-            for (auto& s : pendingStrings) vec.push_back(s);
-        }
-        pendingStrings.clear();
-    };
-    auto is_delim = [](char c) {
-        return c == '(' || c == ')' || c == '<' || c == '>' || c == '[' || c == ']' ||
-               c == '{' || c == '}' || c == '/' || c == '%';
-    };
-    while (i < n) {
-        char c = data[i];
-        if (c == '%') {
-            while (i < n && data[i] != '\n' && data[i] != '\r') ++i;
-            continue;
-        }
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\0') {
-            ++i;
-            continue;
-        }
-        if (c == '(') {
-            std::string s;
-            ++i;
-            int depth = 1;
-            while (i < n && depth > 0) {
-                char d = data[i++];
-                if (d == '\\') {
-                    if (i >= n) break;
-                    char e = data[i++];
-                    switch (e) {
-                        case 'n': s += '\n'; break;
-                        case 'r': s += '\r'; break;
-                        case 't': s += '\t'; break;
-                        case 'b': s += '\b'; break;
-                        case 'f': s += '\f'; break;
-                        case '(': s += '('; break;
-                        case ')': s += ')'; break;
-                        case '\\': s += '\\'; break;
-                        default:
-                            if (e >= '0' && e <= '7') {
-                                int v = e - '0';
-                                for (int k = 0; k < 2 && i < n && data[i] >= '0' && data[i] <= '7';
-                                     ++k)
-                                    v = v * 8 + (data[i++] - '0');
-                                s += static_cast<char>(v);
-                            } else {
-                                s += e;
-                            }
-                    }
-                } else if (d == '(') {
-                    s += '(';
-                    ++depth;
-                } else if (d == ')') {
-                    --depth;
-                    if (depth > 0) s += ')';
-                } else {
-                    s += d;
-                }
-            }
-            pendingStrings.push_back(s);
-            continue;
-        }
-        if (c == '<' && i + 1 < n && data[i + 1] != '<') {
-            ++i;
-            std::string hex;
-            while (i < n && data[i] != '>') hex += data[i++];
-            if (i < n) ++i;
-            std::string s;
-            int hi = -1;
-            for (char h : hex) {
-                int v;
-                if (h >= '0' && h <= '9')
-                    v = h - '0';
-                else if (h >= 'a' && h <= 'f')
-                    v = h - 'a' + 10;
-                else if (h >= 'A' && h <= 'F')
-                    v = h - 'A' + 10;
-                else
-                    continue;
-                if (hi < 0)
-                    hi = v;
-                else {
-                    s += static_cast<char>((hi << 4) | v);
-                    hi = -1;
-                }
-            }
-            if (hi >= 0) s += static_cast<char>(hi << 4);
-            pendingStrings.push_back(s);
-            continue;
-        }
-        if (c == '<' && i + 1 < n && data[i + 1] == '<') { i += 2; continue; }
-        if (c == '>' && i + 1 < n && data[i + 1] == '>') { i += 2; continue; }
-        if (c == '[') { ++i; pendingStrings.clear(); continue; }
-        if (c == ']') { ++i; continue; }
-        if (c == '{' || c == '}') { ++i; continue; }
-        if (c == '/') {
-            ++i;
-            std::string nm = "/";
-            while (i < n && !std::isspace(static_cast<unsigned char>(data[i])) &&
-                   !is_delim(data[i]))
-                nm += data[i++];
-            pendingName = nm;
-            continue;
-        }
-        if (std::isdigit(static_cast<unsigned char>(c)) || c == '+' || c == '-' || c == '.') {
-            ++i;
-            while (i < n && (std::isdigit(static_cast<unsigned char>(data[i])) ||
-                             data[i] == '.' || data[i] == '+' || data[i] == '-' ||
-                             data[i] == 'e' || data[i] == 'E'))
-                ++i;
-            continue;
-        }
-        if (std::isalpha(static_cast<unsigned char>(c)) || c == '\'' || c == '"') {
-            std::string op;
-            op += c;
-            ++i;
-            while (i < n && (std::isalpha(static_cast<unsigned char>(data[i])) ||
-                             std::isdigit(static_cast<unsigned char>(data[i])) ||
-                             data[i] == '*'))
-                op += data[i++];
-            if (op == "Tf") {
-                curFont = pendingName;
-            } else if (op == "Tj" || op == "TJ" || op == "'" || op == "\"") {
-                flush_show();
-            } else {
-                pendingStrings.clear();
-            }
-            continue;
-        }
-        ++i;
+std::unordered_map<std::string, QPDFObjectHandle> fonts_from_resources(
+    QPDFObjectHandle const& res) {
+    std::unordered_map<std::string, QPDFObjectHandle> fonts;
+    if (!res.isDictionary() || !res.hasKey("/Font")) return fonts;
+    QPDFObjectHandle fdict = res.getKey("/Font");
+    if (!fdict.isDictionary()) return fonts;
+    for (const auto& k : fdict.getKeys()) {
+        QPDFObjectHandle d = fdict.getKey(k);
+        if (d.isDictionary()) fonts[k] = d;
     }
+    return fonts;
+}
+
+// True when two font resource entries denote the same font object.
+bool same_font(QPDFObjectHandle const& a, QPDFObjectHandle const& b) {
+    if (!a.isInitialized() || !b.isInitialized()) return false;
+    if (a.isIndirect() && b.isIndirect()) return a.isSameObjectAs(b);
+    return a.unparse() == b.unparse();
+}
+
+void scan_content(const std::string& data, QPDFObjectHandle const& resources,
+                  const std::unordered_map<std::string, QPDFObjectHandle>& pageFonts,
+                  UsageScan& out);
+
+// Follow a form XObject invoked by `Do`. A form that redefines a font name the
+// page scope already uses, or introduces a name that cannot be tied to a page
+// font, makes used-code attribution ambiguous, so the whole scan is marked
+// incomplete rather than guessed at.
+void scan_form(QPDFObjectHandle const& xobj, QPDFObjectHandle const& callerResources,
+               const std::unordered_map<std::string, QPDFObjectHandle>& pageFonts,
+               UsageScan& out) {
+    if (out.depth >= 8) {
+        out.complete = false;
+        return;
+    }
+    QPDFObjectHandle formDict = xobj.getDict();
+    QPDFObjectHandle formRes = formDict.hasKey("/Resources") ? formDict.getKey("/Resources")
+                                                            : callerResources;
+    for (const auto& kv : fonts_from_resources(formRes)) {
+        auto it = pageFonts.find(kv.first);
+        if (it == pageFonts.end() || !same_font(it->second, kv.second)) out.complete = false;
+    }
+    ++out.depth;
+    scan_content(stream_bytes(xobj), formRes, pageFonts, out);
+    --out.depth;
+}
+
+void scan_content(const std::string& data, QPDFObjectHandle const& resources,
+                  const std::unordered_map<std::string, QPDFObjectHandle>& pageFonts,
+                  UsageScan& out) {
+    QPDFTokenizer tok;
+    tok.allowEOF();  // EOF is a clean end of input, not a bad token
+    auto is = std::make_shared<BufferInputSource>("content", data);
+
+    std::string curFont;
+    std::vector<std::string> fontStack;
+    std::string lastName;
+    std::vector<std::string> pending;  // strings shown since the last operator
+    bool inImageHeader = false;
+
+    auto flush = [&]() {
+        if (!curFont.empty()) {
+            auto& v = out.shown[curFont];
+            for (const auto& s : pending) v.push_back(s);
+        }
+        pending.clear();
+    };
+
+    while (true) {
+        QPDFTokenizer::Token t = tok.readToken(is, "content", true);
+        QPDFTokenizer::token_type_e tt = t.getType();
+        if (tt == QPDFTokenizer::tt_eof) break;
+        if (tt == QPDFTokenizer::tt_bad) {
+            out.complete = false;
+            break;
+        }
+        if (tt == QPDFTokenizer::tt_space || tt == QPDFTokenizer::tt_comment) continue;
+        if (tt == QPDFTokenizer::tt_inline_image) {
+            inImageHeader = false;  // opaque bytes; nothing to attribute
+            continue;
+        }
+        if (tt == QPDFTokenizer::tt_string) {
+            if (!inImageHeader) pending.push_back(t.getValue());
+            continue;
+        }
+        if (tt == QPDFTokenizer::tt_name) {
+            lastName = t.getValue();
+            continue;
+        }
+        if (tt == QPDFTokenizer::tt_array_open || tt == QPDFTokenizer::tt_array_close
+            || tt == QPDFTokenizer::tt_integer || tt == QPDFTokenizer::tt_real) {
+            // TJ arrays interleave strings with position numbers; neither opens
+            // nor closes the operand list that a show operator consumes.
+            continue;
+        }
+        if (tt == QPDFTokenizer::tt_word) {
+            std::string w = t.getValue();
+            if (w == "Tj" || w == "TJ" || w == "'" || w == "\"") {
+                flush();
+            } else {
+                pending.clear();
+            }
+            if (w == "q") {
+                fontStack.push_back(curFont);
+            } else if (w == "Q") {
+                if (fontStack.empty()) {
+                    out.complete = false;  // unbalanced graphics state
+                } else {
+                    curFont = fontStack.back();
+                    fontStack.pop_back();
+                }
+            } else if (w == "Tf") {
+                curFont = lastName;
+            } else if (w == "BI") {
+                inImageHeader = true;
+            } else if (w == "ID") {
+                // Discard the single whitespace that terminates ID, then let
+                // the tokenizer consume the image data up to EI.
+                char ch = 0;
+                is->read(&ch, 1);
+                tok.expectInlineImage(is);
+                QPDFTokenizer::Token img = tok.readToken(is, "content", true);
+                inImageHeader = false;
+                if (img.getType() == QPDFTokenizer::tt_bad) {
+                    out.complete = false;
+                    break;
+                }
+            } else if (w == "Do") {
+                if (lastName.empty()) {
+                    out.complete = false;
+                } else if (!resources.isDictionary() || !resources.hasKey("/XObject")) {
+                    out.complete = false;  // an XObject was invoked but none is named
+                } else {
+                    QPDFObjectHandle xobjects = resources.getKey("/XObject");
+                    QPDFObjectHandle xobj = xobjects.isDictionary() && xobjects.hasKey(lastName)
+                                                ? xobjects.getKey(lastName)
+                                                : QPDFObjectHandle();
+                    if (!xobj.isInitialized()) {
+                        out.complete = false;
+                    } else if (xobj.isFormXObject()) {
+                        scan_form(xobj, resources, pageFonts, out);
+                    }
+                    // Image XObjects show no text: nothing to attribute.
+                }
+            }
+            lastName.clear();
+            continue;
+        }
+        // Dictionaries, braces, null and booleans are not show operands.
+        pending.clear();
+    }
+}
+
+// Collect, per font resource name, the raw bytes of strings actually shown by
+// the page's content streams and by the form XObjects they invoke. `*complete`
+// is set false when any part of the page could not be attributed exactly, so
+// callers treat used codes as unknown instead of as a smaller set.
+bool collect_used_strings(QPDFObjectHandle page,
+                          std::unordered_map<std::string, std::vector<std::string>>& out,
+                          bool* complete) {
+    if (complete) *complete = true;
+    if (!page.isDictionary()) return true;
+    QPDFPageObjectHelper helper(page);
+    QPDFObjectHandle res = helper.getAttribute("/Resources", false);
+    UsageScan scan;
+    std::unordered_map<std::string, QPDFObjectHandle> pageFonts = fonts_from_resources(res);
+    for (const auto& s : helper.getPageContents()) {
+        if (s.isStream()) scan_content(stream_bytes(s), res, pageFonts, scan);
+    }
+    out = std::move(scan.shown);
+    if (complete) *complete = scan.complete;
     return true;
 }
 
@@ -1913,6 +1946,10 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
             std::string h;
             while (i < n && s[i] != '>') h += s[i++];
             if (i < n) ++i;
+            // A hex string outside a bfchar/bfrange block is a codespace
+            // descriptor or other non-mapping value; it carries no mapping and
+            // is deliberately not accumulated.
+            if (mode == NONE) continue;
             hexes.push_back(h);
             if (mode == BFCHAR && hexes.size() == 2) {
                 if (hexes[0].empty() || hexes[0].size() > 4) {
@@ -1977,19 +2014,27 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
                              std::isdigit(static_cast<unsigned char>(s[i]))))
                 ++i;
             std::string w = s.substr(st, i - st);
-            if (w == "beginbfchar") { mode = BFCHAR; hexes.clear(); }
-            else if (w == "endbfchar") {
+            if (w == "beginbfchar") {
+                if (mode != NONE) malformed = true;  // nested block
+                mode = BFCHAR;
+                hexes.clear();
+            } else if (w == "endbfchar") {
                 if (mode != BFCHAR) malformed = true;
+                if (!hexes.empty()) malformed = true;  // dangling source operand
                 mode = NONE;
                 hexes.clear();
-            }
-            else if (w == "beginbfrange") { mode = BFRANGE; hexes.clear(); }
-            else if (w == "endbfrange") {
+            } else if (w == "beginbfrange") {
+                if (mode != NONE) malformed = true;  // nested block
+                mode = BFRANGE;
+                hexes.clear();
+            } else if (w == "endbfrange") {
                 if (mode != BFRANGE) malformed = true;
+                if (!hexes.empty()) malformed = true;  // dangling operand
                 mode = NONE;
                 hexes.clear();
+            } else if (w == "usecmap") {
+                unsupported = true;
             }
-            else if (w == "usecmap") { unsupported = true; }
             continue;
         }
         ++i;
@@ -2051,7 +2096,8 @@ struct FontRepairDecision {
 };
 
 FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
-                                      const std::vector<std::string>* usedStrings) {
+                                      const std::vector<std::string>* usedStrings,
+                                      bool usageComplete) {
     FontRepairDecision d;
     bool cid = is_cid_font(fd);
     d.cid = cid;
@@ -2113,7 +2159,12 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
 
     if (present && valid) {
         // Valid map: preserve declared entries, add only missing codes the page
-        // uses; if usage is unknown, leave the map alone.
+        // uses. If the page could not be scanned exactly, usage is unknown and
+        // the map is left alone rather than extended from partial evidence.
+        if (!usageComplete) {
+            d.reason = "usage_unknown";
+            return d;
+        }
         if (usedSet.empty()) {
             d.reason = "no_used_codes";
             return d;
@@ -2207,10 +2258,12 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
         if (!page_font_dicts(pdf, page_index, fonts)) return JPDFIUM_ERR_NOT_FOUND;
 
         std::unordered_map<std::string, std::vector<std::string>> usedRaw;
+        bool usageComplete = true;
         {
             std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
             if (page_index >= 0 && static_cast<size_t>(page_index) < pages.size())
-                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw);
+                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw,
+                                     &usageComplete);
         }
 
         std::string repairs;
@@ -2221,7 +2274,7 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
             const std::vector<std::string>* used = nullptr;
             auto itU = usedRaw.find(fe.key);
             if (itU != usedRaw.end()) used = &itU->second;
-            FontRepairDecision d = decide_font_repair(fe.dict, used);
+            FontRepairDecision d = decide_font_repair(fe.dict, used, usageComplete);
             if (!d.eligible) {
                 if (!firstSkip) skipped += ",";
                 firstSkip = false;
@@ -2261,10 +2314,12 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
         // Codes shown on this page per font resource; an unreadable content
         // stream simply yields no used codes.
         std::unordered_map<std::string, std::vector<std::string>> usedRaw;
+        bool usageComplete = true;
         {
             std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
             if (page_index >= 0 && static_cast<size_t>(page_index) < pages.size())
-                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw);
+                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw,
+                                     &usageComplete);
         }
 
         int fixed = 0;
@@ -2273,7 +2328,7 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
             const std::vector<std::string>* used = nullptr;
             auto itU = usedRaw.find(fe.key);
             if (itU != usedRaw.end()) used = &itU->second;
-            FontRepairDecision d = decide_font_repair(fd, used);
+            FontRepairDecision d = decide_font_repair(fd, used, usageComplete);
             if (!d.eligible) continue;
             fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, d.cmap));
             ++fixed;
