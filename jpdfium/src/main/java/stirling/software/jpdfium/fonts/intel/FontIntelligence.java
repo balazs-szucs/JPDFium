@@ -189,16 +189,14 @@ public final class FontIntelligence {
                     .computeIfAbsent(e.pageIndex(), k -> new LinkedHashMap<>())
                     .put(e.resourceName(), e);
         }
+        NativeDocumentPlan documentPlan = parseDocumentPlan(FontLib.planPages(document.nativeHandle()));
         List<FontRepairPlan> plans = new ArrayList<>();
-        for (String pageObject : jsonTopLevelObjects(FontLib.planPages(document.nativeHandle()))) {
-            int pageIndex = pageIndexOf(pageObject);
-            if (pageIndex < 0) {
-                continue;
-            }
+        for (Map.Entry<Integer, NativePlan> entry : documentPlan.byPage().entrySet()) {
             plans.addAll(plansFrom(
-                    evidenceByPage.getOrDefault(pageIndex, Map.of()),
-                    NativePlan.parse(pageObject),
-                    pageIndex));
+                    evidenceByPage.getOrDefault(entry.getKey(), Map.of()),
+                    entry.getValue(),
+                    documentPlan.referencesByObject(),
+                    entry.getKey()));
         }
         return plans;
     }
@@ -218,18 +216,23 @@ public final class FontIntelligence {
         for (FontEvidence e : inspectPage(document, pageIndex)) {
             byResource.put(e.resourceName(), e);
         }
-        NativePlan plan = NativePlan.parse(FontLib.planJson(document.nativeHandle(), pageIndex));
-        return plansFrom(byResource, plan, pageIndex);
+        NativeDocumentPlan plan = parseDocumentPlan(FontLib.planJson(document.nativeHandle(), pageIndex));
+        NativePlan pagePlan = plan.byPage().get(pageIndex);
+        if (pagePlan == null) {
+            return List.of();
+        }
+        return plansFrom(byResource, pagePlan, plan.referencesByObject(), pageIndex);
     }
 
     /**
      * Build authorisable plans from one page's evidence and its native plan rows.
      * The plan fields are identical whether the rows came from the single-page or
-     * the batched planner, because both derive from the same native decision.
+     * the batched planner, because both derive from the same native decision. Each
+     * repair row names the font object it mutates; the affected-reference set is
+     * the document-wide reference table for that object.
      */
     private static List<FontRepairPlan> plansFrom(Map<String, FontEvidence> byResource,
-            NativePlan plan, int pageIndex) {
-        Map<String, List<String>> affected = affectedReferences(plan.references());
+            NativePlan plan, Map<String, List<String>> referencesByObject, int pageIndex) {
         List<FontRepairPlan> plans = new ArrayList<>();
         for (Map<String, String> row : plan.repairs()) {
             String resource = row.get("resource");
@@ -252,7 +255,7 @@ public final class FontIntelligence {
                     rationale,
                     stateFingerprint(e),
                     row.getOrDefault("identity", ""),
-                    affected.getOrDefault(pageIndex + "\u0000" + resource, List.of())));
+                    referencesByObject.getOrDefault(row.getOrDefault("object", ""), List.of())));
         }
         return plans;
     }
@@ -268,44 +271,61 @@ public final class FontIntelligence {
             throw new IllegalArgumentException("pageIndex out of range: " + pageIndex);
         }
         List<FontDiagnosticFinding> out = new ArrayList<>();
-        for (Map<String, String> row : nativeSkips(document, pageIndex)) {
+        appendDiagnostics(pageIndex, nativeSkips(document, pageIndex), out);
+        return out;
+    }
+
+    /** Structured reasons for every page, in page order, from one batch plan. */
+    public static List<FontDiagnosticFinding> diagnostics(PdfDocument document) {
+        Objects.requireNonNull(document, "document");
+        NativeDocumentPlan plan = parseDocumentPlan(FontLib.planPages(document.nativeHandle()));
+        List<FontDiagnosticFinding> out = new ArrayList<>();
+        for (Map.Entry<Integer, NativePlan> entry : plan.byPage().entrySet()) {
+            appendDiagnostics(entry.getKey(), entry.getValue().skipped(), out);
+        }
+        return out;
+    }
+
+    /** The native plan's withheld resources for one page. */
+    private static List<Map<String, String>> nativeSkips(PdfDocument document, int pageIndex) {
+        NativeDocumentPlan plan = parseDocumentPlan(FontLib.planJson(document.nativeHandle(), pageIndex));
+        NativePlan pagePlan = plan.byPage().get(pageIndex);
+        return pagePlan == null ? List.of() : pagePlan.skipped();
+    }
+
+    private static void appendDiagnostics(int pageIndex, List<Map<String, String>> skips,
+            List<FontDiagnosticFinding> out) {
+        for (Map<String, String> row : skips) {
             FontDiagnostic.fromCode(row.get("code")).ifPresent(diagnostic -> out.add(
                     new FontDiagnosticFinding(
                             pageIndex, row.getOrDefault("resource", ""), diagnostic)));
         }
-        return out;
-    }
-
-    /** Structured reasons for every page, in page order. */
-    public static List<FontDiagnosticFinding> diagnostics(PdfDocument document) {
-        Objects.requireNonNull(document, "document");
-        List<FontDiagnosticFinding> out = new ArrayList<>();
-        for (int pageIndex = 0; pageIndex < document.pageCount(); pageIndex++) {
-            out.addAll(diagnostics(document, pageIndex));
-        }
-        return out;
-    }
-
-    /** The native plan's withheld resources, with their human reason and code. */
-    private static List<Map<String, String>> nativeSkips(PdfDocument document, int pageIndex) {
-        return jsonArray(FontLib.planJson(document.nativeHandle(), pageIndex), "\"skipped\":[");
     }
 
     /**
-     * Every (page, resource) reference the document shares with each repaired
-     * resource, keyed by the owner reference. A shared font dictionary is mutated
-     * for all of them at once, so a plan must carry the full set and the caller
-     * must authorise all of it.
+     * Every reference in the document that reaches each font object, keyed by the
+     * native object identity. A shared font dictionary is mutated for every one of
+     * them at once, so a plan must carry the full set and the caller must
+     * authorise all of it. References are scope-qualified (a form XObject's
+     * {@code /LocalFont} is distinct from a page's own {@code /LocalFont}).
      */
-    private static Map<String, List<String>> affectedReferences(List<Map<String, String>> references) {
-        Map<String, List<String>> byOwner = new LinkedHashMap<>();
+    private static Map<String, List<String>> referencesByObject(List<Map<String, String>> references) {
+        Map<String, List<String>> byObject = new LinkedHashMap<>();
+        Set<String> seen = new HashSet<>();
         for (Map<String, String> ref : references) {
-            String owner = ref.get("owner_page") + "\u0000" + ref.get("owner");
+            String object = ref.get("object");
+            if (object == null || object.isEmpty()) {
+                continue;
+            }
             String key = FontRepairPlan.referenceKey(
-                    parsePageIndex(ref.get("page_index")), ref.get("resource"));
-            byOwner.computeIfAbsent(owner, k -> new ArrayList<>()).add(key);
+                    parsePageIndex(ref.get("page_index")),
+                    ref.getOrDefault("scope_path", ""),
+                    ref.get("resource"));
+            if (seen.add(object + "\u0000" + key)) {
+                byObject.computeIfAbsent(object, k -> new ArrayList<>()).add(key);
+            }
         }
-        return byOwner;
+        return byObject;
     }
 
     private static int parsePageIndex(String value) {
@@ -329,31 +349,88 @@ public final class FontIntelligence {
         return NativeJsonParser.parseArray(json.substring(from, end + 1));
     }
 
+    /** The bracketed array following {@code key}, with nesting and strings tracked. */
+    private static String arraySlice(String json, String key) {
+        int start = json.indexOf(key);
+        if (start < 0) {
+            return "[]";
+        }
+        int from = json.indexOf('[', start + key.length());
+        if (from < 0) {
+            return "[]";
+        }
+        int depth = 0;
+        boolean inString = false;
+        for (int i = from; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inString) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+            } else if (c == '[') {
+                depth++;
+            } else if (c == ']') {
+                depth--;
+                if (depth == 0) {
+                    return json.substring(from, i + 1);
+                }
+            }
+        }
+        return "[]";
+    }
+
+    private static boolean jsonBool(String json, String key, boolean fallback) {
+        int at = json.indexOf(key);
+        if (at < 0) {
+            return fallback;
+        }
+        return json.startsWith("true", at + key.length());
+    }
+
     /**
      * One page's native plan rows, parsed once so a caller reads repairs and
-     * references from the same snapshot instead of re-invoking the planner.
+     * skips from the same snapshot instead of re-invoking the planner.
+     * {@code referencesComplete} is false when the page's font-reference graph
+     * could not be read exactly and object-wide mutation must be refused.
      */
     private record NativePlan(
             List<Map<String, String>> repairs,
-            List<Map<String, String>> references) {
+            List<Map<String, String>> skipped,
+            boolean referencesComplete) {
 
-        static NativePlan parse(String planJson) {
+        static NativePlan parse(String pageObject) {
             return new NativePlan(
-                    jsonArray(planJson, "\"repairs\":["),
-                    jsonArray(planJson, "\"references\":["));
+                    jsonArray(pageObject, "\"repairs\":["),
+                    jsonArray(pageObject, "\"skipped\":[") ,
+                    jsonBool(pageObject, "\"references_complete\":", true));
         }
     }
 
-    /** One native plan per page, from a single batch planner call. */
-    private static Map<Integer, NativePlan> nativePlansByPage(PdfDocument document) {
+    /**
+     * A whole-document native plan: one {@link NativePlan} per page plus the
+     * document-wide font-object reference table, parsed from a single batch
+     * planner call so references are serialized once per object.
+     */
+    private record NativeDocumentPlan(
+            Map<Integer, NativePlan> byPage,
+            Map<String, List<String>> referencesByObject) {}
+
+    private static NativeDocumentPlan parseDocumentPlan(String json) {
         Map<Integer, NativePlan> byPage = new LinkedHashMap<>();
-        for (String pageObject : jsonTopLevelObjects(FontLib.planPages(document.nativeHandle()))) {
+        for (String pageObject : jsonTopLevelObjects(arraySlice(json, "\"pages\":"))) {
             int pageIndex = pageIndexOf(pageObject);
             if (pageIndex >= 0) {
                 byPage.put(pageIndex, NativePlan.parse(pageObject));
             }
         }
-        return byPage;
+        return new NativeDocumentPlan(
+                byPage, referencesByObject(jsonArray(json, "\"references\":[")));
     }
 
     /**
@@ -459,23 +536,46 @@ public final class FontIntelligence {
 
         // One batch plan for the whole document validates every touched page from
         // a single snapshot operation, instead of re-planning each page.
-        Map<Integer, NativePlan> nativePlans = nativePlansByPage(document);
+        NativeDocumentPlan documentPlan = parseDocumentPlan(FontLib.planPages(document.nativeHandle()));
+        Map<Integer, NativePlan> nativePlans = documentPlan.byPage();
 
-        // A shared font dictionary is mutated for every reference at once, so the
-        // authorised set must cover all of them, not just the page that names them.
+        // Consent is separate from eligibility. A plan authorises its own
+        // reference; a reference that some other page reaches through the same
+        // shared font object but which needs no repair of its own has no mutating
+        // plan to name it, so the plan that reaches it consents to it. A reference
+        // that does have a document-wide repair but was not passed as a plan is
+        // still refused, so a partially authorised object stays refused.
+        Set<String> documentMutatingRefs = new HashSet<>();
+        for (Map.Entry<Integer, NativePlan> page : nativePlans.entrySet()) {
+            for (Map<String, String> row : page.getValue().repairs()) {
+                documentMutatingRefs.add(
+                        FontRepairPlan.referenceKey(page.getKey(), row.get("resource")));
+            }
+        }
         Set<String> authorisedRefs = new HashSet<>();
         for (FontRepairPlan plan : plans) {
             if (plan.mutates()) {
-                authorisedRefs.add(FontRepairPlan.referenceKey(plan.pageIndex(), plan.resourceName()));
+                authorisedRefs.add(
+                        FontRepairPlan.referenceKey(plan.pageIndex(), "", plan.resourceName()));
+            }
+        }
+        Set<String> consentedRefs = new HashSet<>(authorisedRefs);
+        for (FontRepairPlan plan : plans) {
+            if (plan.mutates()) {
+                for (String ref : plan.affectedReferences()) {
+                    if (!documentMutatingRefs.contains(ref)) {
+                        consentedRefs.add(ref);
+                    }
+                }
             }
         }
         for (FontRepairPlan plan : plans) {
             if (!plan.mutates()) {
                 continue;
             }
-            requireFresh(document, plan, nativePlans);
+            requireFresh(document, plan, documentPlan);
             for (String ref : plan.affectedReferences()) {
-                if (!authorisedRefs.contains(ref)) {
+                if (!consentedRefs.contains(ref)) {
                     int sep = ref.indexOf('\u0000');
                     String shared = sep < 0 ? ref : ref.substring(sep + 1);
                     throw new StaleRepairPlanException("font resource " + plan.resourceName()
@@ -488,11 +588,17 @@ public final class FontIntelligence {
 
         for (Map.Entry<Integer, List<FontRepairPlan>> entry : byPage.entrySet()) {
             int pageIndex = entry.getKey();
+            NativePlan pagePlan = nativePlans.get(pageIndex);
+            if (pagePlan != null && !pagePlan.referencesComplete()) {
+                throw new StaleRepairPlanException("page " + pageIndex
+                        + " reaches a font through a scope that cannot be enumerated,"
+                        + " so its shared-font scope is incomplete and no write"
+                        + " is authorised");
+            }
             Set<String> authorised = new HashSet<>();
             for (FontRepairPlan plan : entry.getValue()) {
                 authorised.add(plan.resourceName());
             }
-            NativePlan pagePlan = nativePlans.get(pageIndex);
             List<Map<String, String>> repairs = pagePlan == null ? List.of() : pagePlan.repairs();
             for (Map<String, String> row : repairs) {
                 if (!authorised.contains(row.get("resource"))) {
@@ -514,7 +620,7 @@ public final class FontIntelligence {
      * validating against the already-fetched batch plan for the plan's page.
      */
     private static void requireFresh(PdfDocument document, FontRepairPlan plan,
-            Map<Integer, NativePlan> nativePlans) {
+            NativeDocumentPlan documentPlan) {
         if (plan.pageIndex() < 0 || plan.pageIndex() >= document.pageCount()) {
             throw new StaleRepairPlanException(
                     "plan targets page " + plan.pageIndex() + " which is not present");
@@ -524,9 +630,10 @@ public final class FontIntelligence {
                     + " on page " + plan.pageIndex()
                     + " was not prepared against the native plan and cannot authorise a write");
         }
-        NativePlan pagePlan = nativePlans.get(plan.pageIndex());
+        NativePlan pagePlan = documentPlan.byPage().get(plan.pageIndex());
         List<Map<String, String>> repairs = pagePlan == null ? List.of() : pagePlan.repairs();
         boolean present = false;
+        String object = "";
         for (Map<String, String> row : repairs) {
             if (!plan.resourceName().equals(row.get("resource"))) {
                 continue;
@@ -537,22 +644,18 @@ public final class FontIntelligence {
                         + " on page " + plan.pageIndex()
                         + " changed since the plan was prepared");
             }
+            object = row.getOrDefault("object", "");
         }
         if (!present) {
             throw new StaleRepairPlanException("font resource " + plan.resourceName() + " on page "
                     + plan.pageIndex() + " is no longer present");
         }
-        List<Map<String, String>> references = pagePlan == null ? List.of() : pagePlan.references();
-        List<String> currentAffected = affectedReferences(references)
-                .getOrDefault(pageIndexKey(plan), List.of());
+        List<String> currentAffected =
+                documentPlan.referencesByObject().getOrDefault(object, List.of());
         if (!new HashSet<>(currentAffected).equals(new HashSet<>(plan.affectedReferences()))) {
             throw new StaleRepairPlanException("the shared-font references of " + plan.resourceName()
                     + " on page " + plan.pageIndex() + " changed since the plan was prepared");
         }
-    }
-
-    private static String pageIndexKey(FontRepairPlan plan) {
-        return plan.pageIndex() + "\u0000" + plan.resourceName();
     }
 
     /** Repair one page's {@code /ToUnicode} where evidence supports it. */

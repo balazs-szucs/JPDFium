@@ -2353,6 +2353,123 @@ public class JpdfiumH extends JpdfiumH$shared {
         }
     }
 
+    private static class jpdfium_native_metrics {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(
+            JpdfiumH.C_INT,
+            JpdfiumH.C_POINTER
+        );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("jpdfium_native_metrics");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * Function descriptor for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_native_metrics(char **json)
+     * }
+     */
+    public static FunctionDescriptor jpdfium_native_metrics$descriptor() {
+        return jpdfium_native_metrics.DESC;
+    }
+
+    /**
+     * Downcall method handle for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_native_metrics(char **json)
+     * }
+     */
+    public static MethodHandle jpdfium_native_metrics$handle() {
+        return jpdfium_native_metrics.HANDLE;
+    }
+
+    /**
+     * Address for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_native_metrics(char **json)
+     * }
+     */
+    public static MemorySegment jpdfium_native_metrics$address() {
+        return jpdfium_native_metrics.ADDR;
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int32_t jpdfium_native_metrics(char **json)
+     * }
+     */
+    public static int jpdfium_native_metrics(MemorySegment json) {
+        var mh$ = jpdfium_native_metrics.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("jpdfium_native_metrics", json);
+            }
+            return (int)mh$.invokeExact(json);
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
+    private static class jpdfium_native_metrics_reset {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.ofVoid(    );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("jpdfium_native_metrics_reset");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * Function descriptor for:
+     * {@snippet lang=c :
+     * void jpdfium_native_metrics_reset(void)
+     * }
+     */
+    public static FunctionDescriptor jpdfium_native_metrics_reset$descriptor() {
+        return jpdfium_native_metrics_reset.DESC;
+    }
+
+    /**
+     * Downcall method handle for:
+     * {@snippet lang=c :
+     * void jpdfium_native_metrics_reset(void)
+     * }
+     */
+    public static MethodHandle jpdfium_native_metrics_reset$handle() {
+        return jpdfium_native_metrics_reset.HANDLE;
+    }
+
+    /**
+     * Address for:
+     * {@snippet lang=c :
+     * void jpdfium_native_metrics_reset(void)
+     * }
+     */
+    public static MemorySegment jpdfium_native_metrics_reset$address() {
+        return jpdfium_native_metrics_reset.ADDR;
+    }
+
+    /**
+     * {@snippet lang=c :
+     * void jpdfium_native_metrics_reset(void)
+     * }
+     */
+    public static void jpdfium_native_metrics_reset() {
+        var mh$ = jpdfium_native_metrics_reset.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("jpdfium_native_metrics_reset");
+            }
+            mh$.invokeExact();
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
     private static class jpdfium_redact_region {
         public static final FunctionDescriptor DESC = FunctionDescriptor.of(
             JpdfiumH.C_INT,

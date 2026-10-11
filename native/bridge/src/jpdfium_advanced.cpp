@@ -25,12 +25,45 @@
 // synchronisation primitive. The reset is the only state-changing entry point.
 static std::atomic<int64_t> g_native_op_count{0};
 
+// Work counters for the font-reference graph and program cache. Diagnostics
+// only, like the snapshot counter: they measure the plan/apply paths so their
+// scaling can be benchmarked, and never gate behaviour. `reference_nodes` is the
+// number of resource dictionaries visited while building the graph,
+// `reference_lookups` the number of font-object lookups against the reverse
+// index, `programs_analyzed` the number of distinct font programs actually
+// decoded, and `program_bytes_hashed` the total program bytes hashed.
+static std::atomic<int64_t> g_reference_nodes{0};
+static std::atomic<int64_t> g_reference_lookups{0};
+static std::atomic<int64_t> g_programs_analyzed{0};
+static std::atomic<int64_t> g_program_bytes_hashed{0};
+
 int64_t jpdfium_native_op_count(void) noexcept {
     return g_native_op_count.load(std::memory_order_relaxed);
 }
 
 void jpdfium_native_op_reset(void) noexcept {
     g_native_op_count.store(0, std::memory_order_relaxed);
+}
+
+int32_t jpdfium_native_metrics(char** json) noexcept {
+    if (!json) return JPDFIUM_ERR_INVALID;
+    *json = nullptr;
+    std::string out = "{\"snapshot_ops\":" + std::to_string(g_native_op_count.load(std::memory_order_relaxed))
+                    + ",\"reference_nodes\":" + std::to_string(g_reference_nodes.load(std::memory_order_relaxed))
+                    + ",\"reference_lookups\":" + std::to_string(g_reference_lookups.load(std::memory_order_relaxed))
+                    + ",\"programs_analyzed\":" + std::to_string(g_programs_analyzed.load(std::memory_order_relaxed))
+                    + ",\"program_bytes_hashed\":" + std::to_string(g_program_bytes_hashed.load(std::memory_order_relaxed))
+                    + "}";
+    *json = strdup(out.c_str());
+    return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
+}
+
+void jpdfium_native_metrics_reset(void) noexcept {
+    g_native_op_count.store(0, std::memory_order_relaxed);
+    g_reference_nodes.store(0, std::memory_order_relaxed);
+    g_reference_lookups.store(0, std::memory_order_relaxed);
+    g_programs_analyzed.store(0, std::memory_order_relaxed);
+    g_program_bytes_hashed.store(0, std::memory_order_relaxed);
 }
 
 // PCRE2 JIT Pattern Engine
@@ -1148,6 +1181,7 @@ using ProgramCache =
 
 GlyphMaps const& glyph_maps_cached(const std::string& bytes, ProgramCache& cache) {
     std::string key = program_content_hash(bytes);
+    g_program_bytes_hashed.fetch_add(static_cast<int64_t>(bytes.size()), std::memory_order_relaxed);
     auto it = cache.find(key);
     if (it == cache.end()) {
         it = cache.emplace(key, std::vector<std::pair<std::string, GlyphMaps>>{}).first;
@@ -1158,6 +1192,7 @@ GlyphMaps const& glyph_maps_cached(const std::string& bytes, ProgramCache& cache
     // Distinct bytes under an identical hash: keep them separate, never merged.
     GlyphMaps gm =
         build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    g_programs_analyzed.fetch_add(1, std::memory_order_relaxed);
     it->second.emplace_back(bytes, std::move(gm));
     return it->second.back().second;
 }
@@ -1832,21 +1867,172 @@ bool same_font(QPDFObjectHandle const& a, QPDFObjectHandle const& b) {
     return a.unparse() == b.unparse();
 }
 
-// Every (page, resource) reference in the document that denotes the same font
-// object as `fd`. A mutation of `fd` reaches all of them, so a plan that
-// authorises one reference must see the others before it writes.
-std::vector<std::pair<int32_t, std::string>> font_references(
-    const std::vector<QPDFObjectHandle>& pages, QPDFObjectHandle const& fd) {
-    std::vector<std::pair<int32_t, std::string>> refs;
-    for (size_t p = 0; p < pages.size(); ++p) {
-        std::vector<FontEntry> fonts;
-        if (!page_font_dicts(pages, static_cast<int32_t>(p), fonts)) continue;
-        for (const auto& fe : fonts)
-            if (same_font(fe.dict, fd))
-                refs.emplace_back(static_cast<int32_t>(p), fe.key);
+// A reference to a font object from one resource scope. `scope_path` is empty
+// for a page's own /Resources and otherwise names the containing form XObject
+// chain (e.g. "/Form1" or "/Form1/Inner"), so a font reached through a form is
+// distinguishable from the same resource name on the page itself.
+struct FontRef {
+    int32_t page_index;
+    std::string scope;       // "page" | "xobject" | "annotation"
+    std::string scope_path;  // "" for page scope
+    std::string resource;    // font resource name, with leading slash
+};
+
+// A stable identity for a font object, so references can be indexed by object
+// once per operation instead of rescanning every scope per candidate font.
+// An indirect object is identified by its object/generation number and is
+// genuinely shared across the scopes that reach it. A direct dictionary has no
+// document identity, and identical content named from two scopes is two
+// distinct objects: it is identified by the single scope that names it so it is
+// never falsely reported as a shared font.
+std::string font_identity(QPDFObjectHandle const& d, int32_t page_index,
+                          const std::string& scope, const std::string& scope_path,
+                          const std::string& resource) {
+    if (d.isIndirect()) {
+        QPDFObjGen og = d.getObjGen();
+        return "i" + std::to_string(og.getObj()) + ":" + std::to_string(og.getGen());
     }
-    return refs;
+    return "d" + std::to_string(page_index) + ":" + scope + ":" + scope_path + ":" + resource;
 }
+
+// Bounded font-reference graph for one document, built in a single pass:
+//   font-object identity -> every (page, scope, resource) that reaches it.
+// Each page's own /Resources /Font, every form XObject reachable through
+// /Resources /XObject (recursively), and annotation appearance streams are
+// traversed. `pageComplete[page]` is false when a scope could not be read
+// exactly, so a plan for that page can refuse object-wide mutation rather than
+// under-disclose a shared font.
+struct ReferenceIndex {
+    std::unordered_map<std::string, std::vector<FontRef>> byIdentity;
+    std::unordered_map<int32_t, bool> pageComplete;
+
+    const std::vector<FontRef>* lookup(QPDFObjectHandle const& fd, int32_t page_index,
+                                       const std::string& scope, const std::string& scope_path,
+                                       const std::string& resource) const {
+        g_reference_lookups.fetch_add(1, std::memory_order_relaxed);
+        auto it = byIdentity.find(font_identity(fd, page_index, scope, scope_path, resource));
+        return it == byIdentity.end() ? nullptr : &it->second;
+    }
+
+    bool complete(int32_t page_index) const {
+        auto it = pageComplete.find(page_index);
+        return it == pageComplete.end() || it->second;
+    }
+};
+
+constexpr int kMaxRefDepth = 32;  // bounded nesting; deeper scopes are "unknown"
+
+void index_resources(QPDFObjectHandle const& res, int32_t page_index,
+                     const std::string& scope, const std::string& scope_path,
+                     ReferenceIndex& index, std::set<QPDFObjGen>& seen, int depth);
+
+// A form XObject executes with its own /Resources or, when absent, the caller's.
+// Recurse into the form's resources so a font it names is disclosed; a form
+// without /Resources adds no reference of its own (it uses the caller's).
+void index_form(QPDFObjectHandle const& xobj, int32_t page_index, const std::string& scope,
+                const std::string& scope_path, ReferenceIndex& index,
+                std::set<QPDFObjGen>& seen, int depth) {
+    if (depth >= kMaxRefDepth) {
+        index.pageComplete[page_index] = false;
+        return;
+    }
+    if (xobj.isIndirect()) {
+        QPDFObjGen og = xobj.getObjGen();
+        if (og.getObj() != 0 && !seen.insert(og).second) return;  // cycle / repeat
+    }
+    QPDFObjectHandle formDict = xobj.getDict();
+    if (!formDict.hasKey("/Resources")) return;  // inherits the caller's scope
+    index_resources(formDict.getKey("/Resources"), page_index, scope, scope_path, index, seen,
+                    depth + 1);
+}
+
+void index_resources(QPDFObjectHandle const& res, int32_t page_index,
+                     const std::string& scope, const std::string& scope_path,
+                     ReferenceIndex& index, std::set<QPDFObjGen>& seen, int depth) {
+    if (!res.isDictionary()) return;
+    g_reference_nodes.fetch_add(1, std::memory_order_relaxed);
+    if (res.hasKey("/Font")) {
+        QPDFObjectHandle fdict = res.getKey("/Font");
+        if (fdict.isDictionary()) {
+            for (const auto& k : fdict.getKeys()) {
+                QPDFObjectHandle d = fdict.getKey(k);
+                if (d.isDictionary())
+                    index.byIdentity[font_identity(d, page_index, scope, scope_path, k)]
+                        .push_back({page_index, scope, scope_path, k});
+            }
+        } else {
+            index.pageComplete[page_index] = false;
+        }
+    }
+    if (!res.hasKey("/XObject")) return;
+    QPDFObjectHandle xos = res.getKey("/XObject");
+    if (!xos.isDictionary()) {
+        index.pageComplete[page_index] = false;
+        return;
+    }
+    for (const auto& k : xos.getKeys()) {
+        QPDFObjectHandle x = xos.getKey(k);
+        if (!x.isFormXObject()) continue;
+        index_form(x, page_index, "xobject", scope_path + k, index, seen, depth);
+    }
+}
+
+// Font resources reachable from a page's annotation appearance streams (/AP /N).
+void index_annotations(QPDFObjectHandle const& page, int32_t page_index, ReferenceIndex& index,
+                       std::set<QPDFObjGen>& seen) {
+    if (!page.isDictionary() || !page.hasKey("/Annots")) return;
+    QPDFObjectHandle annots = page.getKey("/Annots");
+    if (!annots.isArray()) {
+        index.pageComplete[page_index] = false;
+        return;
+    }
+    for (int i = 0; i < annots.getArrayNItems(); ++i) {
+        QPDFObjectHandle a = annots.getArrayItem(i);
+        if (!a.isDictionary() || !a.hasKey("/AP")) continue;
+        QPDFObjectHandle ap = a.getKey("/AP");
+        if (!ap.isDictionary() || !ap.hasKey("/N")) continue;
+        QPDFObjectHandle n = ap.getKey("/N");
+        std::string base = "/Annots[" + std::to_string(i) + "]";
+        if (n.isFormXObject()) {
+            index_form(n, page_index, "annotation", base, index, seen, 0);
+        } else if (n.isDictionary()) {
+            for (const auto& k : n.getKeys()) {
+                QPDFObjectHandle s = n.getKey(k);
+                if (s.isFormXObject())
+                    index_form(s, page_index, "annotation", base + k, index, seen, 0);
+            }
+        }
+    }
+}
+
+ReferenceIndex build_reference_index(const std::vector<QPDFObjectHandle>& pages) {
+    ReferenceIndex index;
+    for (size_t p = 0; p < pages.size(); ++p) {
+        int32_t pi = static_cast<int32_t>(p);
+        std::set<QPDFObjGen> seen;  // per page: a shared form discloses per page
+        QPDFObjectHandle res = QPDFPageObjectHelper(pages[p]).getAttribute("/Resources", false);
+        index_resources(res, pi, "page", "", index, seen, 0);
+        index_annotations(pages[p], pi, index, seen);
+    }
+    return index;
+}
+
+// Every reference in the prebuilt index that denotes the same font object as
+// `fd`. A mutation of `fd` reaches all of them, so a plan that authorises one
+// reference must see the others before it writes.
+std::vector<FontRef> font_references(const ReferenceIndex& index, QPDFObjectHandle const& fd,
+                                     int32_t page_index, const std::string& resource) {
+    const std::vector<FontRef>* refs = index.lookup(fd, page_index, "page", "", resource);
+    return refs ? *refs : std::vector<FontRef>{};
+}
+
+// An eligible page font entry: the page whose table named it, the resource name,
+// and the (possibly shared, indirect) font object it resolves to.
+struct EligibleFont {
+    int32_t page_index;
+    std::string key;
+    QPDFObjectHandle dict;
+};
 
 void scan_content(const std::string& data, QPDFObjectHandle const& resources,
                   const std::unordered_map<std::string, QPDFObjectHandle>& pageFonts,
@@ -2456,12 +2642,17 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
 }
 
 // Build the plan JSON object for one page from an already-loaded page vector,
-// reusing the shared program cache. Returns false when page_index doesn't exist.
-// This is the single definition of the per-page plan shape, shared by
-// jpdfium_font_plan (one page) and jpdfium_font_plan_pages (every page), so both
-// report exactly what jpdfium_font_fix_tounicode* would change.
-bool font_plan_page_json(const std::vector<QPDFObjectHandle>& pages, int32_t page_index,
-                         ProgramCache& cache, std::string& out) {
+// reusing the shared program cache and prebuilt reference index. Returns false
+// when page_index doesn't exist. This is the single definition of the per-page
+// plan shape, shared by jpdfium_font_plan (one page) and jpdfium_font_plan_pages
+// (every page), so both report exactly what jpdfium_font_fix_tounicode* would
+// change. `references_complete` is false when the page's resource graph could
+// not be read exactly, so a caller can refuse object-wide mutation. Eligible
+// font objects are appended to `eligibleOut` so the document-level reference
+// table can be emitted once instead of repeated under every owner page.
+bool font_plan_page_json(const std::vector<QPDFObjectHandle>& pages, const ReferenceIndex& index,
+                         int32_t page_index, ProgramCache& cache, std::string& out,
+                         std::vector<EligibleFont>* eligibleOut) {
     std::vector<FontEntry> fonts;
     if (!page_font_dicts(pages, page_index, fonts)) return false;
 
@@ -2474,7 +2665,6 @@ bool font_plan_page_json(const std::vector<QPDFObjectHandle>& pages, int32_t pag
     std::string skipped;
     bool firstRepair = true;
     bool firstSkip = true;
-    std::vector<std::pair<std::string, QPDFObjectHandle>> eligible;
     for (auto& fe : fonts) {
         const std::vector<std::string>* used = nullptr;
         auto itU = usedRaw.find(fe.key);
@@ -2491,33 +2681,43 @@ bool font_plan_page_json(const std::vector<QPDFObjectHandle>& pages, int32_t pag
         }
         if (!firstRepair) repairs += ",";
         firstRepair = false;
-        repairs += "{\"resource\":" + escape_json(fe.key) + ",\"mode\":\"" + d.mode
+        repairs += "{\"resource\":" + escape_json(fe.key)
+                   + ",\"object\":"
+                   + escape_json(font_identity(fe.dict, page_index, "page", "", fe.key))
+                   + ",\"mode\":\"" + d.mode
                    + "\",\"used\":" + std::to_string(d.used)
                    + ",\"additions\":" + std::to_string(d.additions)
                    + ",\"identity\":\"" + d.identity + "\"}";
-        eligible.emplace_back(fe.key, fe.dict);
+        if (eligibleOut) eligibleOut->push_back({page_index, fe.key, fe.dict});
     }
 
-    // Every font object a repair would mutate, and every (page, resource)
-    // reference to it. Mutating a shared font dictionary reaches all of its
-    // references, so the plan discloses them and the caller must authorise
-    // the whole set. Emitted as a flat array of flat objects so a simple
-    // parser can read it beside `repairs` and `skipped`.
-    std::string references;
-    bool firstRef = true;
-    for (const auto& owner : eligible) {
-        for (const auto& ref : font_references(pages, owner.second)) {
-            if (!firstRef) references += ",";
-            firstRef = false;
-            references += "{\"page_index\":" + std::to_string(ref.first)
-                          + ",\"resource\":" + escape_json(ref.second)
-                          + ",\"owner_page\":" + std::to_string(page_index)
-                          + ",\"owner\":" + escape_json(owner.first) + "}";
+    out = "{\"page_index\":" + std::to_string(page_index) + ",\"references_complete\":"
+          + (index.complete(page_index) ? "true" : "false") + ",\"repairs\":[" + repairs
+          + "],\"skipped\":[" + skipped + "]}";
+    return true;
+}
+
+// The complete reference set of every font object listed in `eligible`, emitted
+// once per object as a flat array of flat rows (object, page, scope, resource).
+// Mutating a shared font dictionary reaches all of its references, so the plan
+// discloses them and the caller must authorise the whole set.
+void emit_object_references(const ReferenceIndex& index,
+                            const std::vector<EligibleFont>& eligible, std::string& out) {
+    std::set<std::string> emitted;
+    bool first = true;
+    for (const auto& obj : eligible) {
+        std::string id = font_identity(obj.dict, obj.page_index, "page", "", obj.key);
+        if (!emitted.insert(id).second) continue;
+        for (const auto& ref : font_references(index, obj.dict, obj.page_index, obj.key)) {
+            if (!first) out += ",";
+            first = false;
+            out += "{\"object\":" + escape_json(id)
+                   + ",\"page_index\":" + std::to_string(ref.page_index)
+                   + ",\"resource\":" + escape_json(ref.resource)
+                   + ",\"scope\":" + escape_json(ref.scope)
+                   + ",\"scope_path\":" + escape_json(ref.scope_path) + "}";
         }
     }
-    out = "{\"page_index\":" + std::to_string(page_index) + ",\"repairs\":[" + repairs
-          + "],\"skipped\":[" + skipped + "],\"references\":[" + references + "]}";
-    return true;
 }
 
 }  // namespace
@@ -2601,14 +2801,18 @@ int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages, int32_t c
 // Plan the /ToUnicode repairs for a page without mutating the document.
 //
 // Returns the exact set of resources `jpdfium_font_fix_tounicode` would change,
-// with an opaque per-resource identity:
-//   {"page_index":N,
-//    "repairs":[{"resource":"F1","mode":"replace|extend","used":U,"additions":A,"identity":"..."}],
-//    "skipped":[{"resource":"F2","reason":"already_complete"}],
-//    "references":[{"page_index":P,"resource":"R","owner_page":N,"owner":"F1"}]}
-// `references` lists every (page, resource) in the document that denotes the
-// same font object as each repaired resource, so a caller can see that a shared
-// font dictionary will be mutated for every one of its references.
+// with an opaque per-resource identity and the identity of the font object it
+// mutates:
+//   {"pages":[{"page_index":N,"references_complete":true,
+//              "repairs":[{"resource":"F1","object":"i5:0","mode":"replace|extend",
+//                          "used":U,"additions":A,"identity":"..."}],
+//              "skipped":[{"resource":"F2","reason":"already_complete"}]}],
+//    "references":[{"object":"i5:0","page_index":P,"resource":"R",
+//                   "scope":"page|xobject|annotation","scope_path":""}]}
+// The document-level `references` table lists, once per font object, every
+// (page, scope, resource) that reaches it — including form XObjects and
+// annotation appearance streams, so a shared font dictionary is disclosed for
+// EVERY reference it will be mutated through.
 // Callers authorise by resource and apply with jpdfium_font_fix_tounicode; because
 // both use decide_font_repair(), the authorised set is exactly the mutation set.
 // Caller frees *json with jpdfium_free_string.
@@ -2625,8 +2829,14 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
 
         std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
         ProgramCache cache;
-        std::string out;
-        if (!font_plan_page_json(pages, page_index, cache, out)) return JPDFIUM_ERR_NOT_FOUND;
+        ReferenceIndex index = build_reference_index(pages);
+        std::string page;
+        std::vector<EligibleFont> eligible;
+        if (!font_plan_page_json(pages, index, page_index, cache, page, &eligible))
+            return JPDFIUM_ERR_NOT_FOUND;
+        std::string references;
+        emit_object_references(index, eligible, references);
+        std::string out = "{\"pages\":[" + page + "],\"references\":[" + references + "]}";
         *json = strdup(out.c_str());
         return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
     } catch (std::exception&) {
@@ -2635,9 +2845,11 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
 }
 
 // Plan every page's /ToUnicode repairs from ONE document load, analysing each
-// distinct font program once across pages. The output is a JSON array of
-// per-page plan objects, each identical in shape to jpdfium_font_plan:
-//   [{"page_index":0,"repairs":[...],"skipped":[...],"references":[...]}, ...]
+// distinct font program once across pages and indexing every font reference
+// once. The output keeps the single-page shape but wraps the pages:
+//   {"pages":[{"page_index":0,...}, ...],
+//    "references":[{"object":"i5:0","page_index":P,"resource":"R",
+//                   "scope":"...","scope_path":"..."}, ...]}
 // Caller frees *json with jpdfium_free_string.
 int32_t jpdfium_font_plan_pages(int64_t doc, char** json) {
     if (!json) return JPDFIUM_ERR_INVALID;
@@ -2652,16 +2864,22 @@ int32_t jpdfium_font_plan_pages(int64_t doc, char** json) {
 
         std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
         ProgramCache cache;
-        std::string out = "[";
+        ReferenceIndex index = build_reference_index(pages);
+        std::string rows = "[";
+        std::vector<EligibleFont> eligible;
         bool first = true;
         for (size_t i = 0; i < pages.size(); ++i) {
             std::string row;
-            if (!font_plan_page_json(pages, static_cast<int32_t>(i), cache, row)) continue;
-            if (!first) out += ",";
+            if (!font_plan_page_json(pages, index, static_cast<int32_t>(i), cache, row, &eligible))
+                continue;
+            if (!first) rows += ",";
             first = false;
-            out += row;
+            rows += row;
         }
-        out += "]";
+        rows += "]";
+        std::string references;
+        emit_object_references(index, eligible, references);
+        std::string out = "{\"pages\":" + rows + ",\"references\":[" + references + "]}";
         *json = strdup(out.c_str());
         return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
     } catch (std::exception&) {

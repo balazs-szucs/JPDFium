@@ -1,0 +1,37 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0000.pdf/save.pdf",
+  "sha256": "32d6cef4d9adf0732ab24e787a66271283e53b5592c69aecff9f57f4ec5f9366",
+  "qpdf_check": 0,
+  "pages": 5,
+  "text_len": 10212,
+  "text_sha256": "49ccf63a9a7d522220ddeb7444f6654bd65e4f7862657491c0b4ddad945aa559",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 5,
+    "sha": [
+      "a05e0874c33c6704c8b186670de4915fcfae97cf0670b0400b5b69b7ba402ce3",
+      "ea4db161da4298e1e8b1469e696ae3f7bf9c4b35a7b3002b09e7c6366ab5c17a",
+      "eb34c6aae6d067d63d924c9fd93c8dfb8bd091fbe630582a048f8d7a1eee7678",
+      "86a58c98a418ef0296f08edc5b7a08e6a5eadb170d49c6f208e1825c6386aa0d",
+      "e208b1bca897445dc62640947563ea53d4a545adca35b3ec6b6f4bc73d1a003d"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 5,
+    "sha": [
+      "3175f3650e6893a83c3c28b5306bd936c2ee4e7c3dff8519d28f5bb3ecfd1ca6",
+      "8c9a1db2bf3f5f7bb2fb24eaa7b36e51b97b7a678549e5004d7febac398575c8",
+      "45258363c1d2a8befb28fedca2b3cfd599d96fd3a39cc3272240ed1e8b14c83c",
+      "8cafa4f0e648b8f46f671470937c5d046fd1340bde29cedb6eedf22789e4cb03",
+      "12b2c973a0330c434c55c0869c019ff1201675fcbbd3972bb0bcf587e0a5a1e7"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpp1ubl50i",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp8g_kxvfa"
+  },
+  "verapdf": "skipped_not_installed"
+}

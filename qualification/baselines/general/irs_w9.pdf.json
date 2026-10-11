@@ -1,0 +1,39 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/general/irs_w9.pdf",
+  "sha256": "2d420cbb4123dcf1fb82595b2359cfbb5d81f00b9df9d359fcc7af361d093f53",
+  "qpdf_check": 0,
+  "pages": 6,
+  "text_len": 53822,
+  "text_sha256": "164b217181dc063d3031c185129373ba67be329ccbd1a58dbdb15d7cc54f9595",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 6,
+    "sha": [
+      "3de15d0b4eb91ed95eb6ac8890dc7992a7f648f276b74b4176205c0dec475f42",
+      "4fc282a2ec0b1dc02654b94ab7da0c99315e93625d1c1aa31c9636c37acd423c",
+      "ebb45937ad1481f8a864c4657b192add7d0b009dc5af8588cb75964e9d8940c7",
+      "bda4302291b8ff4cb0ba83196a4c17f04d14190bbd08ab337cdfe3f6869f02c8",
+      "8c85ad51a0a24a52f37a7b6f597742801ffdd95cb0eaa109d422648511d0da78",
+      "c2e5f2e9b6162165f50552263b014c97a52fe3e1f08b11e3796efcf1eedd7f87"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 6,
+    "sha": [
+      "f19b275145e1cbe335180273cfa19f9decc963549a9178dd9f85e6d6ba7c1821",
+      "4ef4aa8045c12d172ee7be1e6a41ed178ad1137f4227f32832a0458a0f9e9c24",
+      "93f5c6d39094090aac06683564f8b8026b82bb55c282534810b9aa5ae955e468",
+      "c29ea21d7931bb0968e4bd51c59eafd081ead17b6f6af34dcbbb74ca4494405a",
+      "a0d536290ac7f3ebb3333c72e349202459342d5b7294f6357060c9037a26bd61",
+      "e0130ec7d904f54b329237007cfb917171438b4cb8349dc8de4b3053f33551c2"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmpsqashyow",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmp5_dfxayj"
+  },
+  "verapdf": "skipped_not_installed"
+}

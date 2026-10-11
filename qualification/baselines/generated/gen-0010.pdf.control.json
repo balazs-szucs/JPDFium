@@ -1,0 +1,45 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/generated/gen-0010.pdf/save.pdf",
+  "sha256": "7c34a833df5fca1874981e34f7eee48fed3aa18c22f27927696577ceb618ac1a",
+  "qpdf_check": 0,
+  "pages": 9,
+  "text_len": 9834,
+  "text_sha256": "b7963dd43c109e84ae0f43a4b912c45b9e0042026769f8d6169d16d5b3279983",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 9,
+    "sha": [
+      "1139900ac2312238cbc589abf0ae193e19a258aaf540022a5be6cc33728e8796",
+      "0cde6a2d435afd29290a02720511f13347710cf1c5962f3d90ec337406f6fa45",
+      "1994efb29e1e5e75d9eed89a249fee43a855a4822bc7b775baa4d626862f7bb3",
+      "ff24a87137148cfda766adfc656d4134f96657d9671988a04d55c7de3a415721",
+      "93ab9c9fb150ccbc729c82be1ac374feb48afb672c40c473243b9d13899834cb",
+      "b768beb631e90edfd38197bc2e8ebc84097e6553504604d8d41b1745d8222731",
+      "292d6168efa6ec3c64737925690ead08923baadc1d2a5340f5d06e400d9e5c5a",
+      "5abf75f29701d7b0598a57b78538a27bc61af724a6949ce0bf8315b523bcd20d",
+      "5007e1b6326f4fca5fe2ae9eb6f82daea73c6fd0b7716543a067964d0441131a"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 9,
+    "sha": [
+      "df238efada4f41872c37680f960987a520b38ee5a3b327ecdf8161ba0e9d4caa",
+      "ccbabc9902fc6e0320aa93b320ec4cd6f0989d1c5d06d234fcf2b8d8caf3117e",
+      "21b75c4ca95b62f045e7f74e74d5be326f7808036bd5f159efb198e9b33f82a6",
+      "d1b6a49dadd54a0c189c5fea4710adfb647cdfd8d234941e843dc9b202ad01fd",
+      "f7c232ab4ede7baf4d08dba117da5a041cf51101e31a17104e5bcfd1430d446d",
+      "fbce19ae5cfe208c6704fdf897bd1c16d26704855771aaf95bf83bfd7a832f44",
+      "9ca017ffedf170c4ea77f03dad6116d26db8f2621420fbf207995960db14bab1",
+      "1a28d4223288e6fb85d40cbeef694ef22536f33582e4e6a4a8f57d2b3d99d393",
+      "9db945c1e4f9121be5fe9e686bc9487c472a6dea74a448d5f4bf3edc664509ed"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpyrgxg83x",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp14msapr4"
+  },
+  "verapdf": "skipped_not_installed"
+}

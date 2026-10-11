@@ -1,0 +1,31 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/general/irs_f1040ez.pdf/save.pdf",
+  "sha256": "ea12c33aba328bde0812a70d7895ea7e4dfe5fb26380bce77e3cac6d015f29b5",
+  "qpdf_check": 0,
+  "pages": 2,
+  "text_len": 14779,
+  "text_sha256": "2ad96a5d153c32d381e56bf712c9af45b9c9688a36764a994acdb0436e33f495",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 2,
+    "sha": [
+      "e6aef72e3b923b3241d78b958385adbee4f98282c3b4c98a1fb307a4452dcb3b",
+      "0f5614b620eaa30512aa6e1eb1138ef1bc4786cc26a9a890251c6ce73259c729"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 2,
+    "sha": [
+      "888aef6713c0c26b842d6b83a5fe777aca54f1309e7afa6a2fc5288129fb814d",
+      "7a65ba69361cd88274077709e44a98e9f940e1a94befe609fc1d4af1f1f76f31"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpszihdppf",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpon5l_uyy"
+  },
+  "verapdf": "skipped_not_installed"
+}

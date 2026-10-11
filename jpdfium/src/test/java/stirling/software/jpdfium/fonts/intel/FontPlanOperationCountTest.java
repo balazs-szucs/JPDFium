@@ -2,6 +2,8 @@ package stirling.software.jpdfium.fonts.intel;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -143,6 +145,126 @@ class FontPlanOperationCountTest {
         assertTrue(large[1] <= 2, "apply must stay within two snapshot operations: " + large[1]);
     }
 
+    /**
+     * The reference graph is built once per operation and indexed by font-object
+     * identity, so the work is linear in the number of distinct font objects, not
+     * quadratic in the page count. This is the truthful claim the old
+     * "rescan every page for every candidate font" design would break.
+     *
+     * <p>Two shapes are measured: many pages that each have their own font object
+     * (work grows with the object count) and many pages that share one font object
+     * (work is constant, because the reverse index deduplicates references by
+     * object). The font program bytes are identical in both shapes, so the program
+     * cache must decode exactly one program no matter how many objects embed it.
+     */
+    @Test
+    void referenceWorkScalesWithDistinctObjectsNotPages() throws Exception {
+        assumeTrue(NativeRuntime.isFull(), "needs real native library");
+        Work independent8 = measureWork(independentFontsPdf(8));
+        Work independent32 = measureWork(independentFontsPdf(32));
+        Work shared8 = measureWork(sharedFontPdf(8));
+        Work shared32 = measureWork(sharedFontPdf(32));
+
+        System.out.printf(
+                "FontIntelligence reference work by document shape:%n"
+                + "  independent  8 pages: nodes=%d lookups=%d programs=%d bytesHashed=%d"
+                + " planJson=%dB heapGrowth=%dB elapsed=%.1fms plans=%d%n"
+                + "  independent 32 pages: nodes=%d lookups=%d programs=%d bytesHashed=%d"
+                + " planJson=%dB heapGrowth=%dB elapsed=%.1fms plans=%d%n"
+                + "  shared       8 pages: nodes=%d lookups=%d programs=%d bytesHashed=%d"
+                + " planJson=%dB heapGrowth=%dB elapsed=%.1fms plans=%d%n"
+                + "  shared      32 pages: nodes=%d lookups=%d programs=%d bytesHashed=%d"
+                + " planJson=%dB heapGrowth=%dB elapsed=%.1fms plans=%d%n",
+                independent8.nodes(), independent8.lookups(), independent8.programs(),
+                independent8.bytesHashed(), independent8.planJsonBytes(),
+                independent8.heapGrowthBytes(), independent8.elapsedMillis(), independent8.plans(),
+                independent32.nodes(), independent32.lookups(), independent32.programs(),
+                independent32.bytesHashed(), independent32.planJsonBytes(),
+                independent32.heapGrowthBytes(), independent32.elapsedMillis(),
+                independent32.plans(),
+                shared8.nodes(), shared8.lookups(), shared8.programs(), shared8.bytesHashed(),
+                shared8.planJsonBytes(), shared8.heapGrowthBytes(), shared8.elapsedMillis(),
+                shared8.plans(),
+                shared32.nodes(), shared32.lookups(), shared32.programs(), shared32.bytesHashed(),
+                shared32.planJsonBytes(), shared32.heapGrowthBytes(), shared32.elapsedMillis(),
+                shared32.plans());
+
+        // Distinct objects: one lookup per eligible object, linear in the object
+        // count. A quadratic rescan would be ~16x from 8 to 32 pages.
+        assertEquals(8, independent8.lookups(),
+                "one indexed lookup per distinct eligible font object");
+        assertEquals(32, independent32.lookups(),
+                "one indexed lookup per distinct eligible font object");
+        assertTrue(independent32.lookups() <= 6 * independent8.lookups(),
+                "reference lookups must grow linearly, not quadratically: "
+                        + independent8.lookups() + " -> " + independent32.lookups());
+        assertTrue(independent32.nodes() <= 6 * independent8.nodes(),
+                "resource dictionaries visited must grow linearly, not quadratically: "
+                        + independent8.nodes() + " -> " + independent32.nodes());
+
+        // Shared object: one distinct font object, so the reverse index returns the
+        // whole reference set from a single lookup regardless of the page count.
+        assertEquals(1, shared8.lookups(),
+                "a shared font object must be looked up once, not once per page");
+        assertEquals(1, shared32.lookups(),
+                "a shared font object must be looked up once, not once per page");
+        assertEquals(8, shared8.plans(), "each page's shared font must still plan once");
+        assertEquals(32, shared32.plans(), "each page's shared font must still plan once");
+
+        // The same program bytes are decoded once per operation, never once per
+        // page: the decode count is independent of the page count in every shape.
+        assertEquals(independent8.programs(), independent32.programs(),
+                "distinct-program decodes must not grow with the page count");
+        assertEquals(shared8.programs(), shared32.programs(),
+                "a shared font object must not be decoded once per page");
+        assertTrue(independent32.programs() <= 2,
+                "at most one program decode per snapshot operation: "
+                        + independent32.programs());
+        assertTrue(shared32.programs() <= 2,
+                "at most one program decode per snapshot operation: " + shared32.programs());
+
+        // Memory: the planning working set stays a small multiple of the document.
+        assertTrue(shared32.heapGrowthBytes() < 256L * 1024 * 1024,
+                "planning 32 pages must not retain hundreds of megabytes: "
+                        + shared32.heapGrowthBytes());
+    }
+
+    /**
+     * A font reached only through nested form XObjects is still disclosed, once per
+     * scope, from one lookup of the shared object — so the reference graph reaches
+     * past the page font table without redoing work per owner.
+     */
+    @Test
+    void nestedFormReferencesAreDiscoveredAndDeduplicated() throws Exception {
+        assumeTrue(NativeRuntime.isFull(), "needs real native library");
+        int depth = 3;
+        byte[] pdf = nestedFormPdf(depth);
+
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            FontLib.resetNativeMetrics();
+            List<FontRepairPlan> plans = FontIntelligence.repairPlans(doc);
+            FontLib.NativeMetrics metrics = FontLib.nativeMetrics();
+
+            System.out.printf(
+                    "FontIntelligence nested-form reference graph (depth=%d):"
+                    + " nodes=%d lookups=%d programs=%d affected=%s%n",
+                    depth, metrics.referenceNodes(), metrics.referenceLookups(),
+                    metrics.programsAnalyzed(),
+                    plans.isEmpty() ? "[]" : plans.get(0).affectedReferences());
+
+            assertEquals(1, plans.size(), "the page font must yield one plan");
+            assertEquals(depth + 1, plans.get(0).affectedReferences().size(),
+                    "the page reference plus one reference per nested form level must be"
+                            + " disclosed: " + plans.get(0).affectedReferences());
+            assertTrue(plans.get(0).affectedReferences()
+                            .contains(FontRepairPlan.referenceKey(0, "/F1")),
+                    "the page reference must be disclosed");
+            assertEquals(1, metrics.referenceLookups(),
+                    "one shared object must be looked up once even when reached through"
+                            + " nested forms");
+        }
+    }
+
     /** {@code {planning ops, apply ops}} for a freshly generated {@code pages}-page document. */
     private static long[] measure(int pages) throws Exception {
         byte[] pdf = multiPageRepairablePdf(pages);
@@ -235,5 +357,199 @@ class FontPlanOperationCountTest {
         } catch (Exception e) {
             throw new AssertionError("could not inspect the repaired document", e);
         }
+    }
+
+    // ------------------------------------------------- reference benchmark
+
+    /** Planning work counters recorded for one freshly opened document. */
+    private record Work(int plans, int nodes, int lookups, int programs, long bytesHashed,
+                        int planJsonBytes, long heapGrowthBytes, double elapsedMillis) {}
+
+    private static final String HEADER =
+            "/CIDInit /ProcSet findresource begin\n"
+            + "12 dict begin\n"
+            + "begincmap\n"
+            + "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            + "/CMapName /test-UCS def\n"
+            + "/CMapType 2 def\n"
+            + "1 begincodespacerange\n"
+            + "<00> <FF>\n"
+            + "endcodespacerange\n";
+
+    private static final String FOOTER =
+            "endcmap\n"
+            + "CMapName currentdict /CMap defineresource pop\n"
+            + "end\n"
+            + "end\n";
+
+    /** Declares only the code for 'A'; the code for 'B' (0x42) is missing. */
+    private static final String PARTIAL = "1 beginbfchar\n<41> <0041>\nendbfchar\n";
+
+    /**
+     * Plan one document and time it, recording the native reference/program
+     * counters and the plan JSON size, heap growth and wall clock. The plan JSON is
+     * read once before the counters are reset, so the measured window is exactly
+     * the {@code repairPlans} call the counters describe.
+     */
+    private static Work measureWork(byte[] pdf) throws Exception {
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            String json = FontLib.planPages(doc.nativeHandle());
+            System.gc();
+            long before = usedHeap();
+            FontLib.resetNativeMetrics();
+            long start = System.nanoTime();
+            List<FontRepairPlan> plans = FontIntelligence.repairPlans(doc);
+            long end = System.nanoTime();
+            FontLib.NativeMetrics m = FontLib.nativeMetrics();
+            long heapGrowth = Math.max(0, usedHeap() - before);
+            return new Work(plans.size(), (int) m.referenceNodes(), (int) m.referenceLookups(),
+                    (int) m.programsAnalyzed(), m.programBytesHashed(), json.length(), heapGrowth,
+                    (end - start) / 1_000_000.0);
+        }
+    }
+
+    private static long usedHeap() {
+        Runtime rt = Runtime.getRuntime();
+        return rt.totalMemory() - rt.freeMemory();
+    }
+
+    /**
+     * Many pages that each name the SAME font object (one indirect dictionary
+     * reused across pages) and show "AB" with no /ToUnicode.
+     */
+    private static byte[] sharedFontPdf(int pages) throws Exception {
+        Path font = PinnedFonts.primary();
+        try (PDDocument doc = new PDDocument()) {
+            PDTrueTypeFont shared;
+            try (InputStream in = Files.newInputStream(font)) {
+                shared = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
+            }
+            shared.getCOSObject().removeItem(COSName.TO_UNICODE);
+            for (int i = 0; i < pages; i++) {
+                PDPage page = new PDPage(PDRectangle.LETTER);
+                doc.addPage(page);
+                PDResources res = new PDResources();
+                res.put(COSName.getPDFName("F1"), shared);
+                page.setResources(res);
+                show(doc, page, shared, "AB");
+            }
+            return save(doc);
+        }
+    }
+
+    /**
+     * Many pages that each own a DISTINCT font object loaded from the same file,
+     * so every object embeds identical program bytes but alternating pages declare
+     * a different /ToUnicode state (none vs. only 'A'). Every page is still
+     * repairable and the program cache must still decode one program.
+     */
+    private static byte[] independentFontsPdf(int pages) throws Exception {
+        Path font = PinnedFonts.primary();
+        try (PDDocument doc = new PDDocument()) {
+            for (int i = 0; i < pages; i++) {
+                PDPage page = new PDPage(PDRectangle.LETTER);
+                doc.addPage(page);
+                PDTrueTypeFont f;
+                try (InputStream in = Files.newInputStream(font)) {
+                    f = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
+                }
+                if (i % 2 == 0) {
+                    f.getCOSObject().removeItem(COSName.TO_UNICODE);
+                } else {
+                    installToUnicode(doc, f.getCOSObject(), PARTIAL);
+                }
+                PDResources res = new PDResources();
+                res.put(COSName.getPDFName("F1"), f);
+                page.setResources(res);
+                show(doc, page, f, "AB");
+            }
+            return save(doc);
+        }
+    }
+
+    /**
+     * One page whose font object is reached through a chain of {@code depth} nested
+     * form XObjects, each of which names the same object in its own
+     * {@code /Resources /Font /LocalFont}.
+     */
+    private static byte[] nestedFormPdf(int depth) throws Exception {
+        Path font = PinnedFonts.primary();
+        try (PDDocument doc = new PDDocument()) {
+            PDTrueTypeFont shared;
+            try (InputStream in = Files.newInputStream(font)) {
+                shared = PDTrueTypeFont.load(doc, in, WinAnsiEncoding.INSTANCE);
+            }
+            shared.getCOSObject().removeItem(COSName.TO_UNICODE);
+            COSDictionary fd = shared.getCOSObject();
+
+            PDPage page = new PDPage(PDRectangle.LETTER);
+            doc.addPage(page);
+            PDResources res = new PDResources();
+            res.put(COSName.getPDFName("F1"), shared);
+            page.setResources(res);
+            show(doc, page, shared, "AB");
+
+            COSDictionary xobjects = new COSDictionary();
+            res.getCOSObject().setItem(COSName.XOBJECT, xobjects);
+            COSDictionary parent = xobjects;
+            for (int level = 1; level <= depth; level++) {
+                boolean innermost = level == depth;
+                byte[] content = (innermost
+                        ? "BT /LocalFont 24 Tf 72 700 Td (AB) Tj ET\n"
+                        : "/Form" + (level + 1) + " Do\n")
+                        .getBytes(StandardCharsets.ISO_8859_1);
+                COSStream form = formStream(doc, content);
+                COSDictionary formFonts = new COSDictionary();
+                formFonts.setItem(COSName.getPDFName("LocalFont"), fd);
+                COSDictionary formRes = new COSDictionary();
+                formRes.setItem(COSName.FONT, formFonts);
+                form.setItem(COSName.RESOURCES, formRes);
+                parent.setItem(COSName.getPDFName("Form" + level), form);
+                if (!innermost) {
+                    COSDictionary nested = new COSDictionary();
+                    formRes.setItem(COSName.XOBJECT, nested);
+                    parent = nested;
+                }
+            }
+            return save(doc);
+        }
+    }
+
+    private static COSStream formStream(PDDocument doc, byte[] content) throws Exception {
+        COSStream form = doc.getDocument().createCOSStream();
+        form.setItem(COSName.TYPE, COSName.getPDFName("XObject"));
+        form.setItem(COSName.SUBTYPE, COSName.getPDFName("Form"));
+        form.setItem(COSName.BBOX, new PDRectangle(300, 300).getCOSArray());
+        try (OutputStream os = form.createOutputStream(COSName.FLATE_DECODE)) {
+            os.write(content);
+        }
+        return form;
+    }
+
+    private static void show(PDDocument doc, PDPage page, PDTrueTypeFont font, String text)
+            throws Exception {
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
+            cs.beginText();
+            cs.setFont(font, 24);
+            cs.newLineAtOffset(72, 700);
+            cs.showText(text);
+            cs.endText();
+        }
+    }
+
+    private static void installToUnicode(PDDocument doc, COSDictionary fontDict, String cmap)
+            throws Exception {
+        fontDict.removeItem(COSName.TO_UNICODE);
+        COSStream stream = doc.getDocument().createCOSStream();
+        try (OutputStream os = stream.createOutputStream()) {
+            os.write((HEADER + cmap + FOOTER).getBytes(StandardCharsets.ISO_8859_1));
+        }
+        fontDict.setItem(COSName.TO_UNICODE, stream);
+    }
+
+    private static byte[] save(PDDocument doc) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        doc.save(out);
+        return out.toByteArray();
     }
 }

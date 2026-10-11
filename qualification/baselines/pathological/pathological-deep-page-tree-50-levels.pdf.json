@@ -1,0 +1,29 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-deep-page-tree-50-levels.pdf",
+  "sha256": "b87d308c72b820c404c615e547bffa8db5b6e1515bd1e72b3e51a402a240d894",
+  "qpdf_check": 3,
+  "pages": 1,
+  "text_len": 1,
+  "text_sha256": "ef6cbd2161eaea7943ce8693b9824d23d1793ffb1c0fca05b600d3899b44c977",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "abeea15a8f407e9ba59f3f43ccc17f9a3786ef7ad701507542008a73617f96e5"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "9af9a0d15aceb33e2d68693956d38929aca475a8c03ab7fa899e0827ce96b3e1"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmp5gikj49m",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-33ppgj0f/tmpnukzdr1n"
+  },
+  "verapdf": "skipped_not_installed"
+}

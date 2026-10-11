@@ -254,6 +254,64 @@ public final class FontLib {
         JpdfiumH.jpdfium_native_op_reset();
     }
 
+    /**
+     * Work counters for the font-reference graph and program cache, measured
+     * since the last {@link #resetNativeMetrics()}. Diagnostics only: used to
+     * benchmark the scaling of the plan/apply paths, never to gate behaviour.
+     * {@code referenceNodes} is the number of resource dictionaries visited while
+     * building the reference graph, {@code referenceLookups} the number of
+     * font-object lookups against the reverse index, {@code programsAnalyzed} the
+     * number of distinct font programs actually decoded, and {@code
+     * programBytesHashed} the total program bytes hashed.
+     */
+    public record NativeMetrics(long snapshotOps, long referenceNodes, long referenceLookups,
+                                long programsAnalyzed, long programBytesHashed) {}
+
+    /** Read and reset the font plan/apply work counters. */
+    public static NativeMetrics nativeMetrics() {
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_native_metrics(ptrSeg), "nativeMetrics");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return new NativeMetrics(
+                        jsonLong(result, "\"snapshot_ops\""),
+                        jsonLong(result, "\"reference_nodes\""),
+                        jsonLong(result, "\"reference_lookups\""),
+                        jsonLong(result, "\"programs_analyzed\""),
+                        jsonLong(result, "\"program_bytes_hashed\""));
+            }
+        });
+    }
+
+    /** Reset every font plan/apply work counter before a measured section. */
+    public static void resetNativeMetrics() {
+        JpdfiumH.jpdfium_native_metrics_reset();
+    }
+
+    private static long jsonLong(String json, String key) {
+        int at = json.indexOf(key);
+        if (at < 0) {
+            return -1;
+        }
+        int from = at + key.length();
+        while (from < json.length()
+                && !Character.isDigit(json.charAt(from)) && json.charAt(from) != '-') {
+            from++;
+        }
+        int to = from;
+        while (to < json.length()
+                && (Character.isDigit(json.charAt(to)) || json.charAt(to) == '-')) {
+            to++;
+        }
+        if (to == from) {
+            return -1;
+        }
+        return Long.parseLong(json.substring(from, to));
+    }
+
     public static int fixToUnicode(long doc, int pageIndex) {
         return PdfiumRuntime.execute(() -> {
             try (Arena a = Arena.ofConfined()) {

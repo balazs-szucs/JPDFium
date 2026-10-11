@@ -547,3 +547,20 @@ tasks.register<Test>("cliTest") {
         showCauses = true
     }
 }
+
+// Run: ./gradlew :jpdfium:qualificationClasspath
+// Writes the test runtime classpath to build/qualification-classpath.txt so the
+// file-per-case qualification harness can launch QualificationWorker with the
+// real native on the classpath without starting Gradle once per PDF.
+tasks.register("qualificationClasspath") {
+    group       = "verification"
+    description = "Write the test runtime classpath for the qualification worker"
+    dependsOn("compileTestJava")
+    val outFile = layout.buildDirectory.file("qualification-classpath.txt")
+    doLast {
+        val file = outFile.get().asFile
+        file.parentFile.mkdirs()
+        file.writeText(sourceSets.test.get().runtimeClasspath.asPath)
+        logger.lifecycle("Wrote ${file.absolutePath}")
+    }
+}

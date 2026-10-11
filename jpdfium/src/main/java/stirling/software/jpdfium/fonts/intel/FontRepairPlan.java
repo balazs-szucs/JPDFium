@@ -58,6 +58,21 @@ public record FontRepairPlan(
         return pageIndex + "\u0000" + (resourceName == null ? "" : resourceName);
     }
 
+    /**
+     * Encode a scope-qualified font reference. A page-scope reference (empty
+     * {@code scopePath}) is identical to {@link #referenceKey(int, String)}; a
+     * reference reached through a form XObject or annotation appearance carries
+     * its scope path so that two resources with the same name in different scopes
+     * do not collide.
+     */
+    public static String referenceKey(int pageIndex, String scopePath, String resourceName) {
+        if (scopePath == null || scopePath.isEmpty()) {
+            return referenceKey(pageIndex, resourceName);
+        }
+        return pageIndex + "\u0000" + scopePath + "\u0000"
+                + (resourceName == null ? "" : resourceName);
+    }
+
     /** True when this plan changes the document when applied. */
     public boolean mutates() {
         return ACTION_FIX_TOUNICODE.equals(action);

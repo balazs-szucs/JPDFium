@@ -1,0 +1,29 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-annot-broken-ap-reference.pdf/save.pdf",
+  "sha256": "9b78a3b66b5a3ef0ef641e6392c29ba855f2a0cdb718b21fb62806d285cdcbb0",
+  "qpdf_check": 3,
+  "pages": 1,
+  "text_len": 1,
+  "text_sha256": "ef6cbd2161eaea7943ce8693b9824d23d1793ffb1c0fca05b600d3899b44c977",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "abeea15a8f407e9ba59f3f43ccc17f9a3786ef7ad701507542008a73617f96e5"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "9af9a0d15aceb33e2d68693956d38929aca475a8c03ab7fa899e0827ce96b3e1"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpy1qsxfz8",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpuadj6zkz"
+  },
+  "verapdf": "skipped_not_installed"
+}

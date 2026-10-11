@@ -1,0 +1,11 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/inputs/pathological/pathological-empty-page-tree.pdf",
+  "sha256": "e0d0dc33f4810c4c8fdd37b73b3771813e88240a69c894c7808c4a82c0ca6ae5",
+  "qpdf_check": 2,
+  "pages": -1,
+  "text_len": 0,
+  "text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "text_ok": false,
+  "render_scope": "skipped_no_pages",
+  "verapdf": "skipped_not_installed"
+}

@@ -209,6 +209,13 @@ JPDFIUM_EXPORT void jpdfium_free_string(char* str) JPDFIUM_NOEXCEPT;
 JPDFIUM_EXPORT int64_t jpdfium_native_op_count(void) JPDFIUM_NOEXCEPT;
 JPDFIUM_EXPORT void jpdfium_native_op_reset(void) JPDFIUM_NOEXCEPT;
 
+// Diagnostics: work counters for the font-reference graph and program cache,
+// returned as a JSON object `{snapshot_ops, reference_nodes, reference_lookups,
+// programs_analyzed, program_bytes_hashed}`. Measures the plan/apply paths so
+// their scaling can be benchmarked; side-effect free except the reset.
+JPDFIUM_EXPORT int32_t jpdfium_native_metrics(char** json) JPDFIUM_NOEXCEPT;
+JPDFIUM_EXPORT void jpdfium_native_metrics_reset(void) JPDFIUM_NOEXCEPT;
+
 JPDFIUM_EXPORT int32_t jpdfium_redact_region(int64_t page, float x, float y, float w, float h,
                                              uint32_t argb,
                                              int32_t remove_content) JPDFIUM_NOEXCEPT;

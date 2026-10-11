@@ -1,0 +1,29 @@
+{
+  "path": "/Users/brios/IdeaProjects/JPDFium/qualification/outputs/pathological/pathological-font-missing-widths.pdf/save.pdf",
+  "sha256": "b99d9c2ab97a9ad5c0764b84fc639f256a6360a37460c6cb5208c32b1e40e27a",
+  "qpdf_check": 0,
+  "pages": 1,
+  "text_len": 16,
+  "text_sha256": "b67dd761cfa1d8af14f52c4404e69e2c30291c55674df178e3226501be8a65e6",
+  "text_ok": true,
+  "poppler": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "207a64db4377f806e2ced3f7f680b328abdce2b0680ca606f24ffd50c72f390b"
+    ]
+  },
+  "mutool": {
+    "ok": true,
+    "pages": 1,
+    "sha": [
+      "90b7bdeeaf876f3e7175439323375196c0698176970564a724b71cd3f911bedc"
+    ]
+  },
+  "render_scope": "all_pages",
+  "render_artifacts": {
+    "poppler": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmpqg1ahkq2",
+    "mutool": "/var/folders/10/4hn925296yx_fqxp5g2z__v40000gn/T/qual-probe-xpuxqumt/tmp33o1fvve"
+  },
+  "verapdf": "skipped_not_installed"
+}
