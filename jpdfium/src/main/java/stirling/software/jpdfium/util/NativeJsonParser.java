@@ -97,6 +97,23 @@ public final class NativeJsonParser {
     }
 
     /**
+     * Extract a nullable boolean field from a single JSON object string.
+     *
+     * <p>Returns {@code null} when the field is absent or JSON {@code null}, so a
+     * real {@code false} stays distinct from "unknown"; otherwise the parsed boolean.
+     */
+    public static Boolean nullableBoolField(String json, String key) {
+        String needle = "\"" + key + "\":";
+        int idx = json.indexOf(needle);
+        if (idx < 0) return null;
+        int v = idx + needle.length();
+        if (json.startsWith("null", v)) return null;
+        if (json.startsWith("true", v)) return Boolean.TRUE;
+        if (json.startsWith("false", v)) return Boolean.FALSE;
+        return null;
+    }
+
+    /**
      * Extract a string field from a single JSON object string, decoding JSON
      * escapes. Returns "" if missing.
      */

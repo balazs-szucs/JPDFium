@@ -21,13 +21,16 @@
 #include <unistd.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -205,6 +208,401 @@ static std::string warnings_to_json(const std::vector<QPDFExc>& warnings) {
     return os.str();
 }
 
+// Bounded structural analysis; counts describe the loaded file, not its validity.
+struct StructuralFindings {
+    long long objstm_count = 0;
+    long long objstm_invalid = 0;
+    long long page_tree_cycles = 0;
+    long long page_tree_duplicate_refs = 0;
+    long long page_tree_broken_parents = 0;
+    long long page_tree_reachable = 0;
+    long long page_tree_nodes = 0;
+    bool page_tree_truncated = false;
+};
+
+namespace {
+
+constexpr long long kMaxObjStm = 4096;           // object streams to examine
+constexpr long long kMaxObjStmMembers = 1000000; // declared /N upper bound
+constexpr long long kMaxTreeNodes = 200000;      // page-tree traversal bound
+constexpr long long kMaxTreeDepth = 512;         // traversal depth bound
+
+bool is_name(QPDFObjectHandle const& h, char const* want) {
+    return h.isName() && h.getName() == want;
+}
+
+// Validate /Type /ObjStm: /N and /First must be sane and every member offset
+// must land inside the decoded data; a decode failure counts as invalid.
+void validate_objstm(QPDFObjectHandle stream, StructuralFindings& f) {
+    ++f.objstm_count;
+    try {
+        QPDFObjectHandle dict = stream.getDict();
+        if (!dict.hasKey("/N") || !dict.hasKey("/First")) {
+            ++f.objstm_invalid;
+            return;
+        }
+        QPDFObjectHandle nH = dict.getKey("/N");
+        QPDFObjectHandle fH = dict.getKey("/First");
+        if (!nH.isInteger() || !fH.isInteger()) {
+            ++f.objstm_invalid;
+            return;
+        }
+        const long long n = nH.getIntValue();
+        const long long first = fH.getIntValue();
+        if (n < 0 || n > kMaxObjStmMembers || first < 0) {
+            ++f.objstm_invalid;
+            return;
+        }
+        std::shared_ptr<Buffer> data = stream.getStreamData();
+        const long long size = data ? static_cast<long long>(data->getSize()) : 0;
+        // The index holds 2*N integers and must fit in the first /First bytes.
+        if (!data || first > size || 2 * n > first) {
+            ++f.objstm_invalid;
+            return;
+        }
+        const unsigned char* p = data->getBuffer();
+        long long pos = 0;
+        for (long long i = 0; i < 2 * n; ++i) {
+            while (pos < first
+                   && (p[pos] == ' ' || p[pos] == '\n' || p[pos] == '\r' || p[pos] == '\t')) {
+                ++pos;
+            }
+            if (pos >= first) {
+                ++f.objstm_invalid;
+                return;
+            }
+            long long val = 0;
+            bool any = false;
+            while (pos < first && p[pos] >= '0' && p[pos] <= '9') {
+                val = val * 10 + (p[pos] - '0');
+                any = true;
+                if (val > (1LL << 60)) {
+                    break;
+                }
+                ++pos;
+            }
+            if (!any) {
+                ++f.objstm_invalid;
+                return;
+            }
+            // Odd index is the member offset, relative to /First.
+            if ((i % 2) == 1 && first + val > size) {
+                ++f.objstm_invalid;
+                return;
+            }
+        }
+    } catch (...) {
+        ++f.objstm_invalid;
+    }
+}
+
+// Walk the page tree once, bounded: revisited node = cycle, leaf reached twice =
+// duplicate, kid /Parent mismatch = broken parent. Indirect pages key by
+// object/generation, direct ones by serialized dictionary.
+std::string page_leaf_key(QPDFObjectHandle const& kid) {
+    if (kid.isIndirect()) {
+        QPDFObjGen g = kid.getObjGen();
+        return "R" + g.unparse('_');
+    }
+    return "D" + kid.getDict().unparse();
+}
+
+void walk_page_tree(QPDFObjectHandle const& node, std::set<QPDFObjGen>& visited,
+                    std::set<std::string>& leaves, StructuralFindings& f, long long depth) {
+    if (depth > kMaxTreeDepth || f.page_tree_nodes > kMaxTreeNodes) {
+        f.page_tree_truncated = true;
+        return;
+    }
+    ++f.page_tree_nodes;
+    if (node.isIndirect() && !visited.insert(node.getObjGen()).second) {
+        ++f.page_tree_cycles;
+        return;
+    }
+    if (!node.isDictionary()) {
+        return;
+    }
+    QPDFObjectHandle kids = node.getKey("/Kids");
+    if (!is_name(node.getKey("/Type"), "/Pages") && !kids.isArray()) {
+        ++f.page_tree_reachable;
+        return;
+    }
+    if (!kids.isArray()) {
+        return;
+    }
+    const int count = kids.getArrayNItems();
+    for (int i = 0; i < count; ++i) {
+        QPDFObjectHandle kid = kids.getArrayItem(i);
+        if (kid.isDictionary()) {
+            QPDFObjectHandle p = kid.getKey("/Parent");
+            const bool parent_ok = node.isIndirect() && p.isIndirect()
+                                   && p.getObjGen() == node.getObjGen();
+            if (!parent_ok) {
+                ++f.page_tree_broken_parents;
+            }
+            if (is_name(kid.getKey("/Type"), "/Page")) {
+                if (!leaves.insert(page_leaf_key(kid)).second) {
+                    ++f.page_tree_duplicate_refs;
+                }
+                ++f.page_tree_reachable;
+                // A leaf page is counted here; do not recurse into it, or it
+                // would be counted a second time below.
+                continue;
+            }
+        }
+        walk_page_tree(kid, visited, leaves, f, depth + 1);
+    }
+}
+
+StructuralFindings analyze_structure(QPDF& pdf) {
+    StructuralFindings f;
+    try {
+        long long examined = 0;
+        for (auto const& obj : pdf.getAllObjects()) {
+            if (examined >= kMaxObjStm) {
+                break;
+            }
+            try {
+                if (obj.isStreamOfType("/ObjStm")) {
+                    ++examined;
+                    validate_objstm(obj, f);
+                }
+            } catch (...) {
+                // A single unreadable object is not an object stream we can classify.
+            }
+        }
+    } catch (...) {
+        // getAllObjects failed; object-stream counts stay at zero.
+    }
+    try {
+        QPDFObjectHandle root = pdf.getRoot();
+        if (root.hasKey("/Pages")) {
+            std::set<QPDFObjGen> visited;
+            std::set<std::string> leaves;
+            walk_page_tree(root.getKey("/Pages"), visited, leaves, f, 0);
+        }
+    } catch (...) {
+        f.page_tree_truncated = true;
+    }
+    return f;
+}
+
+// Outcome of a bounded page-tree repair pass. The traversal completes before
+// anything is written, so a limit reached mid-walk discards the whole candidate
+// instead of publishing a partially rewritten tree.
+struct PageTreeRepairResult {
+    enum class Status { COMPLETE, TRUNCATED, PRUNE_REFUSED, FAILED };
+    Status status = Status::COMPLETE;
+    long long parent_fixes = 0;
+    long long count_fixes = 0;
+    long long dropped_non_dict = 0;
+    long long dropped_cycles = 0;
+    long long dropped_shared = 0;
+};
+
+// Cycle-safe page-tree repair: fix kid /Parent, drop repeated kid references
+// (the only way to make a cyclic tree finite without inventing pages), and set
+// /Count to the reachable leaves. Analysis, apply and verify are separate
+// stages; a truncated analysis applies nothing.
+//
+// When allow_prune is false (preserve mode) any situation that would require
+// dropping a node or a repeated reference aborts the whole pass with
+// PRUNE_REFUSED and applies nothing, so a preserving repair never silently
+// discards structure it did not understand.
+PageTreeRepairResult repair_page_tree_structure(QPDF& pdf, bool allow_prune) {
+    PageTreeRepairResult out;
+
+    struct ParentEdit {
+        QPDFObjectHandle kid;
+        QPDFObjectHandle owner;
+    };
+    struct KidsEdit {
+        QPDFObjectHandle node;
+        std::vector<QPDFObjectHandle> before;
+        std::vector<QPDFObjectHandle> after;
+    };
+    struct CountEdit {
+        QPDFObjectHandle node;
+        long long before = 0;
+        long long after = 0;
+        bool had = false;
+    };
+
+    std::vector<ParentEdit> parent_edits;
+    std::vector<KidsEdit> kids_edits;
+    std::vector<CountEdit> count_edits;
+
+    try {
+        QPDFObjectHandle root = pdf.getRoot();
+        if (!root.hasKey("/Pages")) {
+            return out;
+        }
+        QPDFObjectHandle pagesRoot = root.getKey("/Pages");
+        if (!pagesRoot.isDictionary()) {
+            return out;
+        }
+
+        std::set<std::string> seen;
+        std::set<std::string> on_path;
+        if (pagesRoot.isIndirect()) {
+            seen.insert(page_leaf_key(pagesRoot));
+        }
+
+        struct TreeFrame {
+            QPDFObjectHandle node;
+            std::string key;
+            long long depth = 0;
+            int count = 0;
+            int next = 0;
+            long long leaves = 0;
+            std::vector<QPDFObjectHandle> kept;
+            bool initialized = false;
+
+            TreeFrame(QPDFObjectHandle n, std::string k, long long d)
+                : node(n), key(k), depth(d) {}
+        };
+
+        bool truncated = false;
+        long long visits = 0;
+        std::vector<TreeFrame> stack;
+        stack.push_back(TreeFrame(pagesRoot, page_leaf_key(pagesRoot), 0));
+
+        while (!stack.empty()) {
+            TreeFrame& fr = stack.back();
+
+            if (!fr.initialized) {
+                fr.initialized = true;
+                if (++visits > kMaxTreeNodes || fr.depth > kMaxTreeDepth) {
+                    truncated = true;
+                    break;
+                }
+                on_path.insert(fr.key);
+                if (!fr.node.isDictionary()) {
+                    on_path.erase(fr.key);
+                    stack.pop_back();
+                    continue;
+                }
+                QPDFObjectHandle kids = fr.node.getKey("/Kids");
+                if (!kids.isArray()) {
+                    const long long leaf =
+                        is_name(fr.node.getKey("/Type"), "/Page") ? 1 : 0;
+                    on_path.erase(fr.key);
+                    stack.pop_back();
+                    if (!stack.empty()) {
+                        stack.back().leaves += leaf;
+                    }
+                    continue;
+                }
+                fr.count = kids.getArrayNItems();
+                fr.kept.reserve(static_cast<size_t>(fr.count));
+            }
+
+            if (fr.next < fr.count) {
+                QPDFObjectHandle kids = fr.node.getKey("/Kids");
+                QPDFObjectHandle kid = kids.getArrayItem(fr.next);
+                ++fr.next;
+                if (!kid.isDictionary()) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
+                    ++out.dropped_non_dict;
+                    continue;
+                }
+                const std::string key = page_leaf_key(kid);
+                if (on_path.count(key) != 0) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
+                    ++out.dropped_cycles;
+                    continue;
+                }
+                if (seen.count(key) != 0) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
+                    ++out.dropped_shared;
+                    continue;
+                }
+                seen.insert(key);
+                if (fr.node.isIndirect()) {
+                    QPDFObjectHandle p = kid.getKey("/Parent");
+                    const bool parent_ok =
+                        p.isIndirect() && p.getObjGen() == fr.node.getObjGen();
+                    if (!parent_ok) {
+                        parent_edits.push_back(ParentEdit{kid, fr.node});
+                    }
+                }
+                fr.kept.push_back(kid);
+                stack.push_back(TreeFrame(kid, key, fr.depth + 1));
+                continue;
+            }
+
+            QPDFObjectHandle kids = fr.node.getKey("/Kids");
+            if (static_cast<int>(fr.kept.size()) != fr.count) {
+                std::vector<QPDFObjectHandle> before;
+                before.reserve(static_cast<size_t>(fr.count));
+                for (int i = 0; i < fr.count; ++i) {
+                    before.push_back(kids.getArrayItem(i));
+                }
+                kids_edits.push_back(KidsEdit{fr.node, before, fr.kept});
+            }
+            QPDFObjectHandle c = fr.node.getKey("/Count");
+            const bool had = c.isInteger();
+            const long long before_count = had ? c.getIntValue() : 0;
+            if (!had || before_count != fr.leaves) {
+                count_edits.push_back(CountEdit{fr.node, before_count, fr.leaves, had});
+            }
+            on_path.erase(fr.key);
+            const long long leaves = fr.leaves;
+            stack.pop_back();
+            if (!stack.empty()) {
+                stack.back().leaves += leaves;
+            }
+        }
+
+        if (truncated) {
+            // Incomplete knowledge: apply none of it and report the discard.
+            out.status = PageTreeRepairResult::Status::TRUNCATED;
+            return out;
+        }
+
+        out.parent_fixes = static_cast<long long>(parent_edits.size());
+        out.count_fixes = static_cast<long long>(count_edits.size());
+
+        for (ParentEdit& e : parent_edits) {
+            e.kid.replaceKey("/Parent", e.owner);
+        }
+        for (KidsEdit& e : kids_edits) {
+            e.node.replaceKey("/Kids", QPDFObjectHandle::newArray(e.after));
+        }
+        for (CountEdit& e : count_edits) {
+            e.node.replaceKey("/Count", QPDFObjectHandle::newInteger(e.after));
+        }
+
+        // Verify the rewritten tree before it can be published. There is no
+        // rollback: ParentEdit does not record the previous /Parent, so a
+        // partially applied repair could not be undone in place. Any
+        // verification failure - including a truncated re-analysis - discards
+        // the whole candidate instead, and the caller publishes nothing.
+        StructuralFindings check = analyze_structure(pdf);
+        if (check.page_tree_truncated || check.page_tree_broken_parents != 0
+            || check.page_tree_cycles != 0 || check.page_tree_duplicate_refs != 0) {
+            out.status = PageTreeRepairResult::Status::FAILED;
+            out.parent_fixes = 0;
+            out.count_fixes = 0;
+        }
+    } catch (...) {
+        out.status = PageTreeRepairResult::Status::FAILED;
+        out.parent_fixes = 0;
+        out.count_fixes = 0;
+    }
+    return out;
+}
+
+}  // namespace
+
 // Helper: attempt qpdf recovery on raw bytes
 static int try_qpdf_repair(const uint8_t* input, int64_t inputLen, uint8_t** output,
                            int64_t* outputLen, int32_t flags, std::string& errorMsg) {
@@ -213,6 +611,22 @@ static int try_qpdf_repair(const uint8_t* input, int64_t inputLen, uint8_t** out
         pdf.setSuppressWarnings(true);
         pdf.processMemoryFile("repair", reinterpret_cast<const char*>(input),
                               static_cast<size_t>(inputLen));
+
+        // Repair the page tree before writing so structural defects are
+        // corrected rather than re-emitted. Preserve mode forbids pruning, so a
+        // tree that would need a node or reference dropped is left untouched.
+        // An incomplete analysis, or a rewrite that fails its own re-analysis,
+        // publishes nothing at all.
+        PageTreeRepairResult tree = repair_page_tree_structure(
+            pdf, (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
+        if (tree.status == PageTreeRepairResult::Status::TRUNCATED) {
+            errorMsg = "page tree analysis truncated; no candidate published";
+            return JPDFIUM_REPAIR_FAILED;
+        }
+        if (tree.status == PageTreeRepairResult::Status::FAILED) {
+            errorMsg = "page tree repair failed verification; no candidate published";
+            return JPDFIUM_REPAIR_FAILED;
+        }
 
         QPDFWriter writer(pdf);
         writer.setOutputMemory();
@@ -272,25 +686,39 @@ static int try_qpdf_repair_file(const char* inputPath, const char* outputPath, i
             pdf.setSuppressWarnings(true);
             pdf.processFile(inputPath);
 
-            QPDFWriter writer(pdf);
-            // qpdf writes to our fd and leaves closure to us (close_file=false).
-            writer.setOutputFile(staging.c_str(), probe, false);
+            // Same bounded page-tree repair as the byte route, honouring the
+            // same preserve-mode refusal to prune. An incomplete analysis, or a
+            // rewrite that fails its own re-analysis, publishes nothing.
+            PageTreeRepairResult tree = repair_page_tree_structure(
+                pdf, (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
+            if (tree.status == PageTreeRepairResult::Status::TRUNCATED
+                || tree.status == PageTreeRepairResult::Status::FAILED) {
+                errorMsg = tree.status == PageTreeRepairResult::Status::TRUNCATED
+                               ? "page tree analysis truncated; no candidate published"
+                               : "page tree repair failed verification; no candidate published";
+                std::fclose(probe);
+                probe = nullptr;
+            } else {
+                QPDFWriter writer(pdf);
+                // qpdf writes to our fd and leaves closure to us (close_file=false).
+                writer.setOutputFile(staging.c_str(), probe, false);
 
-            if (flags & JPDFIUM_REPAIR_NORMALIZE_XREF) {
-                writer.setObjectStreamMode(qpdf_o_disable);
-            }
-            writer.setLinearization(false);
-            writer.setCompressStreams(true);
-            if (flags & JPDFIUM_REPAIR_FORCE_V14) {
-                writer.forcePDFVersion("1.4");
-            }
+                if (flags & JPDFIUM_REPAIR_NORMALIZE_XREF) {
+                    writer.setObjectStreamMode(qpdf_o_disable);
+                }
+                writer.setLinearization(false);
+                writer.setCompressStreams(true);
+                if (flags & JPDFIUM_REPAIR_FORCE_V14) {
+                    writer.forcePDFVersion("1.4");
+                }
 
-            writer.write();
-            const bool closed = std::fclose(probe) == 0;
-            probe = nullptr;
-            result = !closed                     ? JPDFIUM_REPAIR_FAILED
-                     : pdf.getWarnings().empty() ? JPDFIUM_REPAIR_CLEAN
-                                                 : JPDFIUM_REPAIR_FIXED;
+                writer.write();
+                const bool closed = std::fclose(probe) == 0;
+                probe = nullptr;
+                result = !closed                     ? JPDFIUM_REPAIR_FAILED
+                         : pdf.getWarnings().empty() ? JPDFIUM_REPAIR_CLEAN
+                                                     : JPDFIUM_REPAIR_FIXED;
+            }
         }
     } catch (QPDFExc& e) {
         if (probe) {
@@ -314,11 +742,52 @@ static int try_qpdf_repair_file(const char* inputPath, const char* outputPath, i
     return result;
 }
 
-// Helper: attempt startxref offset correction
-static bool try_fix_startxref(std::vector<uint8_t>& data, int delta) {
-    // Find last "startxref" in the file
-    const char* needle = "startxref";
-    size_t needleLen = 9;
+// Helper: collect startxref candidates from real xref offsets, newest first.
+static std::vector<long long> candidate_startxrefs(const std::vector<uint8_t>& data) {
+    std::vector<long long> out;
+    const size_t n = data.size();
+    // Classic xref tables: the token "xref" at the start of a line.
+    for (size_t i = 0; i + 4 <= n; ++i) {
+        if (data[i] == 'x' && data[i + 1] == 'r' && data[i + 2] == 'e' && data[i + 3] == 'f' &&
+            (i == 0 || data[i - 1] == '\n' || data[i - 1] == '\r') &&
+            (i + 4 == n || data[i + 4] == '\n' || data[i + 4] == '\r' || data[i + 4] == ' ')) {
+            out.push_back(static_cast<long long>(i));
+        }
+    }
+    // Existing offsets declared after each "startxref" (may be stale or wrong).
+    static const char needle[] = "startxref";
+    for (size_t i = 0; i + sizeof(needle) - 1 <= n; ++i) {
+        if (memcmp(data.data() + i, needle, sizeof(needle) - 1) != 0) continue;
+        size_t j = i + sizeof(needle) - 1;
+        while (j < n && (data[j] == '\n' || data[j] == '\r' || data[j] == ' ')) ++j;
+        long long v = 0;
+        bool any = false;
+        bool inRange = true;
+        while (j < n && data[j] >= '0' && data[j] <= '9') {
+            v = v * 10 + (data[j] - '0');
+            ++j;
+            any = true;
+            // An offset at or beyond the file size is not a usable xref start;
+            // stopping here also keeps the accumulator from overflowing.
+            if (v > static_cast<long long>(n)) {
+                inRange = false;
+                break;
+            }
+        }
+        if (any && inRange) out.push_back(v);
+    }
+    // Newest first, deduped, capped so recovery cannot clone the document unbounded times.
+    std::sort(out.begin(), out.end(), std::greater<long long>());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    if (out.size() > 64) out.resize(64);
+    return out;
+}
+
+// Helper: overwrite the numeric value following the LAST "startxref" with an
+// absolute offset. Returns false when no startxref or number is present.
+static bool write_startxref(std::vector<uint8_t>& data, long long newOffset) {
+    static const char needle[] = "startxref";
+    const size_t needleLen = sizeof(needle) - 1;
 
     int64_t pos = -1;
     // NOLINTNEXTLINE(bugprone-narrowing-conversions) - bounded by input size
@@ -331,33 +800,22 @@ static bool try_fix_startxref(std::vector<uint8_t>& data, int delta) {
     }
     if (pos < 0) return false;
 
-    // Parse the offset value after "startxref\n"
-    size_t numStart = pos + needleLen;
+    size_t numStart = static_cast<size_t>(pos) + needleLen;
     while (numStart < data.size() &&
            (data[numStart] == '\n' || data[numStart] == '\r' || data[numStart] == ' '))
         numStart++;
 
     size_t numEnd = numStart;
     while (numEnd < data.size() && data[numEnd] >= '0' && data[numEnd] <= '9') numEnd++;
-
     if (numEnd == numStart) return false;
-
-    std::string offsetStr(data.begin() + static_cast<std::ptrdiff_t>(numStart),
-                          data.begin() + static_cast<std::ptrdiff_t>(numEnd));
-    long long offset = std::stoll(offsetStr);
-    long long newOffset = offset + delta;
     if (newOffset < 0) return false;
 
-    // Replace the offset in the byte stream
     std::string newOffsetStr = std::to_string(newOffset);
-
-    // Pad with spaces if shorter, or expand if longer
     std::vector<uint8_t> result;
-    result.insert(result.end(), data.begin(), data.begin() + static_cast<std::ptrdiff_t>(numStart));
+    result.insert(result.end(), data.begin(),
+                  data.begin() + static_cast<std::ptrdiff_t>(numStart));
     result.insert(result.end(), newOffsetStr.begin(), newOffsetStr.end());
-    // Keep the same trailing content
     result.insert(result.end(), data.begin() + static_cast<std::ptrdiff_t>(numEnd), data.end());
-
     data = std::move(result);
     return true;
 }
@@ -375,12 +833,12 @@ static int32_t repair_pipeline(const uint8_t* input, int64_t inputLen, uint8_t**
         int result = try_qpdf_repair(input, inputLen, output, outputLen, flags, errorMsg);
         if (result != JPDFIUM_REPAIR_FAILED) return result;
 
-        // Stage 2: startxref offset brute-force (if enabled)
+        // Stage 2: startxref recovery, preferring the newest real xref offset.
         if (flags & JPDFIUM_REPAIR_FIX_STARTXREF) {
-            static const int deltas[] = {1, -1, 2, -2, 3, -3, 4, -4, 8, -8, 16, -16};
-            for (int delta : deltas) {
+            std::vector<uint8_t> probe(input, input + inputLen);
+            for (long long candidate : candidate_startxrefs(probe)) {
                 std::vector<uint8_t> patched(input, input + inputLen);
-                if (try_fix_startxref(patched, delta)) {
+                if (write_startxref(patched, candidate)) {
                     result = try_qpdf_repair(patched.data(), static_cast<int64_t>(patched.size()),
                                              output, outputLen, flags, errorMsg);
                     if (result != JPDFIUM_REPAIR_FAILED) return result;
@@ -455,24 +913,50 @@ JPDFIUM_EXPORT int32_t jpdfium_repair_inspect(const uint8_t* input, int64_t inpu
                               static_cast<size_t>(inputLen));
 
         auto warnings = pdf.getWarnings();
-        int pageCount = 0;
+        // /Pages /Count is the declared count; getAllPages() is what is traversable.
+        int declaredPageCount = -1;
         try {
             QPDFObjectHandle root = pdf.getRoot();
             if (root.hasKey("/Pages")) {
                 QPDFObjectHandle pages = root.getKey("/Pages");
                 if (pages.hasKey("/Count")) {
-                    pageCount = static_cast<int>(pages.getKey("/Count").getIntValue());
+                    declaredPageCount = static_cast<int>(pages.getKey("/Count").getIntValue());
                 }
             }
         } catch (...) {
-            pageCount = 0;  // Page tree may be broken
+            declaredPageCount = -1;  // Page tree may be broken
+        }
+        int enumeratedPageCount = 0;
+        try {
+            enumeratedPageCount = static_cast<int>(pdf.getAllPages().size());
+        } catch (...) {
+            enumeratedPageCount = 0;
+        }
+
+        // Structural observations surfaced as separate fields rather than warnings.
+        StructuralFindings findings;
+        try {
+            findings = analyze_structure(pdf);
+        } catch (...) {
+            findings = StructuralFindings{};
         }
 
         os << "\"status\":\"loaded\",";
         os << "\"warning_count\":" << warnings.size() << ",";
-        os << "\"page_count\":" << pageCount << ",";
-        os << "\"xref_valid\":true,";
-        os << "\"trailer_valid\":true,";
+        os << "\"declared_page_count\":" << declaredPageCount << ",";
+        os << "\"page_count\":" << enumeratedPageCount << ",";
+        // QPDF repairs on load, so a successful load says nothing about the
+        // original xref/trailer; original validity is unknown.
+        os << "\"xref_original_valid\":null,";
+        os << "\"trailer_original_valid\":null,";
+        os << "\"load_recovered\":" << (warnings.empty() ? "false" : "true") << ",";
+        os << "\"object_stream_count\":" << findings.objstm_count << ",";
+        os << "\"object_stream_invalid_count\":" << findings.objstm_invalid << ",";
+        os << "\"page_tree_cycles\":" << findings.page_tree_cycles << ",";
+        os << "\"page_tree_duplicate_refs\":" << findings.page_tree_duplicate_refs << ",";
+        os << "\"page_tree_broken_parents\":" << findings.page_tree_broken_parents << ",";
+        os << "\"page_tree_reachable\":" << findings.page_tree_reachable << ",";
+        os << "\"page_tree_truncated\":" << (findings.page_tree_truncated ? "true" : "false") << ",";
         os << "\"issues\":" << warnings_to_json(warnings);
 
     } catch (QPDFExc& e) {
@@ -490,9 +974,18 @@ JPDFIUM_EXPORT int32_t jpdfium_repair_inspect(const uint8_t* input, int64_t inpu
         }
         os << "\"status\":\"fatal\",";
         os << "\"warning_count\":0,";
+        os << "\"declared_page_count\":-1,";
         os << "\"page_count\":0,";
-        os << "\"xref_valid\":false,";
-        os << "\"trailer_valid\":false,";
+        os << "\"xref_original_valid\":false,";
+        os << "\"trailer_original_valid\":false,";
+        os << "\"load_recovered\":false,";
+        os << "\"object_stream_count\":0,";
+        os << "\"object_stream_invalid_count\":0,";
+        os << "\"page_tree_cycles\":0,";
+        os << "\"page_tree_duplicate_refs\":0,";
+        os << "\"page_tree_broken_parents\":0,";
+        os << "\"page_tree_reachable\":0,";
+        os << "\"page_tree_truncated\":false,";
         os << "\"issues\":[{\"message\":\"" << escaped << "\"}]";
     }
 
@@ -513,17 +1006,16 @@ extern "C" {
 JPDFIUM_EXPORT int32_t jpdfium_repair_pdf(const uint8_t* input, int64_t inputLen, uint8_t** output,
                                           int64_t* outputLen, int32_t) {
     if (!input || inputLen <= 0 || !output || !outputLen) return JPDFIUM_REPAIR_FAILED;
-    // Without qpdf, just pass through the bytes unchanged
-    *outputLen = inputLen;
-    *output = (uint8_t*)malloc(static_cast<size_t>(inputLen));
-    memcpy(*output, input, static_cast<size_t>(inputLen));
-    return JPDFIUM_REPAIR_CLEAN;
+    // No qpdf: do not pass the bytes through as CLEAN, which would certify a
+    // possibly corrupt input as valid.
+    *output = nullptr;
+    *outputLen = 0;
+    return JPDFIUM_REPAIR_FAILED;
 }
 
 JPDFIUM_EXPORT int32_t jpdfium_repair_pdf_file(const char* inputPath, const char* outputPath,
                                                int32_t) {
-    // Without qpdf there is no repair engine. Do not copy a damaged PDF through
-    // and report it as clean: signal that repair is unavailable instead.
+    // No qpdf: report repair as unavailable rather than passing a damaged PDF through.
     (void)inputPath;
     (void)outputPath;
     return JPDFIUM_REPAIR_FAILED;

@@ -83,6 +83,7 @@ JPDFIUM_EXPORT int64_t jpdfium_abi_query(int32_t query) JPDFIUM_NOEXCEPT;
 #define JPDFIUM_REPAIR_NORMALIZE_XREF 0x01  // Normalize cross-reference table
 #define JPDFIUM_REPAIR_FIX_STARTXREF 0x02   // Brute-force startxref offset
 #define JPDFIUM_REPAIR_FORCE_V14 0x04       // Force PDF 1.4 output
+#define JPDFIUM_REPAIR_PRESERVE_STRUCTURE 0x08  // Never prune page-tree nodes/refs
 
 // Image placement position constants (match Java Position enum ordinals)
 #define JPDFIUM_POSITION_TOP_LEFT 0
@@ -200,6 +201,20 @@ JPDFIUM_EXPORT void jpdfium_free_buffer(uint8_t* buffer) JPDFIUM_NOEXCEPT;
 JPDFIUM_EXPORT int32_t jpdfium_text_get_chars(int64_t page, char** json);
 JPDFIUM_EXPORT int32_t jpdfium_text_find(int64_t page, const char* query, char** json);
 JPDFIUM_EXPORT void jpdfium_free_string(char* str) JPDFIUM_NOEXCEPT;
+
+// Diagnostics: number of whole-document QPDF snapshot operations performed by
+// the bridge (one increment per internal snapshot load). Monotonically
+// increasing, relaxed-atomic and thread-safe. Side-effect free except the
+// reset. Not part of the document semantics: use it only to measure I/O.
+JPDFIUM_EXPORT int64_t jpdfium_native_op_count(void) JPDFIUM_NOEXCEPT;
+JPDFIUM_EXPORT void jpdfium_native_op_reset(void) JPDFIUM_NOEXCEPT;
+
+// Diagnostics: work counters for the font-reference graph and program cache,
+// returned as a JSON object `{snapshot_ops, reference_nodes, reference_lookups,
+// programs_analyzed, program_bytes_hashed}`. Measures the plan/apply paths so
+// their scaling can be benchmarked; side-effect free except the reset.
+JPDFIUM_EXPORT int32_t jpdfium_native_metrics(char** json) JPDFIUM_NOEXCEPT;
+JPDFIUM_EXPORT void jpdfium_native_metrics_reset(void) JPDFIUM_NOEXCEPT;
 
 JPDFIUM_EXPORT int32_t jpdfium_redact_region(int64_t page, float x, float y, float w, float h,
                                              uint32_t argb,
@@ -360,6 +375,51 @@ JPDFIUM_EXPORT int32_t jpdfium_font_get_data(int64_t page, int32_t font_index, u
 //                "units_per_em":2048,"has_kerning":true,"is_subset":true}
 JPDFIUM_EXPORT int32_t jpdfium_font_classify(const uint8_t* data, int64_t len, char** json);
 
+// Structured, evidence-backed analysis of one page's font *resources* (subtype,
+// Encoding, /ToUnicode presence/validity, descriptor embedding, CID mapping),
+// unlike jpdfium_font_classify which only inspects embedded program bytes.
+//
+// page_index is zero-based. Returns JSON:
+// {"page_index":0,"fonts":[{"resource":"/F1","base_font":"ABCDEF+Arial",
+//   "family":"Arial","subtype":"TrueType","kind":"simple","embedded":true,
+//   "sfnt":true,"cff":false,"cid":false,"subset":true,"num_glyphs":245,
+//   "units_per_em":2048,"has_cmap":true,"has_tounicode":false,
+//   "tounicode_valid":false,"encoding":"WinAnsiEncoding",
+//   "embedding_permission":0,"glyph_bytes":12345,
+//   "mappings":[{"code":65,"unicode":65,"provenance":"RECOVERED","note":"encoding:WinAnsiEncoding"}],
+//   "unresolved":[{"code":128,"unicode":-1,"provenance":"UNRESOLVED","note":"differences:unknown"}]}]}
+//
+// "provenance" is one of DECLARED, RECOVERED, AMBIGUOUS, UNRESOLVED, INVALID,
+// UNSUPPORTED. Ambiguous and unresolved codes are preserved in the output.
+// Caller frees *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json);
+
+// Evidence for many pages from a single document view, with each distinct font
+// program analysed once. The output is the single-page shape flattened across
+// pages: every font and mapping row carries its own "page_index", so callers
+// group rows back into per-page evidence. Invalid page indices are skipped.
+// Caller frees *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages,
+                                                   int32_t count, char** json);
+
+// Reports the exact set of font resources jpdfium_font_fix_tounicode would
+// change on a page, before anything is mutated. "repairs" lists the resources
+// (each with an opaque identity and whether the existing map is extended or
+// replaced); "skipped" lists the resources left untouched with a reason. The
+// caller authorises by resource name and applies the page-wide fix, so an
+// un-authorised resource can never be modified. Caller frees *json with
+// jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json);
+
+// Plan every page's /ToUnicode repairs from ONE document view, analysing each
+// distinct font program once. The output is a JSON array of per-page plan
+// objects, each with the single-page shape:
+//   [{"page_index":0,"repairs":[...],"skipped":[...],"references":[...]}, ...]
+// Each "references" array lists every (page, resource) the repaired resource's
+// shared font object is reached by (rows carry owner_page/owner). Caller frees
+// *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_plan_pages(int64_t doc, char** json);
+
 // Per-codepoint glyph coverage using the font's charmap.
 // out_covered[i] is 1 when the font has a glyph for codepoints[i], else 0.
 // Used to decide rewrite-vs-regenerate before editing text with a font.
@@ -374,12 +434,30 @@ JPDFIUM_EXPORT int32_t jpdfium_font_covers_text(const uint8_t* data, int64_t len
 JPDFIUM_EXPORT int32_t jpdfium_text_shape(const uint8_t* font_data, int64_t font_len,
                                           const char* utf8_text, float font_size, char** json);
 
-// Fix /ToUnicode CMap for all fonts on a page using the font's internal cmap table.
+// Repair /ToUnicode CMap for all fonts on a page.
 // This is the most critical step for reliable auto-redact: wrong ToUnicode -> wrong text
 // extraction -> patterns miss -> redact silently fails.
-// Returns the number of fonts repaired via *fonts_fixed.
+//
+// Reconstruction from evidence:
+//   - simple fonts (/TrueType, /Type1): code -> Unicode from /Encoding
+//     (WinAnsi/MacRoman/Standard base + /Differences glyph names resolved
+//     against the embedded program's cmap and glyph names).
+//   - /Type0 fonts with an Identity encoding and Identity /CIDToGIDMap:
+//     code -> CID -> GID -> Unicode via the embedded program's cmap.
+// A font is repaired when it has no /ToUnicode, or its existing CMap is
+// structurally empty (no bfchar/bfrange), or it is a valid but partial map that
+// is missing codes the page actually shows. Fonts that cannot be mapped are
+// left untouched and not counted, and unsupported encodings are skipped.
+//
+// page_index is zero-based. Returns the number of fonts repaired via *fonts_fixed.
 JPDFIUM_EXPORT int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index,
                                                   int32_t* fonts_fixed);
+
+// Repair many pages from a single document view with one reload, analysing each
+// distinct font program once. Invalid page indices are skipped. Returns the
+// total number of fonts repaired via *fonts_fixed.
+JPDFIUM_EXPORT int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t* pages,
+                                                        int32_t count, int32_t* fonts_fixed);
 
 // Repair /W (glyph width) tables using FreeType's authoritative advance widths.
 // Wrong widths cause text drift after editing and inaccurate redact box coordinates.

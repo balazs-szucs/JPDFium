@@ -13,6 +13,7 @@ module stirling.software.jpdfium {
     exports stirling.software.jpdfium;
     exports stirling.software.jpdfium.exception;
     exports stirling.software.jpdfium.fonts;
+    exports stirling.software.jpdfium.fonts.intel;
     exports stirling.software.jpdfium.model;
     exports stirling.software.jpdfium.redact;
     exports stirling.software.jpdfium.redact.pii;
