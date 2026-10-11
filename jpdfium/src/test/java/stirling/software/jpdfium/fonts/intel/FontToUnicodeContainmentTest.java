@@ -23,12 +23,12 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.fonts.PinnedFonts;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Containment regressions for {@code /ToUnicode} repair. Each unsupported form
@@ -298,28 +298,6 @@ class FontToUnicodeContainmentTest {
     }
 
     private static Path requireFont() {
-        Path font = locateFont();
-        assumeTrue(font != null, "no redistributable test font available");
-        return font;
-    }
-
-    private static Path locateFont() {
-        List<String> candidates = new ArrayList<>();
-        String override = System.getenv("JPDFIUM_TEST_FONT");
-        if (override != null && !override.isBlank()) {
-            candidates.add(override);
-        }
-        candidates.add("/System/Library/Fonts/Supplemental/Arial.ttf");
-        candidates.add("/System/Library/Fonts/Supplemental/Times New Roman.ttf");
-        candidates.add("/Library/Fonts/Arial.ttf");
-        candidates.add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-        candidates.add("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
-        for (String candidate : candidates) {
-            Path path = Path.of(candidate);
-            if (Files.isReadable(path)) {
-                return path;
-            }
-        }
-        return null;
+        return PinnedFonts.primary();
     }
 }

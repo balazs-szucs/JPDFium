@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.pdfbox.Loader;
@@ -19,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.fonts.PinnedFonts;
 import stirling.software.jpdfium.panama.NativeRuntime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,23 +47,7 @@ class FontIntelligenceVerticalSliceTest {
     private static final String SAMPLE = "Hello World";
 
     private static Path locateFont() {
-        List<String> candidates = new ArrayList<>();
-        String override = System.getenv("JPDFIUM_TEST_FONT");
-        if (override != null && !override.isBlank()) {
-            candidates.add(override);
-        }
-        candidates.add("/System/Library/Fonts/Supplemental/Arial.ttf");
-        candidates.add("/System/Library/Fonts/Supplemental/Times New Roman.ttf");
-        candidates.add("/Library/Fonts/Arial.ttf");
-        candidates.add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-        candidates.add("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
-        for (String candidate : candidates) {
-            Path path = Path.of(candidate);
-            if (Files.isReadable(path)) {
-                return path;
-            }
-        }
-        return null;
+        return PinnedFonts.primary();
     }
 
     /** Author a clean document that embeds the font as an Identity-H CID font. */
@@ -130,7 +114,6 @@ class FontIntelligenceVerticalSliceTest {
     void brokenToUnicodeIsRecoveredAndRepairedVertically(@TempDir Path tmp) throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
         Path font = locateFont();
-        assumeTrue(font != null, "no system TrueType font available (set JPDFIUM_TEST_FONT)");
 
         byte[] clean = cleanPdf(font);
         assertEquals(SAMPLE, extractWithPdfBox(clean),

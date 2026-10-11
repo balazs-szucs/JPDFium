@@ -1,0 +1,20 @@
+[
+  {
+    "id": "ahem",
+    "file": "Ahem.ttf",
+    "sha256": "b719ecb31c5b21fc573c03f6421c74ac63c271a5a3ff841e34f9705fb94b8448",
+    "origin": "PDFium test resource native/pdfium-src/pdfium/testing/resources/fonts/ahem/Ahem.ttf",
+    "license": "public domain (Ahem, the W3C/Chromium layout test font)",
+    "coverage": "Basic Latin",
+    "notes": "Pinned so font tests fail closed instead of skipping when no host font is installed. Public domain permits redistribution and modification."
+  },
+  {
+    "id": "ahem-two",
+    "file": "AhemTwo.ttf",
+    "sha256": "fb4d441d344967cf7559ad575cccaf7ea8248a244fccd0ee1ea759afb4a9b313",
+    "origin": "derived from Ahem.ttf by an in-place rename of its name-table strings (Ahem -> Ahxm)",
+    "license": "public domain (Ahem, the W3C/Chromium layout test font)",
+    "coverage": "Basic Latin",
+    "notes": "A second, byte-distinct program over the same public-domain font, used where two distinct font programs are required."
+  }
+]

@@ -22,26 +22,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /** HarfBuzz shaping: total advance agrees with PDFBox, clusters anchor runs. */
 class TextShapeTest {
 
-    private static File systemFont() {
-        String[] candidates = {
-                "/System/Library/Fonts/Supplemental/Arial.ttf",
-                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                "C:\\Windows\\Fonts\\arial.ttf"
-        };
-        for (String p : candidates) {
-            File f = new File(p);
-            if (f.isFile()) return f;
-        }
-        return null;
-    }
-
     @Test
     void totalAdvanceMatchesPdfBox() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        File ttf = systemFont();
-        assumeTrue(ttf != null, "no system TTF found");
+        File ttf = PinnedFonts.primary().toFile();
         byte[] bytes = Files.readAllBytes(ttf.toPath());
 
         // No kerning pairs: HarfBuzz kerns, PDFBox getStringWidth does not.
@@ -63,8 +47,7 @@ class TextShapeTest {
     @Test
     void clustersAnchorReplacementRuns() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        File ttf = systemFont();
-        assumeTrue(ttf != null, "no system TTF found");
+        File ttf = PinnedFonts.primary().toFile();
         byte[] bytes = Files.readAllBytes(ttf.toPath());
 
         // "ffi" ligature: three chars may shape to fewer glyphs, but every
@@ -80,8 +63,7 @@ class TextShapeTest {
     @Test
     void badInputsRejected() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        File ttf = systemFont();
-        assumeTrue(ttf != null, "no system TTF found");
+        File ttf = PinnedFonts.primary().toFile();
         byte[] bytes = Files.readAllBytes(ttf.toPath());
 
         assertThrows(IllegalArgumentException.class, () -> FontLib.shapeText(new byte[0], "x", 12f));

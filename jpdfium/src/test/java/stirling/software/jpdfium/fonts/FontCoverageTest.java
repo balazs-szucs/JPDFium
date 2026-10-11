@@ -18,26 +18,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /** Glyph coverage probe: agrees with AWT on printable ASCII per font. */
 class FontCoverageTest {
 
-    private static File systemFont() {
-        String[] candidates = {
-                "/System/Library/Fonts/Supplemental/Arial.ttf",
-                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                "C:\\Windows\\Fonts\\arial.ttf"
-        };
-        for (String p : candidates) {
-            File f = new File(p);
-            if (f.isFile()) return f;
-        }
-        return null;
-    }
-
     @Test
     void asciiCoverageMatchesAwt() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        File ttf = systemFont();
-        assumeTrue(ttf != null, "no system TTF found");
+        File ttf = PinnedFonts.primary().toFile();
         byte[] bytes = Files.readAllBytes(ttf.toPath());
 
         int[] ascii = new int[95];
@@ -55,8 +39,7 @@ class FontCoverageTest {
     @Test
     void outOfRangeIsNeverCovered() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        File ttf = systemFont();
-        assumeTrue(ttf != null, "no system TTF found");
+        File ttf = PinnedFonts.primary().toFile();
         byte[] bytes = Files.readAllBytes(ttf.toPath());
 
         boolean[] covered = FontLib.coversText(bytes, new int[] {0x41, 0x10FFFF, 0x110000, -1});

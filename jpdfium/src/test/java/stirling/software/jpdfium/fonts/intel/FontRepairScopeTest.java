@@ -20,13 +20,13 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.fonts.PinnedFonts;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * The repair plan is an authorization, not a suggestion: applying it must not
@@ -34,17 +34,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * on must be refused rather than re-applied.
  */
 class FontRepairScopeTest {
-
-    private static final String[] FONT_CANDIDATES = {
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-        "/System/Library/Fonts/Supplemental/Georgia.ttf",
-        "/System/Library/Fonts/Supplemental/Verdana.ttf",
-        "/Library/Fonts/Arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    };
 
     @Test
     void singlePlanIsRefusedWhenThePageHasAnotherPendingRepair() throws Exception {
@@ -207,31 +196,11 @@ class FontRepairScopeTest {
     // ------------------------------------------------------------- plumbing
 
     private static Path requireFont() {
-        List<Path> fonts = twoFonts();
-        return fonts.get(0);
+        return PinnedFonts.primary();
     }
 
-    /** Two distinct readable font programs; the corpus collapses same-identity fonts. */
+    /** Two byte-distinct pinned font programs; the corpus collapses same-identity fonts. */
     private static List<Path> twoFonts() {
-        List<Path> found = new ArrayList<>();
-        String override = System.getenv("JPDFIUM_TEST_FONT");
-        if (override != null && !override.isBlank()) {
-            Path p = Path.of(override);
-            if (Files.isReadable(p)) {
-                found.add(p);
-            }
-        }
-        for (String candidate : FONT_CANDIDATES) {
-            Path p = Path.of(candidate);
-            if (Files.isReadable(p) && !found.contains(p)) {
-                found.add(p);
-            }
-            if (found.size() == 2) {
-                break;
-            }
-        }
-        assumeTrue(found.size() == 2,
-                "two redistributable test fonts are required (set JPDFIUM_TEST_FONT)");
-        return found;
+        return PinnedFonts.pair();
     }
 }

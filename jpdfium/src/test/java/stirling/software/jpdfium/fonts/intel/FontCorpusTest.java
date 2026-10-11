@@ -35,6 +35,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 
 import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.fonts.PinnedFonts;
 import stirling.software.jpdfium.panama.NativeRuntime;
 import stirling.software.jpdfium.util.NativeJsonParser;
 
@@ -501,22 +502,6 @@ class FontCorpusTest {
     }
 
     private static Path locateFont() {
-        List<String> candidates = new ArrayList<>();
-        String override = System.getenv("JPDFIUM_TEST_FONT");
-        if (override != null && !override.isBlank()) {
-            candidates.add(override);
-        }
-        candidates.add("/System/Library/Fonts/Supplemental/Arial.ttf");
-        candidates.add("/System/Library/Fonts/Supplemental/Times New Roman.ttf");
-        candidates.add("/Library/Fonts/Arial.ttf");
-        candidates.add("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-        candidates.add("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
-        for (String candidate : candidates) {
-            Path path = Path.of(candidate);
-            if (Files.isReadable(path)) {
-                return path;
-            }
-        }
-        return null;
+        return PinnedFonts.primary();
     }
 }
