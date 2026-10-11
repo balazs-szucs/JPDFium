@@ -1372,6 +1372,8 @@ uint32_t resolve_glyph_name(const std::string& name, const GlyphMaps& gm,
 // Defined below, after descriptor_of(); declared here so the map builders can
 // refuse a symbolic font that declares no explicit /Encoding.
 bool is_symbolic_font(QPDFObjectHandle fd);
+// Defined below, after font_base_name().
+bool is_standard_symbolic_base(QPDFObjectHandle fd);
 
 // Simple (non-CID) font: code -> Unicode from the /Encoding. Base encodings are
 // the standard tables; /Differences glyph names resolve against the font program.
@@ -1384,6 +1386,16 @@ bool build_simple_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vecto
     if (!explicitEncoding && is_symbolic_font(fontDict)) {
         // No /Encoding and a symbolic descriptor: the glyph codes are in the
         // program's own built-in encoding. Do not fall back to StandardEncoding.
+        if (code) *code = "SYMBOLIC_FONT_UNSUPPORTED";
+        return false;
+    }
+    if (!explicitEncoding && is_standard_symbolic_base(fontDict)) {
+        // A standard-14 symbolic font (Symbol / ZapfDingbats) often carries no
+        // /FontDescriptor at all, so the /Flags bit-3 test above cannot see it.
+        // With no explicit /Encoding its codes are in the program's own built-in
+        // symbolic encoding, not StandardEncoding: falling through would
+        // synthesise an ASCII identity map (e.g. code 0x4B -> U+004B) for a
+        // dingbat glyph.
         if (code) *code = "SYMBOLIC_FONT_UNSUPPORTED";
         return false;
     }
@@ -1677,6 +1689,18 @@ std::string font_encoding_name(QPDFObjectHandle fd) {
     }
     if (e.isDictionary()) return "custom";
     return {};
+}
+
+// A standard-14 symbolic font named directly. Symbol and ZapfDingbats carry a
+// built-in symbolic encoding, so their codes are not StandardEncoding; they also
+// frequently ship with no /FontDescriptor at all, which means /Flags cannot be
+// consulted and is_symbolic_font() cannot see them. A subset prefix ("ABCDEF+")
+// is stripped before the comparison.
+bool is_standard_symbolic_base(QPDFObjectHandle fd) {
+    std::string base = font_base_name(fd);
+    size_t plus = base.find('+');
+    std::string stripped = plus == std::string::npos ? base : base.substr(plus + 1);
+    return stripped == "Symbol" || stripped == "ZapfDingbats";
 }
 
 struct FontEntry {

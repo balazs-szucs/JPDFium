@@ -28,6 +28,13 @@ public enum FontDiagnostic {
      * A symbolic font declares no explicit {@code /Encoding}; its glyph codes
      * use the program's built-in encoding, which is not decoded. StandardEncoding
      * is deliberately not assumed.
+     *
+     * <p>This also covers the standard-14 symbolic base fonts ({@code /Symbol},
+     * {@code /ZapfDingbats}) when they carry no {@code /FontDescriptor}: the
+     * descriptor's symbolic flag cannot see them, yet falling through to
+     * StandardEncoding would emit an ASCII identity map (e.g. {@code 0x4B ->
+     * U+004B}) for a dingbat or Greek glyph whose real code point is elsewhere
+     * (e.g. {@code 0x4B -> U+272B}). Such a font is declined, never rewritten.
      */
     SYMBOLIC_FONT_UNSUPPORTED,
 
