@@ -1493,6 +1493,10 @@ std::string program_bytes(QPDFObjectHandle descriptor) {
     return {};
 }
 
+// Defined below in this anonymous namespace; declared here so /ToUnicode
+// validity can be decided from parsed entries rather than token presence.
+std::unordered_map<uint32_t, uint32_t> parse_tounicode(QPDFObjectHandle fd, bool* exact);
+
 void tounicode_state(QPDFObjectHandle fd, bool& present, bool& valid) {
     present = false;
     valid = false;
@@ -1500,9 +1504,10 @@ void tounicode_state(QPDFObjectHandle fd, bool& present, bool& valid) {
     QPDFObjectHandle t = fd.getKey("/ToUnicode");
     present = true;
     if (!t.isStream()) return;
-    std::string cmap = stream_bytes(t);
-    valid = cmap.find("beginbfchar") != std::string::npos ||
-            cmap.find("beginbfrange") != std::string::npos;
+    // Valid only if at least one mapping is actually declared. A stream that
+    // merely mentions a section keyword declares nothing and is treated as
+    // absent, so it is rebuilt rather than preserved.
+    valid = !parse_tounicode(fd, nullptr).empty();
 }
 
 std::string font_base_name(QPDFObjectHandle fd) {
