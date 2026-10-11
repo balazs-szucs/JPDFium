@@ -2744,6 +2744,26 @@ void emit_object_references(const ReferenceIndex& index,
     }
 }
 
+// Evidence JSON rows for one requested page from an already-loaded view, reusing
+// the shared program cache. Appends this page's font rows to `fontOut` (joining
+// them with `firstRow`) and its mapping rows to `mappingsOut`, which accumulates
+// across pages. Returns false when the page has no reachable font resources.
+// This is the single definition of the per-page evidence row shape, shared by
+// jpdfium_font_evidence (one page) and jpdfium_font_evidence_pages (many), so
+// neither duplicates the per-font work nor reloads the document per page.
+bool font_evidence_page_json(const std::vector<QPDFObjectHandle>& pages, int32_t page_index,
+                             ProgramCache& cache, std::string& fontOut, std::string& mappingsOut,
+                             bool& firstRow) {
+    std::vector<FontEntry> fonts;
+    if (!page_font_dicts(pages, page_index, fonts)) return false;
+    for (const auto& fe : fonts) {
+        if (!firstRow) fontOut += ",";
+        firstRow = false;
+        fontOut += font_evidence_json(page_index, fe.key, fe.dict, mappingsOut, cache);
+    }
+    return true;
+}
+
 }  // namespace
 
 int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json) {
@@ -2757,19 +2777,15 @@ int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json) {
         QPDF pdf;
         if (!load_qpdf(w->core->doc, pdf, "font_evidence", backing)) return JPDFIUM_ERR_IO;
         std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
-        std::vector<FontEntry> fonts;
-        if (!page_font_dicts(pages, page_index, fonts)) return JPDFIUM_ERR_NOT_FOUND;
 
         std::string out = "{\"page_index\":";
         out += std::to_string(page_index);
         out += ",\"fonts\":[";
         std::string mappings;
-        bool first = true;
         ProgramCache cache;
-        for (const auto& fe : fonts) {
-            if (!first) out += ",";
-            first = false;
-            out += font_evidence_json(page_index, fe.key, fe.dict, mappings, cache);
+        bool firstRow = true;
+        if (!font_evidence_page_json(pages, page_index, cache, out, mappings, firstRow)) {
+            return JPDFIUM_ERR_NOT_FOUND;
         }
         out += "],\"mappings\":[";
         out += mappings;
@@ -2800,17 +2816,11 @@ int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages, int32_t c
 
         std::string out = "{\"pages\":" + std::to_string(count) + ",\"fonts\":[";
         std::string mappings;
-        bool firstFont = true;
         ProgramCache cache;
         std::vector<QPDFObjectHandle> allPages = pdf.getAllPages();
+        bool firstRow = true;
         for (int32_t i = 0; i < count; ++i) {
-            std::vector<FontEntry> fonts;
-            if (!page_font_dicts(allPages, pages[i], fonts)) continue;
-            for (const auto& fe : fonts) {
-                if (!firstFont) out += ",";
-                firstFont = false;
-                out += font_evidence_json(pages[i], fe.key, fe.dict, mappings, cache);
-            }
+            font_evidence_page_json(allPages, pages[i], cache, out, mappings, firstRow);
         }
         out += "],\"mappings\":[";
         out += mappings;
