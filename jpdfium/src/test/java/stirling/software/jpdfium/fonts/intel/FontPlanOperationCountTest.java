@@ -49,7 +49,7 @@ class FontPlanOperationCountTest {
     @Test
     void planningAndApplyUseABoundedNumberOfSnapshots() throws Exception {
         assumeTrue(NativeRuntime.isFull(), "needs real native library");
-        byte[] pdf = multiPageRepairablePdf();
+        byte[] pdf = multiPageRepairablePdf(PAGES);
 
         List<Long> planOps = new ArrayList<>();
         List<Long> applyOps = new ArrayList<>();
@@ -105,15 +105,58 @@ class FontPlanOperationCountTest {
 
         // The measured design: two snapshot operations to plan a whole document
         // (one evidence batch + one plan batch) and two to apply it (one
-        // validation batch + one write). Assert a loose upper bound so a
-        // regression back to a per-page load (which was ~3 per page) fails.
+        // validation batch + one write), independent of the page count.
         for (int run = 0; run < RUNS; run++) {
             assertTrue(planOps.get(run) >= 1, "planning must touch the document at least once");
-            assertTrue(planOps.get(run) <= 2L * PAGES,
-                    "planning must not scale per page: " + planOps.get(run));
+            assertTrue(planOps.get(run) <= 2,
+                    "planning must take exactly one evidence batch and one plan batch: "
+                            + planOps.get(run));
             assertTrue(applyOps.get(run) >= 1, "apply must touch the document at least once");
-            assertTrue(applyOps.get(run) <= 2L * PAGES,
-                    "apply must not scale per page: " + applyOps.get(run));
+            assertTrue(applyOps.get(run) <= 2,
+                    "apply must take one validation batch and one write: " + applyOps.get(run));
+        }
+    }
+
+    /**
+     * The operation counts are a property of the design, not of the document: a
+     * two-page and a sixteen-page document must plan and apply in the same number
+     * of snapshot operations. This is the truthful, page-count-independent claim
+     * the per-page-load regression would break.
+     */
+    @Test
+    void operationCountDoesNotScaleWithPageCount() throws Exception {
+        assumeTrue(NativeRuntime.isFull(), "needs real native library");
+        long[] small = measure(2);
+        long[] large = measure(16);
+
+        System.out.printf(
+                "FontIntelligence snapshot ops by page count:%n"
+                + "  2 pages:  planning ops=%d apply ops=%d%n"
+                + "  16 pages: planning ops=%d apply ops=%d%n",
+                small[0], small[1], large[0], large[1]);
+
+        assertEquals(small[0], large[0],
+                "planning snapshot operations must be independent of page count");
+        assertEquals(small[1], large[1],
+                "apply snapshot operations must be independent of page count");
+        assertTrue(large[0] <= 2, "planning must stay within two snapshot operations: " + large[0]);
+        assertTrue(large[1] <= 2, "apply must stay within two snapshot operations: " + large[1]);
+    }
+
+    /** {@code {planning ops, apply ops}} for a freshly generated {@code pages}-page document. */
+    private static long[] measure(int pages) throws Exception {
+        byte[] pdf = multiPageRepairablePdf(pages);
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            FontLib.resetNativeOpCount();
+            List<FontRepairPlan> plans = FontIntelligence.repairPlans(doc);
+            long planOps = FontLib.nativeOpCount();
+            assertEquals(pages, plans.size(), "one repairable font per page must yield one plan");
+
+            FontLib.resetNativeOpCount();
+            int fixed = FontIntelligence.applyRepairs(doc, plans);
+            long applyOps = FontLib.nativeOpCount();
+            assertTrue(fixed >= 1, "at least one page's /ToUnicode must be repaired");
+            return new long[] {planOps, applyOps};
         }
     }
 
@@ -137,10 +180,10 @@ class FontPlanOperationCountTest {
      * One page per sheet, each with its own simple TrueType font showing "AB"
      * and no /ToUnicode, so every page is independently repairable.
      */
-    private static byte[] multiPageRepairablePdf() throws Exception {
+    private static byte[] multiPageRepairablePdf(int pages) throws Exception {
         Path font = PinnedFonts.primary();
         try (PDDocument doc = new PDDocument()) {
-            for (int i = 0; i < PAGES; i++) {
+            for (int i = 0; i < pages; i++) {
                 PDPage page = new PDPage(PDRectangle.LETTER);
                 doc.addPage(page);
                 PDTrueTypeFont f;
