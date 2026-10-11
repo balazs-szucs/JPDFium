@@ -1,5 +1,13 @@
 # Full-sweep qualification result — FAIL (honest, with evidence)
 
+> **Status update.** This documents the *pre-fix* run (revision `ff9b06e8`). The
+> one genuine hard-gate failure below — `pdfjs_ZapfDingbats.pdf` — is fixed in
+> `99bd09ca` (the planner now declines the font, `SYMBOLIC_FONT_UNSUPPORTED`,
+> instead of synthesising an ASCII identity `/ToUnicode`; regression
+> `FontSymbolicEncodingTest`). The raw `summary.json` / `run-full.log` quoted
+> here are archived evidence, not tracked. A post-fix re-run re-confirms the
+> gate; see `reports/RECEIPT.md`.
+
 Command:
 
 ```sh
