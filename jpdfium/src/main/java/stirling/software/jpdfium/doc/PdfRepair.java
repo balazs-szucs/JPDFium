@@ -344,6 +344,12 @@ public final class PdfRepair {
                 || RepairReport.STRATEGY_REVISION_RECOVERY.equals(strategy);
         if (!published || output == null) {
             report.preservation("page_tree", RepairReport.UNKNOWN);
+            // A truncated traversal cannot certify structure, and the native
+            // pass refuses to publish it. Surface that as an explicit warning
+            // instead of leaving the caller with an unexplained failure.
+            if (input != null && RepairInspection.parse(inspect(input)).pageTreeTruncated()) {
+                report.warn("page tree analysis truncated; no candidate published");
+            }
             return;
         }
         RepairInspection before = RepairInspection.parse(inspect(input));

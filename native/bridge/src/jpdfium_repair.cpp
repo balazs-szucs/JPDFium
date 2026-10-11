@@ -581,19 +581,14 @@ PageTreeRepairResult repair_page_tree_structure(QPDF& pdf, bool allow_prune) {
             e.node.replaceKey("/Count", QPDFObjectHandle::newInteger(e.after));
         }
 
-        // Verify the rewritten tree before it can be published; on failure put
-        // every touched node back the way it was.
+        // Verify the rewritten tree before it can be published. There is no
+        // rollback: ParentEdit does not record the previous /Parent, so a
+        // partially applied repair could not be undone in place. Any
+        // verification failure - including a truncated re-analysis - discards
+        // the whole candidate instead, and the caller publishes nothing.
         StructuralFindings check = analyze_structure(pdf);
-        if (check.page_tree_broken_parents != 0 || check.page_tree_cycles != 0
-            || check.page_tree_duplicate_refs != 0) {
-            for (CountEdit& e : count_edits) {
-                e.node.replaceKey("/Count", e.had
-                                              ? QPDFObjectHandle::newInteger(e.before)
-                                              : QPDFObjectHandle::newNull());
-            }
-            for (KidsEdit& e : kids_edits) {
-                e.node.replaceKey("/Kids", QPDFObjectHandle::newArray(e.before));
-            }
+        if (check.page_tree_truncated || check.page_tree_broken_parents != 0
+            || check.page_tree_cycles != 0 || check.page_tree_duplicate_refs != 0) {
             out.status = PageTreeRepairResult::Status::FAILED;
             out.parent_fixes = 0;
             out.count_fixes = 0;
@@ -620,8 +615,18 @@ static int try_qpdf_repair(const uint8_t* input, int64_t inputLen, uint8_t** out
         // Repair the page tree before writing so structural defects are
         // corrected rather than re-emitted. Preserve mode forbids pruning, so a
         // tree that would need a node or reference dropped is left untouched.
-        repair_page_tree_structure(pdf,
-                                   (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
+        // An incomplete analysis, or a rewrite that fails its own re-analysis,
+        // publishes nothing at all.
+        PageTreeRepairResult tree = repair_page_tree_structure(
+            pdf, (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
+        if (tree.status == PageTreeRepairResult::Status::TRUNCATED) {
+            errorMsg = "page tree analysis truncated; no candidate published";
+            return JPDFIUM_REPAIR_FAILED;
+        }
+        if (tree.status == PageTreeRepairResult::Status::FAILED) {
+            errorMsg = "page tree repair failed verification; no candidate published";
+            return JPDFIUM_REPAIR_FAILED;
+        }
 
         QPDFWriter writer(pdf);
         writer.setOutputMemory();
@@ -682,29 +687,38 @@ static int try_qpdf_repair_file(const char* inputPath, const char* outputPath, i
             pdf.processFile(inputPath);
 
             // Same bounded page-tree repair as the byte route, honouring the
-            // same preserve-mode refusal to prune.
-            repair_page_tree_structure(
+            // same preserve-mode refusal to prune. An incomplete analysis, or a
+            // rewrite that fails its own re-analysis, publishes nothing.
+            PageTreeRepairResult tree = repair_page_tree_structure(
                 pdf, (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
+            if (tree.status == PageTreeRepairResult::Status::TRUNCATED
+                || tree.status == PageTreeRepairResult::Status::FAILED) {
+                errorMsg = tree.status == PageTreeRepairResult::Status::TRUNCATED
+                               ? "page tree analysis truncated; no candidate published"
+                               : "page tree repair failed verification; no candidate published";
+                std::fclose(probe);
+                probe = nullptr;
+            } else {
+                QPDFWriter writer(pdf);
+                // qpdf writes to our fd and leaves closure to us (close_file=false).
+                writer.setOutputFile(staging.c_str(), probe, false);
 
-            QPDFWriter writer(pdf);
-            // qpdf writes to our fd and leaves closure to us (close_file=false).
-            writer.setOutputFile(staging.c_str(), probe, false);
+                if (flags & JPDFIUM_REPAIR_NORMALIZE_XREF) {
+                    writer.setObjectStreamMode(qpdf_o_disable);
+                }
+                writer.setLinearization(false);
+                writer.setCompressStreams(true);
+                if (flags & JPDFIUM_REPAIR_FORCE_V14) {
+                    writer.forcePDFVersion("1.4");
+                }
 
-            if (flags & JPDFIUM_REPAIR_NORMALIZE_XREF) {
-                writer.setObjectStreamMode(qpdf_o_disable);
+                writer.write();
+                const bool closed = std::fclose(probe) == 0;
+                probe = nullptr;
+                result = !closed                     ? JPDFIUM_REPAIR_FAILED
+                         : pdf.getWarnings().empty() ? JPDFIUM_REPAIR_CLEAN
+                                                     : JPDFIUM_REPAIR_FIXED;
             }
-            writer.setLinearization(false);
-            writer.setCompressStreams(true);
-            if (flags & JPDFIUM_REPAIR_FORCE_V14) {
-                writer.forcePDFVersion("1.4");
-            }
-
-            writer.write();
-            const bool closed = std::fclose(probe) == 0;
-            probe = nullptr;
-            result = !closed                     ? JPDFIUM_REPAIR_FAILED
-                     : pdf.getWarnings().empty() ? JPDFIUM_REPAIR_CLEAN
-                                                 : JPDFIUM_REPAIR_FIXED;
         }
     } catch (QPDFExc& e) {
         if (probe) {

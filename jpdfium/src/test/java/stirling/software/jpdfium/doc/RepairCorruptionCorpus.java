@@ -295,6 +295,45 @@ public final class RepairCorruptionCorpus {
         }
     }
 
+    /**
+     * A page tree nested {@code depth} levels deep (a single page at the bottom),
+     * used to exceed the repair pass's tree-depth bound so the analysis is
+     * truncated. Every /Parent link and /Count is correct, so the only defect is
+     * the nesting depth.
+     */
+    public static byte[] deepPageTree(int depth) {
+        int objectCount = depth + 2; // catalog + depth /Pages nodes + one page
+        List<String> bodies = new ArrayList<>();
+        bodies.add("<< /Type /Catalog /Pages 2 0 R >>");
+        for (int i = 0; i < depth; i++) {
+            int self = 2 + i;
+            StringBuilder body = new StringBuilder("<< /Type /Pages ");
+            if (self > 2) {
+                body.append("/Parent ").append(self - 1).append(" 0 R ");
+            }
+            body.append("/Kids [").append(self + 1).append(" 0 R] /Count 1 >>");
+            bodies.add(body.toString());
+        }
+        bodies.add("<< /Type /Page /Parent " + (objectCount - 1)
+                + " 0 R /MediaBox [0 0 612 792] >>");
+
+        StringBuilder out = new StringBuilder("%PDF-1.7\n");
+        long[] offsets = new long[objectCount + 1];
+        for (int n = 1; n <= objectCount; n++) {
+            offsets[n] = out.length();
+            out.append(n).append(" 0 obj\n").append(bodies.get(n - 1)).append("\nendobj\n");
+        }
+        long xrefStart = out.length();
+        out.append("xref\n0 ").append(objectCount + 1).append('\n')
+                .append("0000000000 65535 f \n");
+        for (int n = 1; n <= objectCount; n++) {
+            out.append(String.format("%010d 00000 n \n", offsets[n]));
+        }
+        out.append("trailer\n<< /Size ").append(objectCount + 1).append(" /Root 1 0 R >>\n")
+                .append("startxref\n").append(xrefStart).append("\n%%EOF\n");
+        return out.toString().getBytes(StandardCharsets.ISO_8859_1);
+    }
+
     private static byte[] onePage() throws IOException {
         try (PDDocument doc = new PDDocument()) {
             doc.addPage(new PDPage(PDRectangle.LETTER));

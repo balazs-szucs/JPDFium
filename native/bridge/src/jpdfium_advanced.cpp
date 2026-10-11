@@ -1866,7 +1866,11 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
     if (!tu.isStream()) return TounicodeState::MALFORMED;
     // Inherited mappings (a stream-dictionary /UseCMap or a body `usecmap`) are
     // not reproduced by rewriting the local block, so they are unsupported.
-    if (tu.hasKey("/UseCMap")) return TounicodeState::UNSUPPORTED;
+    // Read the dict explicitly: QPDFObjectHandle::hasKey() warns and returns
+    // false for a non-dictionary object, which on a stream would silently hide
+    // an inherited map.
+    QPDFObjectHandle tuDict = tu.getDict();
+    if (tuDict.hasKey("/UseCMap")) return TounicodeState::UNSUPPORTED;
     std::string s = stream_bytes(tu);
     auto hexval = [](const std::string& h) {
         uint32_t v = 0;

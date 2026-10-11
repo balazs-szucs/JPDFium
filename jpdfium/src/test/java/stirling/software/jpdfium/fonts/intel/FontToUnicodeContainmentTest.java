@@ -64,6 +64,31 @@ class FontToUnicodeContainmentTest {
     }
 
     @Test
+    void usecmapInStreamDictionaryIsRefused() throws Exception {
+        // The same inheritance expressed as a stream-dictionary key rather than
+        // a body operator. QPDFObjectHandle::hasKey() warns and returns false for
+        // a non-dictionary (a stream), so this must be read through the stream
+        // dictionary or the inherited map is silently missed.
+        Path font = requireFont();
+        byte[] pdf = installToUnicode(cidPdf(font),
+                header() + mapWithChar("<0048> <0048>\n") + footer(),
+                "Adobe-Japan1-UCS2");
+        byte[] before = firstToUnicodeBytes(pdf);
+        assertNotNull(before, "fixture must carry a /ToUnicode");
+
+        int fixed;
+        byte[] repaired;
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            fixed = repairAll(doc);
+            repaired = doc.saveBytes();
+        }
+
+        assertEquals(0, fixed, "an inherited map must be refused, not repaired");
+        assertArrayEquals(before, firstToUnicodeBytes(repaired),
+                "a refused /ToUnicode must be preserved byte-for-byte");
+    }
+
+    @Test
     void surrogateCrossingRangeIsRefused() throws Exception {
         // Endpoints <D7FE> .. <D801> straddle the surrogate block; both endpoints
         // are individually plausible but the interior is not.
@@ -234,6 +259,15 @@ class FontToUnicodeContainmentTest {
     // ------------------------------------------------------------- plumbing
 
     private static byte[] installToUnicode(byte[] pdf, String cmap) throws Exception {
+        return installToUnicode(pdf, cmap, null);
+    }
+
+    /**
+     * Installs {@code cmap} as every font resource's {@code /ToUnicode}, optionally
+     * adding {@code /UseCMap <useCmap>} to the stream dictionary (the dictionary
+     * form of inheritance, distinct from the body {@code usecmap} operator).
+     */
+    private static byte[] installToUnicode(byte[] pdf, String cmap, String useCmap) throws Exception {
         try (PDDocument doc = Loader.loadPDF(pdf)) {
             for (PDPage page : doc.getPages()) {
                 PDResources res = page.getResources();
@@ -248,6 +282,9 @@ class FontToUnicodeContainmentTest {
                     COSBase fd = fonts.getDictionaryObject(key);
                     if (fd instanceof COSDictionary dict) {
                         COSStream stream = doc.getDocument().createCOSStream();
+                        if (useCmap != null) {
+                            stream.setItem(COSName.USE_CMAP, COSName.getPDFName(useCmap));
+                        }
                         try (OutputStream os = stream.createOutputStream(COSName.FLATE_DECODE)) {
                             os.write(cmap.getBytes(StandardCharsets.US_ASCII));
                         }
