@@ -1774,6 +1774,15 @@ struct UsageScan {
     std::unordered_map<std::string, std::vector<std::string>> shown;
     bool complete = true;
     int depth = 0;
+    // Content-stream state. A page's /Contents may be an ARRAY of streams that
+    // is interpreted as one concatenated instruction sequence, so the selected
+    // font and the operand state must survive from one stream to the next
+    // (e.g. stream 1 `BT /F1 12 Tf`, stream 2 `<..> Tj ET`).
+    std::string curFont;
+    std::vector<std::string> fontStack;
+    std::string lastName;
+    std::vector<std::string> pending;
+    bool inImageHeader = false;
 };
 
 std::unordered_map<std::string, QPDFObjectHandle> fonts_from_resources(
@@ -1835,9 +1844,26 @@ void scan_form(QPDFObjectHandle const& xobj, QPDFObjectHandle const& callerResou
         auto it = pageFonts.find(kv.first);
         if (it == pageFonts.end() || !same_font(it->second, kv.second)) out.complete = false;
     }
+    // A form executes with a copy of the caller's graphics state and its own
+    // changes do not persist after it returns, so scan it with the current font
+    // but restore the operand and font-selection state afterwards.
+    std::string savedFont = out.curFont;  // a form inherits the caller's font
+    std::vector<std::string> savedStack = std::move(out.fontStack);
+    std::string savedLast = std::move(out.lastName);
+    std::vector<std::string> savedPending = std::move(out.pending);
+    bool savedImage = out.inImageHeader;
+    out.fontStack.clear();
+    out.lastName.clear();
+    out.pending.clear();
+    out.inImageHeader = false;
     ++out.depth;
     scan_content(stream_bytes(xobj), formRes, pageFonts, out);
     --out.depth;
+    out.curFont = std::move(savedFont);
+    out.fontStack = std::move(savedStack);
+    out.lastName = std::move(savedLast);
+    out.pending = std::move(savedPending);
+    out.inImageHeader = savedImage;
 }
 
 void scan_content(const std::string& data, QPDFObjectHandle const& resources,
@@ -1847,18 +1873,12 @@ void scan_content(const std::string& data, QPDFObjectHandle const& resources,
     tok.allowEOF();  // EOF is a clean end of input, not a bad token
     auto is = std::make_shared<BufferInputSource>("content", data);
 
-    std::string curFont;
-    std::vector<std::string> fontStack;
-    std::string lastName;
-    std::vector<std::string> pending;  // strings shown since the last operator
-    bool inImageHeader = false;
-
     auto flush = [&]() {
-        if (!curFont.empty()) {
-            auto& v = out.shown[curFont];
-            for (const auto& s : pending) v.push_back(s);
+        if (!out.curFont.empty()) {
+            auto& v = out.shown[out.curFont];
+            for (const auto& s : out.pending) v.push_back(s);
         }
-        pending.clear();
+        out.pending.clear();
     };
 
     while (true) {
@@ -1871,15 +1891,15 @@ void scan_content(const std::string& data, QPDFObjectHandle const& resources,
         }
         if (tt == QPDFTokenizer::tt_space || tt == QPDFTokenizer::tt_comment) continue;
         if (tt == QPDFTokenizer::tt_inline_image) {
-            inImageHeader = false;  // opaque bytes; nothing to attribute
+            out.inImageHeader = false;  // opaque bytes; nothing to attribute
             continue;
         }
         if (tt == QPDFTokenizer::tt_string) {
-            if (!inImageHeader) pending.push_back(t.getValue());
+            if (!out.inImageHeader) out.pending.push_back(t.getValue());
             continue;
         }
         if (tt == QPDFTokenizer::tt_name) {
-            lastName = t.getValue();
+            out.lastName = t.getValue();
             continue;
         }
         if (tt == QPDFTokenizer::tt_array_open || tt == QPDFTokenizer::tt_array_close
@@ -1893,21 +1913,54 @@ void scan_content(const std::string& data, QPDFObjectHandle const& resources,
             if (w == "Tj" || w == "TJ" || w == "'" || w == "\"") {
                 flush();
             } else {
-                pending.clear();
+                out.pending.clear();
             }
             if (w == "q") {
-                fontStack.push_back(curFont);
+                out.fontStack.push_back(out.curFont);
             } else if (w == "Q") {
-                if (fontStack.empty()) {
+                if (out.fontStack.empty()) {
                     out.complete = false;  // unbalanced graphics state
                 } else {
-                    curFont = fontStack.back();
-                    fontStack.pop_back();
+                    out.curFont = out.fontStack.back();
+                    out.fontStack.pop_back();
                 }
             } else if (w == "Tf") {
-                curFont = lastName;
+                out.curFont = out.lastName;
+            } else if (w == "gs") {
+                // An ExtGState may carry a /Font [ref size] entry that selects a
+                // different font. Resolve it to the page resource name that
+                // denotes the same font object, or treat usage as unknown.
+                QPDFObjectHandle egs = resources.isDictionary()
+                                               && resources.hasKey("/ExtGState")
+                                           ? resources.getKey("/ExtGState")
+                                           : QPDFObjectHandle();
+                QPDFObjectHandle g = egs.isDictionary() && egs.hasKey(out.lastName)
+                                         ? egs.getKey(out.lastName)
+                                         : QPDFObjectHandle();
+                if (!g.isDictionary()) {
+                    out.complete = false;
+                } else if (g.hasKey("/Font")) {
+                    QPDFObjectHandle fa = g.getKey("/Font");
+                    if (!fa.isArray() || fa.getArrayNItems() < 1) {
+                        out.complete = false;
+                    } else {
+                        QPDFObjectHandle fref = fa.getArrayItem(0);
+                        std::string matched;
+                        for (const auto& kv : pageFonts) {
+                            if (same_font(kv.second, fref)) {
+                                matched = kv.first;
+                                break;
+                            }
+                        }
+                        if (matched.empty()) {
+                            out.complete = false;  // unknown font selection
+                        } else {
+                            out.curFont = matched;
+                        }
+                    }
+                }
             } else if (w == "BI") {
-                inImageHeader = true;
+                out.inImageHeader = true;
             } else if (w == "ID") {
                 // Discard the single whitespace that terminates ID, then let
                 // the tokenizer consume the image data up to EI.
@@ -1915,20 +1968,20 @@ void scan_content(const std::string& data, QPDFObjectHandle const& resources,
                 is->read(&ch, 1);
                 tok.expectInlineImage(is);
                 QPDFTokenizer::Token img = tok.readToken(is, "content", true);
-                inImageHeader = false;
+                out.inImageHeader = false;
                 if (img.getType() == QPDFTokenizer::tt_bad) {
                     out.complete = false;
                     break;
                 }
             } else if (w == "Do") {
-                if (lastName.empty()) {
+                if (out.lastName.empty()) {
                     out.complete = false;
                 } else if (!resources.isDictionary() || !resources.hasKey("/XObject")) {
                     out.complete = false;  // an XObject was invoked but none is named
                 } else {
                     QPDFObjectHandle xobjects = resources.getKey("/XObject");
-                    QPDFObjectHandle xobj = xobjects.isDictionary() && xobjects.hasKey(lastName)
-                                                ? xobjects.getKey(lastName)
+                    QPDFObjectHandle xobj = xobjects.isDictionary() && xobjects.hasKey(out.lastName)
+                                                ? xobjects.getKey(out.lastName)
                                                 : QPDFObjectHandle();
                     if (!xobj.isInitialized()) {
                         out.complete = false;
@@ -1938,11 +1991,11 @@ void scan_content(const std::string& data, QPDFObjectHandle const& resources,
                     // Image XObjects show no text: nothing to attribute.
                 }
             }
-            lastName.clear();
+            out.lastName.clear();
             continue;
         }
         // Dictionaries, braces, null and booleans are not show operands.
-        pending.clear();
+        out.pending.clear();
     }
 }
 
