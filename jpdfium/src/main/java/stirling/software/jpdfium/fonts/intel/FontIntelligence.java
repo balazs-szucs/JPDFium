@@ -48,6 +48,25 @@ public final class FontIntelligence {
         return FontEvidence.fromJson(json, pageIndex);
     }
 
+    /**
+     * Collect evidence for every page from a single document view, analysing each
+     * distinct font program once rather than once per page. The result equals the
+     * concatenation of {@link #inspectPage} for every page, in page order.
+     */
+    public static List<FontEvidence> inspectPages(PdfDocument document) {
+        Objects.requireNonNull(document, "document");
+        int pages = document.pageCount();
+        if (pages == 0) {
+            return List.of();
+        }
+        int[] indices = new int[pages];
+        for (int i = 0; i < pages; i++) {
+            indices[i] = i;
+        }
+        String json = FontLib.evidencePages(document.nativeHandle(), indices);
+        return FontEvidence.listFromJson(json);
+    }
+
     /** Build a document-local font catalog across all pages. */
     public static FontCatalog inspect(PdfDocument document) {
         return FontCatalog.inspect(document);
@@ -234,13 +253,15 @@ public final class FontIntelligence {
     }
 
     /**
-     * Apply an explicit set of plans, one page at a time.
+     * Apply an explicit set of plans against one document view, in a single write.
      *
      * <p>Every plan must still match the current document, and the set must list
      * every pending repair on each page it touches, so the page-wide native
      * operation is exactly as wide as the authorisation and no other resource is
-     * changed. Pages are repaired in ascending order; a stale or under-specified
-     * page throws before that page is written.
+     * changed. Every page is validated before any is written; a stale or
+     * under-specified page throws before the document is mutated. The pages are
+     * then repaired together, analysing each distinct font program once and
+     * reloading the document one time.
      *
      * @return total number of font resources repaired
      * @throws StaleRepairPlanException when a plan is stale or a page is not fully
@@ -256,8 +277,10 @@ public final class FontIntelligence {
                 byPage.computeIfAbsent(plan.pageIndex(), k -> new ArrayList<>()).add(plan);
             }
         }
+        if (byPage.isEmpty()) {
+            return 0;
+        }
 
-        int total = 0;
         for (Map.Entry<Integer, List<FontRepairPlan>> entry : byPage.entrySet()) {
             int pageIndex = entry.getKey();
             Set<String> authorised = new HashSet<>();
@@ -272,8 +295,11 @@ public final class FontIntelligence {
                             + " that the plan set does not authorise");
                 }
             }
-            total += repairPage(document, pageIndex);
         }
+
+        int[] pages = byPage.keySet().stream().mapToInt(Integer::intValue).sorted().toArray();
+        int total = FontLib.fixToUnicodePages(document.nativeHandle(), pages);
+        document.refreshRawHandle();
         return total;
     }
 
@@ -318,13 +344,18 @@ public final class FontIntelligence {
         return fixed;
     }
 
-    /** Repair every page's {@code /ToUnicode} where evidence supports it. */
+    /** Repair every page's {@code /ToUnicode} from one view and one write. */
     public static int repairToUnicode(PdfDocument document) {
         Objects.requireNonNull(document, "document");
-        int fixed = 0;
-        for (int i = 0; i < document.pageCount(); i++) {
-            fixed += FontLib.fixToUnicode(document.nativeHandle(), i);
+        int pages = document.pageCount();
+        if (pages == 0) {
+            return 0;
         }
+        int[] indices = new int[pages];
+        for (int i = 0; i < pages; i++) {
+            indices[i] = i;
+        }
+        int fixed = FontLib.fixToUnicodePages(document.nativeHandle(), indices);
         document.refreshRawHandle();
         return fixed;
     }

@@ -4236,6 +4236,132 @@ public class JpdfiumH extends JpdfiumH$shared {
         }
     }
 
+    private static class jpdfium_font_evidence_pages {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(
+            JpdfiumH.C_INT,
+            JpdfiumH.C_LONG,
+            JpdfiumH.C_POINTER,
+            JpdfiumH.C_INT,
+            JpdfiumH.C_POINTER
+        );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("jpdfium_font_evidence_pages");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * Function descriptor for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t *pages, int32_t count, char **json)
+     * }
+     */
+    public static FunctionDescriptor jpdfium_font_evidence_pages$descriptor() {
+        return jpdfium_font_evidence_pages.DESC;
+    }
+
+    /**
+     * Downcall method handle for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t *pages, int32_t count, char **json)
+     * }
+     */
+    public static MethodHandle jpdfium_font_evidence_pages$handle() {
+        return jpdfium_font_evidence_pages.HANDLE;
+    }
+
+    /**
+     * Address for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t *pages, int32_t count, char **json)
+     * }
+     */
+    public static MemorySegment jpdfium_font_evidence_pages$address() {
+        return jpdfium_font_evidence_pages.ADDR;
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t *pages, int32_t count, char **json)
+     * }
+     */
+    public static int jpdfium_font_evidence_pages(long doc, MemorySegment pages, int count, MemorySegment json) {
+        var mh$ = jpdfium_font_evidence_pages.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("jpdfium_font_evidence_pages", doc, pages, count, json);
+            }
+            return (int)mh$.invokeExact(doc, pages, count, json);
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
+    private static class jpdfium_font_fix_tounicode_pages {
+        public static final FunctionDescriptor DESC = FunctionDescriptor.of(
+            JpdfiumH.C_INT,
+            JpdfiumH.C_LONG,
+            JpdfiumH.C_POINTER,
+            JpdfiumH.C_INT,
+            JpdfiumH.C_POINTER
+        );
+
+        public static final MemorySegment ADDR = SYMBOL_LOOKUP.findOrThrow("jpdfium_font_fix_tounicode_pages");
+
+        public static final MethodHandle HANDLE = Linker.nativeLinker().downcallHandle(ADDR, DESC);
+    }
+
+    /**
+     * Function descriptor for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t *pages, int32_t count, int32_t *fonts_fixed)
+     * }
+     */
+    public static FunctionDescriptor jpdfium_font_fix_tounicode_pages$descriptor() {
+        return jpdfium_font_fix_tounicode_pages.DESC;
+    }
+
+    /**
+     * Downcall method handle for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t *pages, int32_t count, int32_t *fonts_fixed)
+     * }
+     */
+    public static MethodHandle jpdfium_font_fix_tounicode_pages$handle() {
+        return jpdfium_font_fix_tounicode_pages.HANDLE;
+    }
+
+    /**
+     * Address for:
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t *pages, int32_t count, int32_t *fonts_fixed)
+     * }
+     */
+    public static MemorySegment jpdfium_font_fix_tounicode_pages$address() {
+        return jpdfium_font_fix_tounicode_pages.ADDR;
+    }
+
+    /**
+     * {@snippet lang=c :
+     * int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t *pages, int32_t count, int32_t *fonts_fixed)
+     * }
+     */
+    public static int jpdfium_font_fix_tounicode_pages(long doc, MemorySegment pages, int count, MemorySegment fonts_fixed) {
+        var mh$ = jpdfium_font_fix_tounicode_pages.HANDLE;
+        try {
+            if (TRACE_DOWNCALLS) {
+                traceDowncall("jpdfium_font_fix_tounicode_pages", doc, pages, count, fonts_fixed);
+            }
+            return (int)mh$.invokeExact(doc, pages, count, fonts_fixed);
+        } catch (Error | RuntimeException ex) {
+           throw ex;
+        } catch (Throwable ex$) {
+           throw new AssertionError("should not reach here", ex$);
+        }
+    }
+
     private static class jpdfium_font_plan {
         public static final FunctionDescriptor DESC = FunctionDescriptor.of(
             JpdfiumH.C_INT,

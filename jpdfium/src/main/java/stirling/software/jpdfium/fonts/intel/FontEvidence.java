@@ -182,44 +182,91 @@ public record FontEvidence(
         java.util.Map<String, List<UnicodeMapping>> byResource = new java.util.LinkedHashMap<>();
         for (Map<String, String> row : mappingRows) {
             String resource = row.getOrDefault("resource", "");
-            int code = parseInt(row.get("code"), 0);
-            int uni = parseInt(row.get("unicode"), -1);
-            FontProvenance prov = FontProvenance.fromName(row.get("provenance"));
-            if (uni < 0 && prov.resolved()) {
-                prov = FontProvenance.UNRESOLVED;
-            }
-            byResource.computeIfAbsent(resource, k -> new ArrayList<>())
-                    .add(new UnicodeMapping(code, uni, prov, row.getOrDefault("note", "")));
+            byResource.computeIfAbsent(resource, k -> new ArrayList<>()).add(mapping(row));
         }
 
         List<FontEvidence> out = new ArrayList<>(fontRows.size());
         for (Map<String, String> row : fontRows) {
             String resource = row.getOrDefault("resource", "");
-            out.add(new FontEvidence(
-                    pageIndex,
-                    resource,
-                    row.getOrDefault("base_font", ""),
-                    row.getOrDefault("family", ""),
-                    row.getOrDefault("subtype", ""),
-                    FontKind.fromName(row.get("kind")),
-                    asBool(row.get("embedded")),
-                    asBool(row.get("sfnt")),
-                    asBool(row.get("cff")),
-                    asBool(row.get("cid")),
-                    asBool(row.get("subset")),
-                    asBool(row.get("has_cmap")),
-                    parseInt(row.get("num_glyphs"), 0),
-                    parseInt(row.get("units_per_em"), 0),
-                    parseLong(row.get("glyph_bytes"), 0L),
-                    asBool(row.get("has_tounicode")),
-                    asBool(row.get("tounicode_valid")),
-                    row.getOrDefault("encoding", ""),
-                    parseInt(row.get("embedding_permission"), -1),
-                    byResource.getOrDefault(resource, List.of()),
-                    asBool(row.get("mapping_truncated")),
-                    row.getOrDefault("tounicode_state", "")));
+            out.add(evidenceOf(pageIndex, resource, row,
+                    byResource.getOrDefault(resource, List.of())));
         }
         return out;
+    }
+
+    /**
+     * Parse the flat JSON produced by {@code jpdfium_font_evidence_pages}.
+     *
+     * <p>The native payload is
+     * {@code {"pages":N,"fonts":[...],"mappings":[...]}} with every object kept
+     * flat and carrying its own {@code page_index}. Font and mapping rows are
+     * joined by {@code page_index} and {@code resource}, so two pages that reuse
+     * one resource name keep their evidence independent.
+     */
+    public static List<FontEvidence> listFromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        List<Map<String, String>> fontRows = arraySegment(json, "\"fonts\":", "\"mappings\":");
+        List<Map<String, String>> mappingRows = arraySegment(json, "\"mappings\":", null);
+
+        java.util.Map<String, List<UnicodeMapping>> byKey = new java.util.LinkedHashMap<>();
+        for (Map<String, String> row : mappingRows) {
+            String key = groupKey(parseInt(row.get("page_index"), 0),
+                    row.getOrDefault("resource", ""));
+            byKey.computeIfAbsent(key, k -> new ArrayList<>()).add(mapping(row));
+        }
+
+        List<FontEvidence> out = new ArrayList<>(fontRows.size());
+        for (Map<String, String> row : fontRows) {
+            int pageIndex = parseInt(row.get("page_index"), 0);
+            String resource = row.getOrDefault("resource", "");
+            out.add(evidenceOf(pageIndex, resource, row,
+                    byKey.getOrDefault(groupKey(pageIndex, resource), List.of())));
+        }
+        return out;
+    }
+
+    private static UnicodeMapping mapping(Map<String, String> row) {
+        int code = parseInt(row.get("code"), 0);
+        int uni = parseInt(row.get("unicode"), -1);
+        FontProvenance prov = FontProvenance.fromName(row.get("provenance"));
+        if (uni < 0 && prov.resolved()) {
+            prov = FontProvenance.UNRESOLVED;
+        }
+        return new UnicodeMapping(code, uni, prov, row.getOrDefault("note", ""));
+    }
+
+    private static FontEvidence evidenceOf(
+            int pageIndex, String resource, Map<String, String> row,
+            List<UnicodeMapping> mappings) {
+        return new FontEvidence(
+                pageIndex,
+                resource,
+                row.getOrDefault("base_font", ""),
+                row.getOrDefault("family", ""),
+                row.getOrDefault("subtype", ""),
+                FontKind.fromName(row.get("kind")),
+                asBool(row.get("embedded")),
+                asBool(row.get("sfnt")),
+                asBool(row.get("cff")),
+                asBool(row.get("cid")),
+                asBool(row.get("subset")),
+                asBool(row.get("has_cmap")),
+                parseInt(row.get("num_glyphs"), 0),
+                parseInt(row.get("units_per_em"), 0),
+                parseLong(row.get("glyph_bytes"), 0L),
+                asBool(row.get("has_tounicode")),
+                asBool(row.get("tounicode_valid")),
+                row.getOrDefault("encoding", ""),
+                parseInt(row.get("embedding_permission"), -1),
+                mappings,
+                asBool(row.get("mapping_truncated")),
+                row.getOrDefault("tounicode_state", ""));
+    }
+
+    private static String groupKey(int pageIndex, String resource) {
+        return pageIndex + "\u0000" + resource;
     }
 
     private static List<Map<String, String>> arraySegment(

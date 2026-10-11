@@ -180,6 +180,29 @@ public final class FontLib {
     }
 
     /**
+     * Typed font evidence for many pages, collected from one document view with
+     * each distinct font program analysed once. The flattened payload carries a
+     * {@code page_index} on every row; parse it with
+     * {@link stirling.software.jpdfium.fonts.intel.FontEvidence#listFromJson}.
+     * An empty {@code pages} array collects nothing.
+     */
+    public static String evidencePages(long doc, int[] pages) {
+        if (pages == null) throw new IllegalArgumentException("pages must not be null");
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment pagesSeg = a.allocateFrom(JAVA_INT, pages);
+                MemorySegment ptrSeg = a.allocate(ADDRESS);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_evidence_pages(
+                        doc, pagesSeg, pages.length, ptrSeg), "fontEvidencePages");
+                MemorySegment strPtr = ptrSeg.get(ADDRESS, 0);
+                String result = FfmHelper.readNativeString(strPtr);
+                JpdfiumH.jpdfium_free_string(strPtr);
+                return result;
+            }
+        });
+    }
+
+    /**
      * Exact set of font resources the page-wide {@code fixToUnicode} pass would
      * change, reported before anything is mutated. The caller authorises by
      * resource name; because the planner and the fixer share one native
@@ -203,6 +226,24 @@ public final class FontLib {
             try (Arena a = Arena.ofConfined()) {
                 MemorySegment cSeg = a.allocate(JAVA_INT);
                 JpdfiumLib.check(JpdfiumH.jpdfium_font_fix_tounicode(doc, pageIndex, cSeg), "fontFixToUnicode");
+                return cSeg.get(JAVA_INT, 0);
+            }
+        });
+    }
+
+    /**
+     * Repair many pages' {@code /ToUnicode} from one document view with a single
+     * write and reload, analysing each distinct font program once. Invalid page
+     * indices are skipped. Returns the total number of fonts repaired.
+     */
+    public static int fixToUnicodePages(long doc, int[] pages) {
+        if (pages == null) throw new IllegalArgumentException("pages must not be null");
+        return PdfiumRuntime.execute(() -> {
+            try (Arena a = Arena.ofConfined()) {
+                MemorySegment pagesSeg = a.allocateFrom(JAVA_INT, pages);
+                MemorySegment cSeg = a.allocate(JAVA_INT);
+                JpdfiumLib.check(JpdfiumH.jpdfium_font_fix_tounicode_pages(
+                        doc, pagesSeg, pages.length, cSeg), "fontFixToUnicodePages");
                 return cSeg.get(JAVA_INT, 0);
             }
         });

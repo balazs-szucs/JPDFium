@@ -380,6 +380,14 @@ JPDFIUM_EXPORT int32_t jpdfium_font_classify(const uint8_t* data, int64_t len, c
 // Caller frees *json with jpdfium_free_string.
 JPDFIUM_EXPORT int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json);
 
+// Evidence for many pages from a single document view, with each distinct font
+// program analysed once. The output is the single-page shape flattened across
+// pages: every font and mapping row carries its own "page_index", so callers
+// group rows back into per-page evidence. Invalid page indices are skipped.
+// Caller frees *json with jpdfium_free_string.
+JPDFIUM_EXPORT int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages,
+                                                   int32_t count, char** json);
+
 // Reports the exact set of font resources jpdfium_font_fix_tounicode would
 // change on a page, before anything is mutated. "repairs" lists the resources
 // (each with an opaque identity and whether the existing map is extended or
@@ -413,13 +421,20 @@ JPDFIUM_EXPORT int32_t jpdfium_text_shape(const uint8_t* font_data, int64_t font
 //     against the embedded program's cmap and glyph names).
 //   - /Type0 fonts with an Identity encoding and Identity /CIDToGIDMap:
 //     code -> CID -> GID -> Unicode via the embedded program's cmap.
-// A font is repaired only when it has no /ToUnicode, or its existing CMap is
-// structurally empty (no bfchar/bfrange); fonts that cannot be mapped are left
-// untouched and not counted, and unsupported encodings are skipped.
+// A font is repaired when it has no /ToUnicode, or its existing CMap is
+// structurally empty (no bfchar/bfrange), or it is a valid but partial map that
+// is missing codes the page actually shows. Fonts that cannot be mapped are
+// left untouched and not counted, and unsupported encodings are skipped.
 //
 // page_index is zero-based. Returns the number of fonts repaired via *fonts_fixed.
 JPDFIUM_EXPORT int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index,
                                                   int32_t* fonts_fixed);
+
+// Repair many pages from a single document view with one reload, analysing each
+// distinct font program once. Invalid page indices are skipped. Returns the
+// total number of fonts repaired via *fonts_fixed.
+JPDFIUM_EXPORT int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t* pages,
+                                                        int32_t count, int32_t* fonts_fixed);
 
 // Repair /W (glyph width) tables using FreeType's authoritative advance widths.
 // Wrong widths cause text drift after editing and inaccurate redact box coordinates.

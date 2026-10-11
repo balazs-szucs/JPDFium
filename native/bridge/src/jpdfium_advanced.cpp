@@ -1107,6 +1107,35 @@ GlyphMaps build_glyph_maps(const uint8_t* data, size_t len) {
     return m;
 }
 
+// Verified program identity: a content hash of the embedded font program
+// bytes. Used only to cache analysis. Two resources that declare the same base
+// name and the same byte length but carry different bytes hash differently and
+// are never merged; the bytes are the identity, not the name or the size.
+std::string program_content_hash(const std::string& bytes) {
+    uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : bytes) {
+        h ^= c;
+        h *= 1099511628211ull;
+    }
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "%016llx%zx", static_cast<unsigned long long>(h), bytes.size());
+    return buf;
+}
+
+// Per-operation memo of glyph analysis, keyed by verified program identity, so
+// one snapshot analyses each distinct font program exactly once even when it is
+// referenced from many pages or by many resources.
+using ProgramCache = std::unordered_map<std::string, GlyphMaps>;
+
+GlyphMaps const& glyph_maps_cached(const std::string& bytes, ProgramCache& cache) {
+    std::string key = program_content_hash(bytes);
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    GlyphMaps gm =
+        build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    return cache.emplace(std::move(key), std::move(gm)).first->second;
+}
+
 using CodeToUni = std::unordered_map<uint32_t, uint32_t>;
 
 void fill_ascii(CodeToUni& m) {
@@ -1579,7 +1608,8 @@ bool page_font_dicts(QPDF& pdf, int32_t page_index, std::vector<FontEntry>& out)
     return true;
 }
 
-std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std::string& mappingsOut) {
+std::string font_evidence_json(int32_t page_index, const std::string& key, QPDFObjectHandle fd,
+                               std::string& mappingsOut, ProgramCache& cache) {
     bool cid = is_cid_font(fd);
     std::string subtype = fd.hasKey("/Subtype") && fd.getKey("/Subtype").isName()
                               ? fd.getKey("/Subtype").getName()
@@ -1588,8 +1618,7 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
 
     QPDFObjectHandle descriptor = descriptor_of(fd, cid);
     std::string bytes = program_bytes(descriptor);
-    GlyphMaps gm =
-        build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    GlyphMaps const& gm = glyph_maps_cached(bytes, cache);
 
     TounicodeState tuc = parse_tounicode(fd, nullptr);
     bool tucPresent = tuc != TounicodeState::ABSENT;
@@ -1608,7 +1637,8 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
     if (gm.cmap_truncated) mapTruncated = true;
 
     std::string out = "{";
-    out += "\"resource\":" + escape_json(key);
+    out += "\"page_index\":" + std::to_string(page_index);
+    out += ",\"resource\":" + escape_json(key);
     out += ",\"base_font\":" + escape_json(font_base_name(fd));
     out += ",\"family\":" + escape_json(gm.family);
     out += ",\"subtype\":" + escape_json(subtype);
@@ -1657,7 +1687,8 @@ std::string font_evidence_json(const std::string& key, QPDFObjectHandle fd, std:
             ++unresolvedCount;
         if (!firstRow) mappingsOut += ",";
         firstRow = false;
-        std::string row = "{\"resource\":" + escape_json(key);
+        std::string row = "{\"page_index\":" + std::to_string(page_index)
+                          + ",\"resource\":" + escape_json(key);
         snprintf(num, sizeof(num), ",\"code\":%u,\"unicode\":%d,\"provenance\":\"%s\",\"note\":",
                  mp.code, resolved ? static_cast<int>(mp.uni) : -1, mp.provenance);
         row += num;
@@ -2097,7 +2128,7 @@ struct FontRepairDecision {
 
 FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
                                       const std::vector<std::string>* usedStrings,
-                                      bool usageComplete) {
+                                      bool usageComplete, ProgramCache& cache) {
     FontRepairDecision d;
     bool cid = is_cid_font(fd);
     d.cid = cid;
@@ -2124,8 +2155,7 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
 
     QPDFObjectHandle descriptor = descriptor_of(fd, cid);
     std::string bytes = program_bytes(descriptor);
-    GlyphMaps gm =
-        build_glyph_maps(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    GlyphMaps const& gm = glyph_maps_cached(bytes, cache);
 
     std::vector<Mapping> maps;
     bool mapTruncated = gm.cmap_truncated;
@@ -2219,10 +2249,51 @@ int32_t jpdfium_font_evidence(int64_t doc, int32_t page_index, char** json) {
         out += ",\"fonts\":[";
         std::string mappings;
         bool first = true;
+        ProgramCache cache;
         for (const auto& fe : fonts) {
             if (!first) out += ",";
             first = false;
-            out += font_evidence_json(fe.key, fe.dict, mappings);
+            out += font_evidence_json(page_index, fe.key, fe.dict, mappings, cache);
+        }
+        out += "],\"mappings\":[";
+        out += mappings;
+        out += "]}";
+        *json = strdup(out.c_str());
+        return *json ? JPDFIUM_OK : JPDFIUM_ERR_NATIVE;
+    } catch (std::exception&) {
+        return JPDFIUM_ERR_NATIVE;
+    }
+}
+
+// Evidence for many pages from a single QPDF view. Font programs are analysed
+// once per distinct program across every requested page. The output keeps the
+// single-page shape but flattens the pages: each font and mapping row carries
+// its own "page_index", so a caller can group rows back into per-page evidence
+// without a nested-array parser. Caller frees *json with jpdfium_free_string.
+int32_t jpdfium_font_evidence_pages(int64_t doc, const int32_t* pages, int32_t count, char** json) {
+    if (!json) return JPDFIUM_ERR_INVALID;
+    *json = nullptr;
+    if (count < 0 || (count > 0 && !pages)) return JPDFIUM_ERR_INVALID;
+    DocWrapper* w = decodeDoc(doc);
+    if (!w || !w->core->doc) return JPDFIUM_ERR_INVALID;
+
+    try {
+        std::vector<uint8_t> backing;  // must outlive `pdf`
+        QPDF pdf;
+        if (!load_qpdf(w->core->doc, pdf, "font_evidence_pages", backing)) return JPDFIUM_ERR_IO;
+
+        std::string out = "{\"pages\":" + std::to_string(count) + ",\"fonts\":[";
+        std::string mappings;
+        bool firstFont = true;
+        ProgramCache cache;
+        for (int32_t i = 0; i < count; ++i) {
+            std::vector<FontEntry> fonts;
+            if (!page_font_dicts(pdf, pages[i], fonts)) continue;
+            for (const auto& fe : fonts) {
+                if (!firstFont) out += ",";
+                firstFont = false;
+                out += font_evidence_json(pages[i], fe.key, fe.dict, mappings, cache);
+            }
         }
         out += "],\"mappings\":[";
         out += mappings;
@@ -2270,11 +2341,12 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
         std::string skipped;
         bool firstRepair = true;
         bool firstSkip = true;
+        ProgramCache cache;
         for (auto& fe : fonts) {
             const std::vector<std::string>* used = nullptr;
             auto itU = usedRaw.find(fe.key);
             if (itU != usedRaw.end()) used = &itU->second;
-            FontRepairDecision d = decide_font_repair(fe.dict, used, usageComplete);
+            FontRepairDecision d = decide_font_repair(fe.dict, used, usageComplete, cache);
             if (!d.eligible) {
                 if (!firstSkip) skipped += ",";
                 firstSkip = false;
@@ -2299,6 +2371,37 @@ int32_t jpdfium_font_plan(int64_t doc, int32_t page_index, char** json) {
     }
 }
 
+// Apply every eligible /ToUnicode repair for one page against an
+// already-loaded QPDF view. Returns the number of resources changed, or -1 when
+// the page index does not exist.
+int fix_page_tounicode(QPDF& pdf, int32_t page_index, ProgramCache& cache) {
+    std::vector<FontEntry> fonts;
+    if (!page_font_dicts(pdf, page_index, fonts)) return -1;
+
+    // Codes shown on this page per font resource; an unreadable content
+    // stream simply yields no used codes.
+    std::unordered_map<std::string, std::vector<std::string>> usedRaw;
+    bool usageComplete = true;
+    {
+        std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
+        if (page_index >= 0 && static_cast<size_t>(page_index) < pages.size())
+            collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw, &usageComplete);
+    }
+
+    int fixed = 0;
+    for (auto& fe : fonts) {
+        QPDFObjectHandle fd = fe.dict;
+        const std::vector<std::string>* used = nullptr;
+        auto itU = usedRaw.find(fe.key);
+        if (itU != usedRaw.end()) used = &itU->second;
+        FontRepairDecision d = decide_font_repair(fd, used, usageComplete, cache);
+        if (!d.eligible) continue;
+        fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, d.cmap));
+        ++fixed;
+    }
+    return fixed;
+}
+
 int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fonts_fixed) {
     if (fonts_fixed) *fonts_fixed = 0;
     DocWrapper* w = decodeDoc(doc);
@@ -2308,30 +2411,40 @@ int32_t jpdfium_font_fix_tounicode(int64_t doc, int32_t page_index, int32_t* fon
         std::vector<uint8_t> backing;  // must outlive `pdf`
         QPDF pdf;
         if (!load_qpdf(w->core->doc, pdf, "font_tounicode", backing)) return JPDFIUM_ERR_IO;
-        std::vector<FontEntry> fonts;
-        if (!page_font_dicts(pdf, page_index, fonts)) return JPDFIUM_ERR_NOT_FOUND;
 
-        // Codes shown on this page per font resource; an unreadable content
-        // stream simply yields no used codes.
-        std::unordered_map<std::string, std::vector<std::string>> usedRaw;
-        bool usageComplete = true;
-        {
-            std::vector<QPDFObjectHandle> pages = pdf.getAllPages();
-            if (page_index >= 0 && static_cast<size_t>(page_index) < pages.size())
-                collect_used_strings(pages[static_cast<size_t>(page_index)], usedRaw,
-                                     &usageComplete);
-        }
+        ProgramCache cache;
+        int fixed = fix_page_tounicode(pdf, page_index, cache);
+        if (fixed < 0) return JPDFIUM_ERR_NOT_FOUND;
 
+        if (fixed == 0) return JPDFIUM_OK;  // no mutation: leave the document untouched
+        int32_t rc = docwrapper_reload(w, qpdf_write(pdf));
+        if (rc != JPDFIUM_OK) return rc;
+        if (fonts_fixed) *fonts_fixed = fixed;
+        return JPDFIUM_OK;
+    } catch (std::exception&) {
+        return JPDFIUM_ERR_NATIVE;
+    }
+}
+
+// Repair many pages from a single QPDF view and one reload. Each distinct font
+// program is analysed once across every page. Caller frees nothing.
+int32_t jpdfium_font_fix_tounicode_pages(int64_t doc, const int32_t* pages, int32_t count,
+                                         int32_t* fonts_fixed) {
+    if (fonts_fixed) *fonts_fixed = 0;
+    if (count < 0 || (count > 0 && !pages)) return JPDFIUM_ERR_INVALID;
+    DocWrapper* w = decodeDoc(doc);
+    if (!w || !w->core->doc) return JPDFIUM_ERR_INVALID;
+
+    try {
+        std::vector<uint8_t> backing;  // must outlive `pdf`
+        QPDF pdf;
+        if (!load_qpdf(w->core->doc, pdf, "font_tounicode_pages", backing)) return JPDFIUM_ERR_IO;
+
+        ProgramCache cache;
         int fixed = 0;
-        for (auto& fe : fonts) {
-            QPDFObjectHandle fd = fe.dict;
-            const std::vector<std::string>* used = nullptr;
-            auto itU = usedRaw.find(fe.key);
-            if (itU != usedRaw.end()) used = &itU->second;
-            FontRepairDecision d = decide_font_repair(fd, used, usageComplete);
-            if (!d.eligible) continue;
-            fd.replaceKey("/ToUnicode", QPDFObjectHandle::newStream(&pdf, d.cmap));
-            ++fixed;
+        for (int32_t i = 0; i < count; ++i) {
+            int r = fix_page_tounicode(pdf, pages[i], cache);
+            if (r > 0) fixed += r;
         }
 
         if (fixed == 0) return JPDFIUM_OK;  // no mutation: leave the document untouched
@@ -2356,7 +2469,17 @@ int32_t jpdfium_font_plan(int64_t, int32_t, char** json) {
     return JPDFIUM_ERR_NOT_FOUND;
 }
 
+int32_t jpdfium_font_evidence_pages(int64_t, const int32_t*, int32_t, char** json) {
+    if (json) *json = nullptr;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+
 int32_t jpdfium_font_fix_tounicode(int64_t, int32_t, int32_t* fonts_fixed) {
+    if (fonts_fixed) *fonts_fixed = 0;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+
+int32_t jpdfium_font_fix_tounicode_pages(int64_t, const int32_t*, int32_t, int32_t* fonts_fixed) {
     if (fonts_fixed) *fonts_fixed = 0;
     return JPDFIUM_ERR_NOT_FOUND;
 }
@@ -2383,7 +2506,15 @@ int32_t jpdfium_font_plan(int64_t, int32_t, char** json) {
     if (json) *json = nullptr;
     return JPDFIUM_ERR_NOT_FOUND;
 }
+int32_t jpdfium_font_evidence_pages(int64_t, const int32_t*, int32_t, char** json) {
+    if (json) *json = nullptr;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
 int32_t jpdfium_font_fix_tounicode(int64_t, int32_t, int32_t* fonts_fixed) {
+    if (fonts_fixed) *fonts_fixed = 0;
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+int32_t jpdfium_font_fix_tounicode_pages(int64_t, const int32_t*, int32_t, int32_t* fonts_fixed) {
     if (fonts_fixed) *fonts_fixed = 0;
     return JPDFIUM_ERR_NOT_FOUND;
 }

@@ -39,12 +39,7 @@ public final class FontCatalog implements Iterable<FontEvidence> {
     /** Inspect every page of a document and collect per-resource evidence. */
     public static FontCatalog inspect(PdfDocument document) {
         Objects.requireNonNull(document, "document");
-        List<FontEvidence> all = new ArrayList<>();
-        int pages = document.pageCount();
-        for (int i = 0; i < pages; i++) {
-            all.addAll(FontIntelligence.inspectPage(document, i));
-        }
-        return new FontCatalog(all);
+        return new FontCatalog(FontIntelligence.inspectPages(document));
     }
 
     /** All per-resource evidence, in page/resource order (may repeat a font). */
