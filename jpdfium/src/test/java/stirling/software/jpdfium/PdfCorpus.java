@@ -7,9 +7,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.zip.ZipInputStream;
 
 /**
  * Downloads and caches a large set of publicly available PDF files for corpus-level testing.
@@ -35,6 +38,44 @@ public final class PdfCorpus {
 
     private static final String PDFCPU_BASE =
             "https://raw.githubusercontent.com/pdfcpu/pdfcpu/master/pkg/samples/";
+
+    /**
+     * Recursive git-tree API; unlike the contents API it is not capped at 1000
+     * entries, so it lists the complete {@code test/pdfs} corpus.
+     */
+    private static final String PDFJS_TREE_API =
+            "https://api.github.com/repos/mozilla/pdf.js/git/trees/master?recursive=1";
+
+    /** Fallback directory-listing API for the pdf.js {@code test/pdfs} corpus. */
+    private static final String PDFJS_DIR_API =
+            "https://api.github.com/repos/mozilla/pdf.js/contents/test/pdfs?ref=master";
+
+    /** The veraPDF PDF/A conformance corpus, fetched as a single ZIP archive. */
+    private static final String VERAPDF_ZIP =
+            "https://codeload.github.com/veraPDF/veraPDF-corpus/zip/refs/heads/staging";
+
+    /** Cache sub-directory holding the extracted veraPDF corpus. */
+    private static final String VERAPDF_DIR = "verapdf";
+
+    // Large archives need a longer budget than a single small file download.
+    private static final Duration ARCHIVE_TIMEOUT = Duration.ofMinutes(10);
+
+    // Optional bound on how many PDFs download() fetches (0 = unbounded).
+    private static final int LIMIT = Integer.getInteger("jpdfium.corpus.limit", 0);
+
+    /**
+     * A real-world corpus fetched file-by-file from GitHub and cached under
+     * {@code build/test-corpus/<cacheSubdir>/}; content is never vendored.
+     */
+    private record GithubCorpus(String owner, String repo, String pathPrefix, String cacheSubdir) {}
+
+    private static final List<GithubCorpus> GITHUB_CORPORA = List.of(
+            // QPDF's regression suite: the canonical damaged / malformed PDF corpus.
+            new GithubCorpus("qpdf", "qpdf", "qpdf/qtest/qpdf/", "qpdf-qtest"),
+            // Apache PDFBox test resources (Apache-2.0).
+            new GithubCorpus("apache", "pdfbox", "pdfbox/src/test/resources/", "pdfbox-test"),
+            // PDF Association's PDF 2.0 example files.
+            new GithubCorpus("pdf-association", "pdf20examples", "", "pdf20examples"));
 
     private static final List<Entry> ENTRIES = List.of(
         entry("basicapi.pdf"),
@@ -808,38 +849,309 @@ public final class PdfCorpus {
         List<String> failures = new ArrayList<>();
 
         for (Entry entry : ENTRIES) {
-            Path dest = CACHE_DIR.resolve(entry.name());
-
-            if (Files.exists(dest) && Files.size(dest) > 0) {
-                result.add(dest);
-                continue;
-            }
-
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(entry.url()))
-                    .timeout(TIMEOUT)
-                    .build();
-
-            try {
-                HttpResponse<Path> resp = client.send(req, HttpResponse.BodyHandlers.ofFile(dest));
-                if (resp.statusCode() != 200) {
-                    Files.deleteIfExists(dest);
-                    failures.add(entry.name() + " (HTTP " + resp.statusCode() + ")");
-                    continue;
-                }
-                result.add(dest);
-            } catch (IOException e) {
-                Files.deleteIfExists(dest);
-                failures.add(entry.name() + " (" + e.getMessage() + ")");
-            }
+            downloadOne(client, entry, result, failures);
         }
+        // Beyond the curated list: discover every PDF in the pdf.js test/pdfs
+        // directory, then the veraPDF PDF/A conformance corpus (one archive).
+        downloadPdfJsDirectory(client, result, failures);
+        downloadVeraPdf(client, result, failures);
+        downloadGithubCorpora(client, result, failures);
 
         if (!failures.isEmpty()) {
             System.err.println("[PdfCorpus] WARNING: failed to download " + failures.size()
                     + " PDFs: " + failures);
         }
 
-        return result;
+        return result.stream().distinct().toList();
+    }
+
+    /**
+     * Download one entry into the cache unless it is already present.
+     *
+     * @return true if a fresh download was written, false if it was already
+     *     cached or the download failed
+     */
+    private static boolean downloadOne(HttpClient client, Entry entry, List<Path> result,
+                                       List<String> failures)
+            throws IOException, InterruptedException {
+        Path dest = CACHE_DIR.resolve(entry.name());
+
+        if (Files.exists(dest) && Files.size(dest) > 0) {
+            result.add(dest);
+            return false;
+        }
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(entry.url()))
+                .timeout(TIMEOUT)
+                .build();
+
+        try {
+            HttpResponse<Path> resp = client.send(req, HttpResponse.BodyHandlers.ofFile(dest));
+            if (resp.statusCode() != 200) {
+                Files.deleteIfExists(dest);
+                failures.add(entry.name() + " (HTTP " + resp.statusCode() + ")");
+                return false;
+            }
+            result.add(dest);
+            return true;
+        } catch (IOException e) {
+            Files.deleteIfExists(dest);
+            failures.add(entry.name() + " (" + e.getMessage() + ")");
+            return false;
+        }
+    }
+
+    private static boolean limitReached(int downloaded) {
+        return LIMIT > 0 && downloaded >= LIMIT;
+    }
+
+    /**
+     * Discover and download every PDF in the pdf.js {@code test/pdfs} tree,
+     * extending the curated {@link #ENTRIES} list. The recursive git-tree API is
+     * used because the contents API caps its listing at 1000 entries; the
+     * contents API remains as a fallback. Responses are parsed with a small regex
+     * so no JSON dependency is required.
+     */
+    static void downloadPdfJsDirectory(HttpClient client, List<Path> result, List<String> failures)
+            throws IOException, InterruptedException {
+        List<String> names = pdfJsNamesFromTree(client);
+        if (names.isEmpty()) {
+            names = pdfJsNamesFromContents(client, failures);
+        }
+
+        int downloaded = 0;
+        for (String name : names) {
+            if (limitReached(downloaded)) {
+                return;
+            }
+            // Cache filename is flat; the URL keeps the original (sub)path.
+            String safe = name.replace('/', '_');
+            if (downloadOne(client, new Entry(safe, PDFJS_BASE + name.replace("#", "%23")),
+                    result, failures)) {
+                downloaded++;
+            }
+        }
+    }
+
+    /** Every {@code test/pdfs/**.pdf} path from the pdf.js recursive git tree. */
+    private static List<String> pdfJsNamesFromTree(HttpClient client)
+            throws IOException, InterruptedException {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(PDFJS_TREE_API))
+                    .timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json")
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return List.of();
+            }
+            List<String> names = new ArrayList<>();
+            var matcher = Pattern.compile("\"path\"\\s*:\\s*\"(test/pdfs/[^\"]+\\.pdf)\"")
+                    .matcher(resp.body());
+            while (matcher.find()) {
+                names.add(matcher.group(1).substring("test/pdfs/".length()));
+            }
+            return names;
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    /** Fallback listing via the (1000-entry-capped) pdf.js contents API. */
+    private static List<String> pdfJsNamesFromContents(HttpClient client, List<String> failures)
+            throws IOException, InterruptedException {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(PDFJS_DIR_API))
+                    .timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json")
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                failures.add("pdf.js directory listing (HTTP " + resp.statusCode() + ")");
+                return List.of();
+            }
+            List<String> names = new ArrayList<>();
+            var matcher = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+\\.pdf)\"")
+                    .matcher(resp.body());
+            while (matcher.find()) {
+                names.add(matcher.group(1));
+            }
+            return names;
+        } catch (IOException e) {
+            failures.add("pdf.js directory listing (" + e.getMessage() + ")");
+            return List.of();
+        }
+    }
+
+    /**
+     * Download the veraPDF PDF/A conformance corpus (a single ZIP archive) and
+     * extract every {@code .pdf} into {@code build/test-corpus/verapdf/...}.
+     * The archive is removed afterwards; extraction is guarded against zip-slip.
+     */
+    static void downloadVeraPdf(HttpClient client, List<Path> result, List<String> failures)
+            throws IOException, InterruptedException {
+        Path root = CACHE_DIR.resolve(VERAPDF_DIR);
+        Files.createDirectories(root);
+        Path archive = Files.createTempFile("verapdf-corpus-", ".zip");
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(VERAPDF_ZIP))
+                    .timeout(ARCHIVE_TIMEOUT)
+                    .build();
+            HttpResponse<Path> resp = client.send(req, HttpResponse.BodyHandlers.ofFile(archive));
+            if (resp.statusCode() != 200) {
+                failures.add("veraPDF archive (HTTP " + resp.statusCode() + ")");
+                return;
+            }
+
+            int extracted = 0;
+            try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(archive))) {
+                for (var entry = zis.getNextEntry(); entry != null; entry = zis.getNextEntry()) {
+                    String entryName = entry.getName();
+                    if (entry.isDirectory() || !entryName.toLowerCase().endsWith(".pdf")) {
+                        continue;
+                    }
+                    if (limitReached(extracted)) {
+                        break;
+                    }
+                    // Strip the leading "veraPDF-corpus-staging/" segment.
+                    int slash = entryName.indexOf('/');
+                    String relative = slash >= 0 ? entryName.substring(slash + 1) : entryName;
+                    Path dest = root.resolve(relative).normalize();
+                    if (!dest.startsWith(root)) {
+                        continue; // refuse paths that escape the cache (zip-slip)
+                    }
+                    if (Files.exists(dest) && Files.size(dest) > 0) {
+                        result.add(dest);
+                        continue;
+                    }
+                    Files.createDirectories(dest.getParent());
+                    Files.copy(zis, dest, StandardCopyOption.REPLACE_EXISTING);
+                    result.add(dest);
+                    extracted++;
+                }
+            }
+            System.out.printf("[PdfCorpus] veraPDF corpus: extracted %d new PDF(s) under %s%n",
+                    extracted, root);
+        } catch (IOException e) {
+            failures.add("veraPDF archive (" + e.getMessage() + ")");
+        } finally {
+            Files.deleteIfExists(archive);
+        }
+    }
+
+    /**
+     * Download additional permissively-licensed real-world corpora from GitHub.
+     * For each source the default branch is resolved, the recursive tree is
+     * enumerated, and every {@code .pdf} under the source prefix is fetched.
+     * Cache names are flattened per source so the sub-directory stays a reliable
+     * classification key for tests.
+     */
+    static void downloadGithubCorpora(HttpClient client, List<Path> result, List<String> failures)
+            throws IOException, InterruptedException {
+        for (GithubCorpus corpus : GITHUB_CORPORA) {
+            String branch = githubDefaultBranch(client, corpus);
+            if (branch == null) {
+                failures.add(corpus.owner() + "/" + corpus.repo() + " (branch lookup)");
+                continue;
+            }
+            List<String> paths = githubTreePdfs(client, corpus, branch);
+            if (paths.isEmpty()) {
+                failures.add(corpus.owner() + "/" + corpus.repo() + " (tree listing)");
+                continue;
+            }
+            Path root = CACHE_DIR.resolve(corpus.cacheSubdir());
+            Files.createDirectories(root);
+            int downloaded = 0;
+            for (String path : paths) {
+                if (limitReached(downloaded)) {
+                    break;
+                }
+                String flat = path.replace('/', '_');
+                String url = "https://raw.githubusercontent.com/" + corpus.owner() + "/"
+                        + corpus.repo() + "/" + branch + "/" + encodePath(path);
+                Entry entry = new Entry(corpus.cacheSubdir() + "/" + flat, url);
+                if (downloadOne(client, entry, result, failures)) {
+                    downloaded++;
+                }
+            }
+            System.out.printf("[PdfCorpus] %s/%s corpus: %d new PDF(s) under %s%n",
+                    corpus.owner(), corpus.repo(), downloaded, root);
+        }
+    }
+
+    /** Resolve a repository's default branch, or null if it cannot be read. */
+    private static String githubDefaultBranch(HttpClient client, GithubCorpus corpus)
+            throws IOException, InterruptedException {
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.github.com/repos/"
+                            + corpus.owner() + "/" + corpus.repo()))
+                    .timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json")
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return null;
+            }
+            var matcher = Pattern.compile("\"default_branch\"\\s*:\\s*\"([^\"]+)\"")
+                    .matcher(resp.body());
+            return matcher.find() ? matcher.group(1) : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** Every {@code .pdf} path under the source prefix from the recursive tree. */
+    private static List<String> githubTreePdfs(HttpClient client, GithubCorpus corpus, String branch)
+            throws IOException, InterruptedException {
+        try {
+            String api = "https://api.github.com/repos/" + corpus.owner() + "/" + corpus.repo()
+                    + "/git/trees/" + branch + "?recursive=1";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(api))
+                    .timeout(TIMEOUT)
+                    .header("Accept", "application/vnd.github+json")
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return List.of();
+            }
+            List<String> paths = new ArrayList<>();
+            var matcher = Pattern.compile("\"path\"\\s*:\\s*\"([^\"]+\\.pdf)\"").matcher(resp.body());
+            while (matcher.find()) {
+                String path = matcher.group(1);
+                if (path.startsWith(corpus.pathPrefix())) {
+                    paths.add(path);
+                }
+            }
+            return paths;
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    /** Percent-encode a repository path for use in a raw.githubusercontent URL. */
+    private static String encodePath(String path) {
+        StringBuilder sb = new StringBuilder(path.length() + 16);
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '/') {
+                sb.append('/');
+            } else if (c < 0x80 && (Character.isLetterOrDigit(c)
+                    || c == '-' || c == '_' || c == '.' || c == '~')) {
+                sb.append(c);
+            } else {
+                for (byte b : String.valueOf(c)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+                    sb.append('%').append(String.format("%02X", b & 0xFF));
+                }
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -849,8 +1161,9 @@ public final class PdfCorpus {
     public static List<Path> cached() throws IOException {
         if (!Files.exists(CACHE_DIR)) return List.of();
         List<Path> result = new ArrayList<>();
-        try (var stream = Files.list(CACHE_DIR)) {
-            stream.filter(p -> p.toString().endsWith(".pdf"))
+        try (var stream = Files.walk(CACHE_DIR)) {
+            stream.filter(Files::isRegularFile)
+                  .filter(p -> p.toString().endsWith(".pdf"))
                   .sorted()
                   .forEach(result::add);
         }
@@ -888,9 +1201,7 @@ public final class PdfCorpus {
 
     /**
      * CLI: downloads (or refreshes) the whole corpus and prints a summary.
-     * Used by CI corpus jobs to prime the shared corpus cache before the
-     * sharded test jobs run. Deliberately native-free: the corpus CI job
-     * primes the cache before the native bridge is built.
+     * Native-free, so the corpus cache can be primed before the bridge is built.
      */
     public static void main(String[] args) throws Exception {
         List<Path> pdfs = download();
