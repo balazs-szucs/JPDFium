@@ -1955,6 +1955,74 @@ bool collect_used_strings(QPDFObjectHandle page,
 // construct this parser cannot reproduce byte-for-byte (multi-code destinations,
 // array bfrange, >2-byte source codes), so callers refuse to rewrite a map they
 // cannot preserve.
+// Decode a PDF hex-string operand into its bytes. Whitespace between digits is
+// insignificant; an odd number of digits is padded with a trailing zero nibble
+// (PDF 32000-1 7.3.4.3). Any other non-hex character makes the operand
+// undecodable; the caller must then refuse the rewrite rather than guess.
+bool hex_to_bytes(const std::string& h, std::string& out) {
+    std::vector<int> nib;
+    nib.reserve(h.size());
+    for (char ch : h) {
+        int d;
+        if (ch >= '0' && ch <= '9')
+            d = ch - '0';
+        else if (ch >= 'a' && ch <= 'f')
+            d = ch - 'a' + 10;
+        else if (ch >= 'A' && ch <= 'F')
+            d = ch - 'A' + 10;
+        else if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f'
+                 || ch == '\0')
+            continue;  // insignificant whitespace
+        else
+            return false;  // invalid hex character
+        nib.push_back(d);
+    }
+    if (nib.size() % 2 != 0) nib.push_back(0);  // trailing zero nibble
+    out.clear();
+    out.reserve(nib.size() / 2);
+    for (size_t i = 0; i + 1 < nib.size(); i += 2)
+        out.push_back(static_cast<char>((nib[i] << 4) | nib[i + 1]));
+    return true;
+}
+
+// Decode a source code operand: 1 or 2 bytes, big-endian, with the byte count
+// retained. Anything wider is outside the supported subset.
+bool decode_code(const std::string& h, uint32_t& code, uint32_t& width) {
+    std::string b;
+    if (!hex_to_bytes(h, b)) return false;
+    if (b.empty() || b.size() > 2) return false;
+    width = static_cast<uint32_t>(b.size());
+    code = 0;
+    for (unsigned char c : b) code = (code << 8) | c;
+    return true;
+}
+
+// Decode UTF-16BE destination bytes to exactly one Unicode scalar. Only the
+// 2-byte (BMP) and 4-byte (well-formed surrogate pair) forms are reproduced;
+// any other length, or a lone surrogate, is outside the supported subset.
+bool utf16be_scalar(const std::string& b, uint32_t& uni) {
+    auto be16 = [&b](size_t off) {
+        return (static_cast<uint32_t>(static_cast<uint8_t>(b[off])) << 8)
+               | static_cast<uint32_t>(static_cast<uint8_t>(b[off + 1]));
+    };
+    if (b.size() == 2) {
+        uint32_t u = be16(0);
+        if (u >= 0xD800u && u <= 0xDFFFu) return false;  // lone surrogate
+        uni = u;
+        return true;
+    }
+    if (b.size() == 4) {
+        uint32_t hi = be16(0);
+        uint32_t lo = be16(2);
+        if (hi >= 0xD800u && hi <= 0xDBFFu && lo >= 0xDC00u && lo <= 0xDFFFu) {
+            uni = 0x10000u + ((hi - 0xD800u) << 10) + (lo - 0xDC00u);
+            return true;
+        }
+        return false;  // lone or malformed surrogate pair
+    }
+    return false;
+}
+
 TounicodeState parse_tounicode(QPDFObjectHandle fd,
                                std::unordered_map<uint32_t, uint32_t>* out) {
     if (out) out->clear();
@@ -1969,33 +2037,18 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
     QPDFObjectHandle tuDict = tu.getDict();
     if (tuDict.hasKey("/UseCMap")) return TounicodeState::UNSUPPORTED;
     std::string s = stream_bytes(tu);
-    auto hexval = [](const std::string& h) {
-        uint32_t v = 0;
-        for (char ch : h) {
-            int d;
-            if (ch >= '0' && ch <= '9')
-                d = ch - '0';
-            else if (ch >= 'a' && ch <= 'f')
-                d = ch - 'a' + 10;
-            else if (ch >= 'A' && ch <= 'F')
-                d = ch - 'A' + 10;
-            else
-                continue;
-            v = (v << 4) | static_cast<uint32_t>(d);
-        }
-        return v;
-    };
-    // A destination that is not a valid Unicode scalar (a lone surrogate or a
-    // value above U+10FFFF) cannot be reproduced.
-    auto valid_scalar = [](uint32_t v) {
-        return v <= 0x10FFFFu && !(v >= 0xD800u && v <= 0xDFFFu);
-    };
     enum { NONE, BFCHAR, BFRANGE } mode = NONE;
     std::vector<std::string> hexes;
     bool unsupported = false;
     bool malformed = false;
     // A mapping entry was parsed, whether or not the caller asked for the map.
     bool any = false;
+    // The integer token immediately before a block keyword is its declared entry
+    // count; a count that disagrees with the entries actually present is
+    // malformed, not merely odd. -1 means no count was supplied.
+    long long pendingNumber = -1;
+    long long expectedCount = -1;
+    long long entryCount = 0;
     const size_t n = s.size();
     size_t i = 0;
     while (i < n) {
@@ -2013,39 +2066,28 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
             // descriptor or other non-mapping value; it carries no mapping and
             // is deliberately not accumulated.
             if (mode == NONE) continue;
+            pendingNumber = -1;
             hexes.push_back(h);
             if (mode == BFCHAR && hexes.size() == 2) {
-                if (hexes[0].empty() || hexes[0].size() > 4) {
-                    unsupported = true;  // multi-byte source code
-                }
-                uint32_t src = hexval(hexes[0]);
+                uint32_t src = 0, srcW = 0;
                 uint32_t dst = 0;
-                if (hexes[1].size() == 8) {
-                    // A supplementary destination is written as a UTF-16BE
-                    // surrogate pair; accept only a well-formed pair.
-                    uint32_t hi = hexval(hexes[1].substr(0, 4));
-                    uint32_t lo = hexval(hexes[1].substr(4, 4));
-                    if (hi >= 0xD800u && hi <= 0xDBFFu && lo >= 0xDC00u && lo <= 0xDFFFu) {
-                        dst = 0x10000u + ((hi - 0xD800u) << 10) + (lo - 0xDC00u);
-                    } else {
-                        unsupported = true;  // lone or malformed surrogate pair
-                    }
-                } else if (hexes[1].empty() || hexes[1].size() > 4) {
-                    unsupported = true;  // multi-code destination
-                } else {
-                    dst = hexval(hexes[1]);
-                    if (!valid_scalar(dst)) unsupported = true;
-                }
+                std::string db;
+                if (!decode_code(hexes[0], src, srcW)) unsupported = true;
+                if (!hex_to_bytes(hexes[1], db) || !utf16be_scalar(db, dst)) unsupported = true;
+                (void)srcW;  // width is bounded by decode_code
                 if (out) (*out)[src] = dst;
                 any = true;
+                ++entryCount;
                 hexes.clear();
             } else if (mode == BFRANGE && hexes.size() == 3) {
-                if (hexes[0].empty() || hexes[0].size() > 4
-                        || hexes[1].size() != hexes[0].size() || hexes[2].empty()
-                        || hexes[2].size() > 4) {
+                uint32_t lo = 0, hi = 0, loW = 0, hiW = 0;
+                uint32_t dst = 0;
+                std::string db;
+                if (!decode_code(hexes[0], lo, loW) || !decode_code(hexes[1], hi, hiW)
+                        || loW != hiW) {
                     unsupported = true;
                 }
-                uint32_t lo = hexval(hexes[0]), hi = hexval(hexes[1]), dst = hexval(hexes[2]);
+                if (!hex_to_bytes(hexes[2], db) || !utf16be_scalar(db, dst)) unsupported = true;
                 if (hi < lo) malformed = true;
                 uint32_t span = (hi >= lo) ? (hi - lo) : 0;
                 if (span >= 65536) unsupported = true;  // beyond the bounded expansion
@@ -2054,10 +2096,11 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
                 if (rangeOk && dst <= 0xDFFFu && dst + span >= 0xD800u) {
                     rangeOk = false;  // crosses the surrogate block
                 }
-                if (!valid_scalar(dst) || !rangeOk) unsupported = true;
+                if (!rangeOk) unsupported = true;
                 for (uint32_t k = 0; k + lo <= hi && k < 65536; ++k)
                     if (out) (*out)[lo + k] = dst + k;
                 any = true;
+                ++entryCount;
                 hexes.clear();
             }
             continue;
@@ -2068,9 +2111,16 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
             if (mode == BFRANGE) unsupported = true;  // array destination
             i++;
             hexes.clear();
+            pendingNumber = -1;
             continue;
         }
-        if (c == ']') { i++; hexes.clear(); continue; }
+        if (c == ']') { i++; hexes.clear(); pendingNumber = -1; continue; }
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            size_t st = i;
+            while (i < n && std::isdigit(static_cast<unsigned char>(s[i]))) ++i;
+            pendingNumber = std::strtoll(s.substr(st, i - st).c_str(), nullptr, 10);
+            continue;
+        }
         if (std::isalpha(static_cast<unsigned char>(c))) {
             size_t st = i;
             while (i < n && (std::isalpha(static_cast<unsigned char>(s[i])) ||
@@ -2080,24 +2130,33 @@ TounicodeState parse_tounicode(QPDFObjectHandle fd,
             if (w == "beginbfchar") {
                 if (mode != NONE) malformed = true;  // nested block
                 mode = BFCHAR;
+                expectedCount = pendingNumber;
+                entryCount = 0;
                 hexes.clear();
             } else if (w == "endbfchar") {
                 if (mode != BFCHAR) malformed = true;
                 if (!hexes.empty()) malformed = true;  // dangling source operand
+                if (expectedCount >= 0 && entryCount != expectedCount) malformed = true;
                 mode = NONE;
+                expectedCount = -1;
                 hexes.clear();
             } else if (w == "beginbfrange") {
                 if (mode != NONE) malformed = true;  // nested block
                 mode = BFRANGE;
+                expectedCount = pendingNumber;
+                entryCount = 0;
                 hexes.clear();
             } else if (w == "endbfrange") {
                 if (mode != BFRANGE) malformed = true;
                 if (!hexes.empty()) malformed = true;  // dangling operand
+                if (expectedCount >= 0 && entryCount != expectedCount) malformed = true;
                 mode = NONE;
+                expectedCount = -1;
                 hexes.clear();
             } else if (w == "usecmap") {
                 unsupported = true;
             }
+            pendingNumber = -1;
             continue;
         }
         ++i;
@@ -2264,7 +2323,7 @@ FontRepairDecision decide_font_repair(QPDFObjectHandle const& fd,
         std::vector<Mapping> merged;
         merged.reserve(declared.size() + additions.size());
         for (const auto& kv : declared)
-            if (kv.second != 0) merged.push_back({kv.first, kv.second, "DECLARED", "existing"});
+            merged.push_back({kv.first, kv.second, "DECLARED", "existing"});
         for (const auto& mp : additions) merged.push_back(mp);
         d.cmap = build_tounicode_cmap(merged, cid);
         d.mode = "extend";
