@@ -1434,20 +1434,20 @@ bool build_cid_map(QPDFObjectHandle fontDict, const GlyphMaps& gm, std::vector<M
                             amb ? "cmap:ambiguous" : "cidToGid:identity"});
         }
     } else {
-        std::unordered_map<uint32_t, uint32_t> gid2cid;
+        // Walk the CIDs forward, not the glyphs: several CIDs may select one
+        // glyph, and every such code must appear in the map. A reverse
+        // glyph -> first-CID index silently drops the extra CIDs.
         for (uint32_t cid = 0; cid < cid2gid.size(); ++cid) {
             uint32_t g = cid2gid[cid];
-            if (g != 0 && gid2cid.find(g) == gid2cid.end()) gid2cid[g] = cid;
-        }
-        for (const auto& [gid, uni] : gm.gid_to_uni) {
-            auto it = gid2cid.find(gid);
-            if (it == gid2cid.end()) continue;
+            if (g == 0) continue;
+            auto it = gm.gid_to_uni.find(g);
+            if (it == gm.gid_to_uni.end()) continue;
             if (maps.size() >= kCap) {
                 if (truncated) *truncated = true;
                 break;
             }
-            bool amb = gm.gid_ambiguous.find(gid) != gm.gid_ambiguous.end();
-            maps.push_back({it->second, amb ? 0u : uni, amb ? "AMBIGUOUS" : "RECOVERED",
+            bool amb = gm.gid_ambiguous.find(g) != gm.gid_ambiguous.end();
+            maps.push_back({cid, amb ? 0u : it->second, amb ? "AMBIGUOUS" : "RECOVERED",
                             amb ? "cmap:ambiguous" : "cidToGid:stream"});
         }
     }
