@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * PDF repair with a builder-pattern API.
@@ -77,11 +78,40 @@ public final class PdfRepair {
     private final boolean validateIcc;
     private final boolean validateJpx;
 
+    /**
+     * Fault-injection points in the repair pipeline, in execution order. The
+     * pipeline consults its {@link FaultInjector} at each boundary; an injected
+     * failure aborts at that boundary and reports FAILED with no bytes, so a
+     * fault can never be mistaken for a successful repair.
+     */
+    enum Stage {
+        PLAN_ALLOCATION,
+        KEY_REPLACEMENT,
+        SERIALIZATION,
+        VERIFICATION,
+        FINALIZATION,
+        PUBLICATION
+    }
+
+    /**
+     * Test seam: {@link #at(Stage)} is called at each pipeline boundary and may
+     * throw to fail that stage. Production code uses {@link #NO_FAULTS}.
+     */
+    @FunctionalInterface
+    interface FaultInjector {
+        void at(Stage stage) throws Exception;
+    }
+
+    private static final FaultInjector NO_FAULTS = stage -> { };
+
+    private final FaultInjector faults;
+
     private PdfRepair(byte[] inputBytes, int flags,
             boolean usePdfioFallback, boolean useLopdfFallback, boolean recoverRevision,
             boolean transcodeBrotli,
             boolean validateIcc, boolean validateJpx,
-            boolean writeDiagnostics, boolean sanitize) {
+            boolean writeDiagnostics, boolean sanitize,
+            FaultInjector faults) {
         this.inputBytes = inputBytes;
         this.flags = flags;
         this.usePdfioFallback = usePdfioFallback;
@@ -92,6 +122,7 @@ public final class PdfRepair {
         this.validateJpx = validateJpx;
         this.writeDiagnostics = writeDiagnostics;
         this.sanitize = sanitize;
+        this.faults = faults == null ? NO_FAULTS : faults;
     }
 
     public boolean validateIcc() { return validateIcc; }
@@ -145,6 +176,12 @@ public final class PdfRepair {
         boolean brotliApplied = false;
         boolean revisionRecovered = false;
 
+        // Plan allocation: the operation plan cannot be allocated, so nothing
+        // runs and nothing is published.
+        if (faulted(Stage.PLAN_ALLOCATION, report)) {
+            return fail(report);
+        }
+
         // Pre-repair: Brotli-Flate transcoding (optional capability); a request
         // that cannot run is recorded as an unsupported stage with a warning.
         if (transcodeBrotli) {
@@ -164,7 +201,15 @@ public final class PdfRepair {
         }
 
         report.attempted("core_qpdf");
-        RepairResult coreResult = RepairLib.repair(current, flags);
+        RepairResult coreResult = faulted(Stage.KEY_REPLACEMENT, report)
+                ? new RepairResult(RepairResult.Status.FAILED, null, null)
+                : RepairLib.repair(current, flags);
+        // Serialization: the mutated candidate could not be written out; drop the
+        // bytes so no unverifiable candidate can reach publication.
+        if (faulted(Stage.SERIALIZATION, report)) {
+            coreResult = new RepairResult(RepairResult.Status.FAILED, null,
+                    coreResult.diagnosticJson());
+        }
         if (coreResult.isUsable() && verifyStage("core_qpdf", coreResult.repairedPdf(), report)) {
             report.succeeded("core_qpdf");
         } else if (coreResult.isUsable()) {
@@ -226,7 +271,9 @@ public final class PdfRepair {
         int verifiedPages = -1;
         if (coreResult.isUsable()) {
             report.attempted("candidate_reopen");
-            CandidateCheck check = verifyCandidate(coreResult.repairedPdf());
+            CandidateCheck check = faulted(Stage.VERIFICATION, report)
+                    ? new CandidateCheck(-1, false)
+                    : verifyCandidate(coreResult.repairedPdf());
             if (check.reopened()) {
                 verifiedPages = check.pageCount();
                 report.succeeded("candidate_reopen");
@@ -305,6 +352,12 @@ public final class PdfRepair {
                     withTranscodeNote(coreResult.diagnosticJson()));
         }
 
+        // Finalization: the report cannot be finalized, so the operation cannot
+        // present a truthful result and publishes nothing.
+        if (faulted(Stage.FINALIZATION, report)) {
+            return fail(report);
+        }
+
         int inputPages = candidatePageCount(current);
 
         report.outcome(RepairReport.outcomeFor(coreResult.status()));
@@ -316,6 +369,14 @@ public final class PdfRepair {
                 finalStrategy);
         describePreservation(report, coreResult.isUsable(), finalStrategy, inputPages,
                 verifiedPages);
+
+        // Publication: the finalized candidate cannot be handed to the caller, so
+        // publish nothing and report failure rather than usable bytes.
+        if (faulted(Stage.PUBLICATION, report)) {
+            report.outcome(RepairReport.OUTCOME_FAILED);
+            return new RepairResult(RepairResult.Status.FAILED, null, null, report.build());
+        }
+
         RepairReport finalReport = report.build();
         coreResult = new RepairResult(coreResult.status(), coreResult.repairedPdf(),
                 coreResult.diagnosticJson(), finalReport);
@@ -538,6 +599,32 @@ public final class PdfRepair {
         return true;
     }
 
+    /**
+     * Runs the injected fault for {@code stage}. Returns {@code true} when the
+     * stage was failed; the failure is recorded as a warning so the report names
+     * the boundary that aborted without claiming success.
+     */
+    private boolean faulted(Stage stage, RepairReport.Builder report) {
+        try {
+            faults.at(stage);
+            return false;
+        } catch (Exception e) {
+            String detail = e.getMessage() == null ? e.toString() : e.getMessage();
+            report.warn(stage.name().toLowerCase(Locale.ROOT) + "_failed: " + detail);
+            return true;
+        }
+    }
+
+    /**
+     * A truthful failure: no candidate bytes and no strategy that implies one was
+     * produced. Used when a stage is failed before any usable candidate exists.
+     */
+    private static RepairResult fail(RepairReport.Builder report) {
+        report.outcome(RepairReport.OUTCOME_FAILED);
+        report.strategy(RepairReport.STRATEGY_UNAVAILABLE);
+        return new RepairResult(RepairResult.Status.FAILED, null, null, report.build());
+    }
+
     /** Number of explicit revisions in a PDF: one {@code %%EOF} per revision. */
     public static int countRevisions(byte[] pdfBytes) {
         if (pdfBytes == null || pdfBytes.length == 0) {
@@ -616,6 +703,7 @@ public final class PdfRepair {
         private boolean doWriteDiagnostics = true;
         private boolean doSanitize;
         private boolean doPreserveStructure;
+        private FaultInjector faultInjector = NO_FAULTS;
 
         private Builder() {
         }
@@ -822,7 +910,17 @@ public final class PdfRepair {
 
             return new PdfRepair(inputBytes, flags,
                     doUsePdfioFallback, doUseLopdfFallback, doRecoverRevision, doTranscodeBrotli,
-                    doValidateIcc, doValidateJpx, doWriteDiagnostics, doSanitize);
+                    doValidateIcc, doValidateJpx, doWriteDiagnostics, doSanitize, faultInjector);
+        }
+
+        /**
+         * Package-private test seam: run {@code injector} at each pipeline stage so
+         * a test can fail one stage and assert the pipeline never claims success or
+         * publishes bytes. Not part of the public API.
+         */
+        Builder faultInjector(FaultInjector injector) {
+            this.faultInjector = injector == null ? NO_FAULTS : injector;
+            return this;
         }
     }
 }
