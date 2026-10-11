@@ -4,7 +4,11 @@ inputs/
 outputs/
 failures/
 sources/
+recovery/mutated/
+recovery/repaired/
 
 # Reports are intentional evidence — keep run logs despite the root *.log rule.
 !reports/
 !reports/*.log
+
+__pycache__/

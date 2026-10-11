@@ -22,6 +22,7 @@ without publication.*
 | `save_control` | healthy PDF | `save` (open + re-save, no mutation) | the **serialization baseline** everything else is compared against |
 | `healthy_preservation` | healthy PDF | `font`, `font-plan`, `preserve` | no repair-attributable change in pages / text / render / qpdf |
 | `robustness_containment` | malformed / adversarial | any | exit ∈ {0,3}, no crash/hang, an explicit refusal publishes no bytes |
+| `paired_mutation_recovery` | healthy PDF, then a controlled `/ToUnicode` deletion | `font-plan` on the mutated copy | a page the mutation disturbed returns to the pristine oracle; the mutation never disturbs a page the repair then leaves wrong |
 
 A safe refusal is never scored as a recovery. A fixture that is *expected* to be
 rejected is never scored as a regression merely for being rejected. An
@@ -37,6 +38,12 @@ qualification/
   outputs/      <group>/<id>/<op>.pdf (+ .report.txt for preserve)
   reports/      summary.json, run-*.log
   failures/     <group>/<id>/<op>/ — input/output/logs/probes/pixels
+  mutate-tounicode.js             controlled /ToUnicode deletion for the recovery lane
+  recovery/
+    mutated/    <group>/<id>      generated mutation (gitignored)
+    repaired/   <group>/<id>      repair output        (gitignored)
+    records/    <group>__<id>.json per-case oracle ladder (committed fixtures)
+    reports/    recovery-<group>.json, recovery-<group>.md
 ```
 
 Inputs are never written over. Every output goes under `outputs/`.
@@ -63,6 +70,9 @@ bash qualification/build-manifest.sh
 python3 qualification/qualify.py \
   --group all --limit 12 \
   --ops save,font,font-plan,preserve --idempotence --timeout 60
+
+# 5. run the paired-mutation recovery lane (separate report, never overwrites step 4)
+python3 qualification/qualify.py --lane recovery --group general --limit 0 --timeout 60
 ```
 
 The driver launches exactly one JVM per (input, operation) so a native crash is
@@ -119,6 +129,54 @@ defect, and is deliberately **surfaced with a documented fixture** rather than
 tolerated silently. Fixing the serializer's float precision is out of scope for
 this branch.
 
+## Paired-mutation recovery lane
+
+The preservation lane proves the repair changes nothing. This lane proves it can
+change the *right* thing. It is offline (does not touch the preservation
+reports) and is run with `--lane recovery`.
+
+Per applicable input it builds a pair:
+
+- **A** — the pristine input. Its own declared `/ToUnicode`, read back through
+  `pdftotext`, is the **oracle**.
+- **B** — A with `/ToUnicode` deleted from every `Type=Font` dictionary by
+  `qualification/mutate-tounicode.js` (deterministic, derived only from A, no
+  external corpus).
+- **R** — B after `FontIntelligence` `font-plan`.
+
+Each page is classified against the oracle (`O`, `M`, `R` are the page's
+extracted text in A, B, R):
+
+| outcome | meaning |
+|---|---|
+| `intact` | the mutation did not disturb this page and R is byte-equal to the oracle |
+| `intact_nfkc` | as above but equal only after NFKC |
+| `recovered` | a disturbed page returned exactly to the oracle |
+| `recovered_nfkc` | a disturbed page returned to the oracle after NFKC |
+| `improved` | a disturbed page is strictly closer to the oracle than the mutation left it |
+| `unrecovered` | the repair left the page materially unchanged (R NFKC-equal to M) |
+| `changed_correct_page` | a page the mutation never disturbed was altered — a disagreement |
+| `worsened` | a disturbed page moved *away* from the oracle — a disagreement |
+
+`unresolved_oracle_disagreements` = `changed_correct_page` + `worsened`. A
+non-zero count is a **finding** (exit 1) with a per-page fixture in
+`recovery/records/`. A refusal (`rc == 3`) is recorded as `refused`, never as a
+recovery and never as corruption. An input the mutation cannot round-trip
+(mutool refuses to save) is recorded as `mutation_failed` and excluded from the
+denominator — a harness limitation, not a repair result.
+
+**Tolerance (documented, surfaced, not hidden):** NFKC compatibility
+normalisation. The repair reconstructs `/ToUnicode` from the font's own CMap,
+which maps ligature glyphs to their compatibility codepoints (`ﬁ` U+FB01) where
+an author's hand-written map may have decomposed them to ASCII (`fi`). NFKC
+folds these; pages where that is the only difference are `*_nfkc` and listed
+explicitly. This is a Unicode-compatibility normalisation disagreement, not
+corruption.
+
+**Oracle caveat.** The oracle is poppler's extraction of the pristine file's own
+declared `/ToUnicode` — an end-to-end, user-visible oracle — not a
+decoder-independent comparison of the decoded CMap.
+
 ## Hard release gate
 
 ```
@@ -135,11 +193,21 @@ unsupported cases, `serialization_render_delta`, limited render scopes, and
 - No **independent `/ToUnicode` mapping oracle** yet: declared-mapping
   preservation is currently proxied by `pdftotext` + render + `qpdf`, not by a
   decoder-independent comparison of the decoded CMap.
-- No **paired-mutation recovery lane** yet (healthy original → controlled
-  mutation → repair → compare to the original oracle), so
-  `recovery_successes` is always 0.
-- `unresolved_oracle_disagreements` is always 0 until a second independent
-  oracle (e.g. PDF.js), and the veraPDF lane, are added.
+- A **paired-mutation recovery lane** now exists (`--lane recovery`), but it has
+  only been run over `general`. On that corpus
+  (`recovery/reports/recovery-general.md`): of 12 pages the mutation actually disturbed, 0 returned exactly to the oracle,
+  1 was `improved` (`basic-text.pdf`, residual char distance 1531 → 1), and 11
+  were `unrecovered` (mostly small residuals: 1–17 chars on the IRS forms, plus
+  pages where the planner rewrote 0 fonts because the font is
+  `MANUAL_CONFIRMATION_REQUIRED`/`REPLACEMENT_REQUIRED` and correctly declined —
+  `irs_*`, `pdfjs_ArabicCIDTrueType`, `pdfjs_PDFJS-9279-reduced`,
+  `w3c_dummy`). Headline honest result: reconstructing `/ToUnicode` improves a
+  badly-damaged page but does not by itself restore extraction where the damage
+  is in a font the planner declines or cannot fully map. It is not a
+  "recovery success rate" and is never read as one.
+- `unresolved_oracle_disagreements` is reported by the recovery lane
+  (`recovery/reports/recovery.json`); it is 0 on `general`. A second independent
+  oracle (e.g. PDF.js) and the veraPDF lane are still absent.
 - Render comparison covers documents ≤ 25 pages and only the first N pages when
   the cap applies; it is not an all-page claim.
 - The full frozen corpus (391 inputs) has not been run to completion in CI; only

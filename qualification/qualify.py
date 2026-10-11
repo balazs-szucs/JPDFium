@@ -31,15 +31,18 @@ Writes:
 from __future__ import annotations
 
 import argparse
+import difflib
 import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,6 +53,12 @@ REPORTS = ROOT / "qualification" / "reports"
 FAILURES = ROOT / "qualification" / "failures"
 MANIFEST = ROOT / "qualification" / "manifests" / "inputs.jsonl"
 CLASSPATH_FILE = ROOT / "jpdfium" / "build" / "qualification-classpath.txt"
+
+# Paired-mutation recovery lane (see --lane recovery).
+MUTATOR = ROOT / "qualification" / "mutate-tounicode.js"
+RECOVERY = ROOT / "qualification" / "recovery"
+RECOVERY_RECORDS = RECOVERY / "records"
+RECOVERY_REPORTS = RECOVERY / "reports"
 
 WORKER = "stirling.software.jpdfium.qualification.QualificationWorker"
 RENDER_PAGE_CAP = 25          # render only documents with <= this many pages
@@ -222,6 +231,13 @@ def run_worker(mode, inp, out, cp, timeout):
     return rc, sout.decode("latin-1", "replace"), serr.decode("latin-1", "replace"), time.time() - started
 
 
+def persistable(pr: dict) -> dict:
+    """A probe record without the ephemeral temp-dir paths, so a persisted
+    baseline is byte-stable across runs (the render hashes are the evidence; the
+    scratch directory names are not)."""
+    return {k: v for k, v in pr.items() if k != "render_artifacts"}
+
+
 def baseline_for(group, ident, path, probe_cache, tmp, timeout):
     key = sha256_file(path)
     if key in probe_cache:
@@ -235,14 +251,357 @@ def baseline_for(group, ident, path, probe_cache, tmp, timeout):
         pr = json.loads(dest.read_text())
     else:
         pr = probe(path, tmp, timeout)
-        dest.write_text(json.dumps(pr, indent=2))
+        dest.write_text(json.dumps(persistable(pr), indent=2))
     probe_cache[key] = pr
     return pr
+
+
+def pdf_page_count(path: Path, timeout: int) -> int:
+    rc, out, _ = run(["pdfinfo", str(path)], timeout)
+    if rc == 0:
+        for line in out.decode("latin-1").splitlines():
+            if line.startswith("Pages:"):
+                try:
+                    return int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    return -1
+    return -1
+
+
+def page_text(path: Path, page: int, timeout: int) -> str:
+    """Whitespace-normalised text of a single page (1-based), from pdftotext."""
+    rc, out, _ = run(["pdftotext", "-f", str(page), "-l", str(page), "-layout",
+                      "-enc", "UTF-8", str(path), "-"], timeout)
+    return " ".join(out.decode("utf-8", "replace").split())
+
+
+def char_diff(a: str, b: str) -> int:
+    """Number of characters not covered by equal runs of a vs b (edit distance proxy)."""
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    return sum(max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in sm.get_opcodes()
+               if tag != "equal")
+
+
+def nfkc(text: str) -> str:
+    return unicodedata.normalize("NFKC", text)
+
+
+def classify_page(o: str, m: str, r: str) -> tuple[str, bool]:
+    """Per-page recovery outcome. Returns (outcome, nfkc_was_needed).
+
+    o = oracle (pristine input's own extraction), m = mutated, r = repaired.
+    A page the mutation did not disturb must stay equal to the oracle; a page it
+    did disturb is a recovery target. NFKC equality (Unicode compatibility
+    normalisation of ligature/presentation forms) is an explicitly recorded
+    tolerance, surfaced as *_nfkc outcomes, never folded into a raw equality. A
+    repaired page that is NFKC-equal to the mutated input made no material
+    progress and is recorded as unrecovered, not as worsened."""
+    if o == m:
+        if r == o:
+            return "intact", False
+        if nfkc(r) == nfkc(o):
+            return "intact_nfkc", True
+        return "changed_correct_page", False
+    if r == o:
+        return "recovered", False
+    if nfkc(r) == nfkc(o):
+        return "recovered_nfkc", True
+    if r == m:
+        return "unrecovered", False
+    if nfkc(r) == nfkc(m):
+        # the repair left the text materially unchanged: a ligature/presentation
+        # form difference is not progress, and must not read as "worsened".
+        return "unrecovered", True
+    if char_diff(o, r) < char_diff(o, m):
+        return "improved", False
+    return "worsened", False
+
+
+def run_recovery(args, cp, rows, tmp) -> int:
+    """Paired-mutation recovery lane.
+
+    For each applicable input: A = pristine original (the oracle), B = A with
+    every declared /ToUnicode removed (the controlled mutation), R = B after the
+    font-intelligence repair. A page A did not disturb must remain A; a page B
+    disturbed is a recovery target and should return to A. A safe refusal is
+    recorded as refused, never as a recovery, and never as corruption."""
+    mut = RECOVERY / "mutated"
+    rep = RECOVERY / "repaired"
+    RECOVERY_RECORDS.mkdir(parents=True, exist_ok=True)
+    RECOVERY_REPORTS.mkdir(parents=True, exist_ok=True)
+    mut.mkdir(parents=True, exist_ok=True)
+    rep.mkdir(parents=True, exist_ok=True)
+
+    summary = {
+        "generated_by": "qualification/qualify.py --lane recovery",
+        "host": sys.platform,
+        "lane": "paired_mutation_recovery",
+        "mutation": "delete /ToUnicode from every Type=Font dictionary",
+        "oracle": "poppler pdftotext of the pristine input's own declared /ToUnicode",
+        "tolerance": "NFKC compatibility normalisation (ligature/presentation forms), recorded per page",
+        "files_discovered": len(rows),
+        "not_applicable": 0,          # mutation dropped 0 /ToUnicode
+        "cases_run": 0,
+        "mutation_failed": 0,
+        "refused": 0,
+        "recovery_targets": 0,
+        "recovered": 0,
+        "recovered_nfkc": 0,
+        "improved": 0,
+        "unrecovered": 0,
+        "intact": 0,
+        "intact_nfkc": 0,
+        "nfkc_only_pages": 0,
+        "changed_correct_page": 0,
+        "worsened": 0,
+        "unresolved_oracle_disagreements": 0,
+        "recovery_containment_violations": 0,
+        "recovery_structural_regressions": 0,
+        "cases": [],
+    }
+
+    for row in rows:
+        group, ident = row["group"], row["id"]
+        if group == "pathological":
+            continue  # the recovery lane is about repairable real documents
+        a = Path(row["input"])
+        if not a.exists():
+            summary["mutation_failed"] += 1
+            summary["cases"].append({"group": group, "id": ident, "result": "missing_fixture",
+                                     "path": str(a)})
+            continue
+        outdir = mut / group
+        outdir.mkdir(parents=True, exist_ok=True)
+        b = outdir / ident
+        rdir = rep / group
+        rdir.mkdir(parents=True, exist_ok=True)
+        r = rdir / ident
+        for stale in (b, r):
+            if stale.exists():
+                stale.unlink()
+
+        rc, sout, serr = run(["mutool", "run", str(MUTATOR), str(a), str(b)], args.timeout)
+        if rc != 0 or not b.exists():
+            summary["mutation_failed"] += 1
+            summary["cases"].append({"group": group, "id": ident, "result": "mutation_failed",
+                                     "rc": rc, "stderr": serr.decode("latin-1", "replace")[-300:]})
+            continue
+        text = sout.decode("latin-1", "replace")
+        mt = re.search(r"tounicode_dropped=(\d+)", text)
+        dropped = int(mt.group(1)) if mt else -1
+        if dropped == 0:
+            summary["not_applicable"] += 1
+            summary["cases"].append({"group": group, "id": ident, "result": "not_applicable",
+                                     "reason": "no declared /ToUnicode to remove"})
+            continue
+        if dropped < 0:
+            summary["mutation_failed"] += 1
+            summary["cases"].append({"group": group, "id": ident, "result": "mutation_unparsed"})
+            continue
+
+        summary["cases_run"] += 1
+        case = {"group": group, "id": ident, "tounicode_dropped": dropped}
+
+        a_sha = sha256_file(a)
+        b_sha_before = sha256_file(b)
+        rc, rcout, rcerr, elapsed = run_worker("font-plan", b, r, cp, args.timeout)
+        case["rc"] = rc
+        case["elapsed_s"] = round(elapsed, 2)
+        mf = re.search(r"fixed=(\d+)", rcout)
+        case["fixed"] = int(mf.group(1)) if mf else None
+        logs = ("== mutator ==\n%s\n== worker stdout ==\n%s\n== worker stderr ==\n%s\nrc=%s elapsed=%.2fs\n"
+                % (text, rcout, rcerr, rc, elapsed))
+
+        if rc == 3:
+            problems = []
+            if r.exists():
+                problems.append("output_published_on_refusal")
+            if sha256_file(b) != b_sha_before:
+                problems.append("mutated_input_changed_by_worker")
+            if sha256_file(a) != a_sha:
+                problems.append("oracle_mutated")
+            if problems:
+                summary["recovery_containment_violations"] += 1
+                case["result"] = "containment_violation"
+                case["problems"] = problems
+            else:
+                summary["refused"] += 1
+                case["result"] = "refused"
+            summary["cases"].append(case)
+            continue
+        if rc is None or rc == 2:
+            summary["recovery_containment_violations"] += 1
+            case["result"] = "timeout" if rc is None else "precondition_violation"
+            summary["cases"].append(case)
+            continue
+        if rc != 0:
+            summary["recovery_containment_violations"] += 1
+            case["result"] = "unexpected_exit_%s" % rc
+            summary["cases"].append(case)
+            continue
+        if not r.exists() or r.stat().st_size == 0:
+            summary["recovery_structural_regressions"] += 1
+            case["result"] = "claimed_success_no_bytes"
+            summary["cases"].append(case)
+            continue
+
+        # structural preservation: the repair must not change the page count or
+        # worsen qpdf's verdict relative to the mutated input it was given
+        pages_a = pdf_page_count(a, args.timeout)
+        pages_b = pdf_page_count(b, args.timeout)
+        pages_r = pdf_page_count(r, args.timeout)
+        qc_b, _, _ = run(["qpdf", "--check", str(b)], args.timeout)
+        qc_r, _, _ = run(["qpdf", "--check", str(r)], args.timeout)
+        case["pages"] = {"oracle": pages_a, "mutated": pages_b, "repaired": pages_r}
+        case["qpdf_check"] = {"mutated": qc_b, "repaired": qc_r}
+        if pages_b >= 0 and pages_r >= 0 and pages_b != pages_r:
+            summary["recovery_structural_regressions"] += 1
+            case["result"] = "page_count_changed"
+            summary["cases"].append(case)
+            continue
+        if qpdf_rank(qc_r) > qpdf_rank(qc_b):
+            summary["recovery_structural_regressions"] += 1
+            case["result"] = "qpdf_check_worsened %s->%s" % (qc_b, qc_r)
+            summary["cases"].append(case)
+            continue
+
+        page_results = []
+        n = max(pages_a, pages_b, pages_r)
+        for p in range(1, n + 1):
+            o = page_text(a, p, args.timeout)
+            m = page_text(b, p, args.timeout)
+            rr = page_text(r, p, args.timeout)
+            outcome, needed_nfkc = classify_page(o, m, rr)
+            page_results.append({
+                "page": p, "outcome": outcome, "nfkc_needed": needed_nfkc,
+                "char_diff_to_oracle": {"mutated": char_diff(o, m), "repaired": char_diff(o, rr)},
+            })
+            if outcome == "intact":
+                summary["intact"] += 1
+            elif outcome == "intact_nfkc":
+                summary["intact_nfkc"] += 1
+                summary["nfkc_only_pages"] += 1
+            elif outcome == "recovered":
+                summary["recovered"] += 1
+                summary["recovery_targets"] += 1
+            elif outcome == "recovered_nfkc":
+                summary["recovered_nfkc"] += 1
+                summary["recovery_targets"] += 1
+                summary["nfkc_only_pages"] += 1
+            elif outcome == "improved":
+                summary["improved"] += 1
+                summary["recovery_targets"] += 1
+            elif outcome == "unrecovered":
+                summary["unrecovered"] += 1
+                summary["recovery_targets"] += 1
+            elif outcome == "changed_correct_page":
+                summary["changed_correct_page"] += 1
+                summary["unresolved_oracle_disagreements"] += 1
+            elif outcome == "worsened":
+                summary["worsened"] += 1
+                summary["unresolved_oracle_disagreements"] += 1
+                summary["recovery_targets"] += 1
+
+        outcomes = {}
+        for pr in page_results:
+            outcomes[pr["outcome"]] = outcomes.get(pr["outcome"], 0) + 1
+        case["page_outcomes"] = outcomes
+        case["pages_detail"] = page_results
+        case["result"] = "disagreement" if any(
+            pr["outcome"] in ("changed_correct_page", "worsened") for pr in page_results) else "ok"
+
+        # a per-case JSON record is the regression/disagreement fixture
+        (RECOVERY_RECORDS / (group + "__" + ident + ".json")).write_text(
+            json.dumps({**case, "logs": logs}, indent=2))
+        summary["cases"].append(case)
+
+    tag = args.group if args.group else "all"
+    json_path = RECOVERY_REPORTS / ("recovery-%s.json" % tag)
+    md_path = RECOVERY_REPORTS / ("recovery-%s.md" % tag)
+    json_path.write_text(json.dumps(summary, indent=2))
+    md = ["# Paired-mutation recovery lane", "",
+          "Mutation: %s" % summary["mutation"], "",
+          "Oracle: %s" % summary["oracle"], "",
+          "Tolerance: %s" % summary["tolerance"], "",
+          "| count | value |", "|---|---|"]
+    for k in ("files_discovered", "not_applicable", "cases_run", "refused", "mutation_failed",
+              "recovery_targets", "recovered", "recovered_nfkc", "improved", "unrecovered",
+              "intact", "intact_nfkc", "nfkc_only_pages", "changed_correct_page", "worsened",
+              "unresolved_oracle_disagreements", "recovery_containment_violations",
+              "recovery_structural_regressions"):
+        md.append("| `%s` | %s |" % (k, summary[k]))
+    disagreements = [c for c in summary["cases"] if c.get("result") == "disagreement"]
+    md += ["", "## Disagreement fixtures (pages where even NFKC differs from the oracle)", ""]
+    if disagreements:
+        for c in disagreements:
+            bad = [p for p in c["pages_detail"]
+                   if p["outcome"] in ("changed_correct_page", "worsened")]
+            md.append("- `%s` (%s): %s" % (c["id"], c["group"],
+                                           ", ".join("p%d %s" % (p["page"], p["outcome"]) for p in bad)))
+    else:
+        md.append("None.")
+    md += ["", "## NFKC-only pages (raw text differs, compatibility-normalised text equal)", ""]
+    nfk = [c for c in summary["cases"]
+           if c.get("pages_detail") and any(p["nfkc_needed"] for p in c["pages_detail"])]
+    if nfk:
+        for c in nfk:
+            pages = [p["page"] for p in c["pages_detail"] if p["nfkc_needed"]]
+            md.append("- `%s` (%s): pages %s" % (c["id"], c["group"], pages))
+    else:
+        md.append("None.")
+    md += ["", "## Recovery targets not recovered (residual char diff to the oracle)", "",
+           "`mutated`/`repaired` are the char distance from the pristine oracle's extraction;",
+           "`fixed` is the font resources the native planner actually rewrote.", ""]
+    unrecovered = [c for c in summary["cases"] if c.get("pages_detail")
+                   and any(p["outcome"] == "unrecovered" for p in c["pages_detail"])]
+    if unrecovered:
+        md.append("| input | fixed | page | outcome | char diff mutated -> repaired |")
+        md.append("|---|---|---|---|---|")
+        for c in unrecovered:
+            fixed = c.get("fixed")
+            fixed = "?" if fixed is None else fixed
+            for p in c["pages_detail"]:
+                if p["outcome"] == "unrecovered":
+                    d = p["char_diff_to_oracle"]
+                    md.append("| `%s` | %s | %d | %s | %d -> %d |"
+                              % (c["id"], fixed, p["page"], p["outcome"],
+                                 d["mutated"], d["repaired"]))
+    else:
+        md.append("None.")
+    md += ["", "## Mutation could not be produced (harness limitation, not a repair result)", ""]
+    mutfail = [c for c in summary["cases"] if c.get("result") in ("mutation_failed",
+                                                                 "mutation_unparsed",
+                                                                 "missing_fixture")]
+    if mutfail:
+        for c in mutfail:
+            reason = (c.get("stderr") or c.get("reason") or "").replace("\n", " | ")[:200]
+            md.append("- `%s` (%s): %s %s" % (c["id"], c["group"], c["result"], reason))
+    else:
+        md.append("None.")
+    (md_path).write_text("\n".join(md) + "\n")
+
+    print("== paired-mutation recovery summary ==")
+    for k in ("files_discovered", "not_applicable", "cases_run", "refused", "mutation_failed",
+              "recovery_targets", "recovered", "recovered_nfkc", "improved", "unrecovered",
+              "intact", "intact_nfkc", "nfkc_only_pages", "changed_correct_page", "worsened",
+              "unresolved_oracle_disagreements", "recovery_containment_violations",
+              "recovery_structural_regressions"):
+        print("%-34s %s" % (k, summary[k]))
+    if summary["recovery_containment_violations"] or summary["recovery_structural_regressions"]:
+        print("FAIL: containment/structural violation; see %s" % json_path)
+        return 1
+    if summary["unresolved_oracle_disagreements"]:
+        print("FINDINGS: %d unresolved oracle disagreements; see %s"
+              % (summary["unresolved_oracle_disagreements"], md_path))
+        return 1
+    print("PASS (no containment violations, no structural regressions, no unresolved disagreements)")
+    return 0
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--group", default="all")
+    ap.add_argument("--lane", default="preservation", choices=("preservation", "recovery"))
     ap.add_argument("--ops", default=",".join(OPS_ALL))
     ap.add_argument("--limit", type=int, default=0, help="max inputs per group (0 = all)")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
@@ -257,6 +616,24 @@ def main():
     rows = [json.loads(l) for l in MANIFEST.read_text().splitlines() if l.strip()]
     if args.group != "all":
         rows = [r for r in rows if r["group"] == args.group]
+
+    if args.lane == "recovery":
+        rows.sort(key=lambda r: (r["group"], r["id"]))
+        if args.limit:
+            slim = []
+            per = {}
+            for r in rows:
+                per.setdefault(r["group"], 0)
+                if per[r["group"]] < args.limit:
+                    slim.append(r)
+                    per[r["group"]] += 1
+            rows = slim
+        tmp = Path(tempfile.mkdtemp(prefix="qual-recovery-"))
+        try:
+            return run_recovery(args, cp, rows, tmp)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     ops = [o for o in args.ops.split(",") if o]
     requested = set(ops)
     # The serialization control (`save`) is always established FIRST: re-saving
@@ -290,6 +667,7 @@ def main():
         "expected_refusals": 0,
         "unexpected_failures": 0,
         "unexpected_skips": 0,
+        "missing_fixtures": 0,
         "preservation_regressions": 0,
         "recovery_successes": 0,
         "unresolved_oracle_disagreements": 0,
@@ -307,6 +685,14 @@ def main():
         for row in by_group[group]:
             ident = row["id"]
             inp = Path(row["input"])
+            if not inp.exists():
+                # FAIL CLOSED on a missing fixture: never silently reduce the
+                # denominator, never turn an absent input into a pass.
+                summary["missing_fixtures"] += 1
+                summary["unexpected_skips"] += 1
+                summary["cases"].append({"group": group, "id": ident,
+                                         "result": "missing_fixture", "path": str(inp)})
+                continue
             src_probe = baseline_for(group, ident, inp, probe_cache, tmp, args.timeout)
             summary["files_baselined"] += 1
             control_probe = None
@@ -395,7 +781,7 @@ def main():
                             control_probe = out_probe
                             control_regressions = reg_vs_input
                             (BASELINES / group / (ident + ".control.json")).write_text(
-                                json.dumps(out_probe, indent=2))
+                                json.dumps(persistable(out_probe), indent=2))
                         else:
                             # Attribution is a SET operation, both sides measured
                             # against the INPUT: a regression string the control
@@ -456,12 +842,14 @@ def main():
     print("== qualification summary ==")
     for key in ("files_discovered", "files_baselined", "controls_run",
                 "operations_attempted", "operations_written", "expected_refusals",
-                "unexpected_failures", "unexpected_skips", "preservation_regressions",
+                "unexpected_failures", "unexpected_skips", "missing_fixtures",
+                "preservation_regressions",
                 "repair_induced_regressions", "serialization_render_delta",
                 "serialization_attributed", "recovery_successes",
                 "unresolved_oracle_disagreements"):
         print("%-32s %s" % (key, summary[key]))
-    if summary["unexpected_failures"] or summary["repair_induced_regressions"]:
+    if (summary["unexpected_failures"] or summary["repair_induced_regressions"]
+            or summary["missing_fixtures"]):
         print("FAIL: see qualification/reports/summary.json and qualification/failures/")
         return 1
     print("PASS (repair-induced regressions = 0; serialization deltas reported separately)")

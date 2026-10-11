@@ -1,0 +1,151 @@
+{
+  "group": "general",
+  "id": "mozilla_tracemonkey.pdf",
+  "tounicode_dropped": 7,
+  "rc": 0,
+  "elapsed_s": 0.3,
+  "fixed": 15,
+  "pages": {
+    "oracle": 14,
+    "mutated": 14,
+    "repaired": 14
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "intact_nfkc": 12,
+    "unrecovered": 2
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 26
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 24
+      }
+    },
+    {
+      "page": 3,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 14
+      }
+    },
+    {
+      "page": 4,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 24
+      }
+    },
+    {
+      "page": 5,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 20
+      }
+    },
+    {
+      "page": 6,
+      "outcome": "unrecovered",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 286,
+        "repaired": 308
+      }
+    },
+    {
+      "page": 7,
+      "outcome": "unrecovered",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 202,
+        "repaired": 226
+      }
+    },
+    {
+      "page": 8,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 56
+      }
+    },
+    {
+      "page": 9,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 24
+      }
+    },
+    {
+      "page": 10,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 18
+      }
+    },
+    {
+      "page": 11,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 10
+      }
+    },
+    {
+      "page": 12,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 22
+      }
+    },
+    {
+      "page": 13,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 22
+      }
+    },
+    {
+      "page": 14,
+      "outcome": "intact_nfkc",
+      "nfkc_needed": true,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 12
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=24 tounicode_dropped=7\n\n== worker stdout ==\nmode=font-plan fixed=15 inputBytes=1006530 outputBytes=1009514 elapsedMs=172\n\n== worker stderr ==\n\nrc=0 elapsed=0.30s\n"
+}

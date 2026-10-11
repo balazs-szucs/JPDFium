@@ -1,0 +1,33 @@
+{
+  "group": "general",
+  "id": "mozilla_160F_2019.pdf",
+  "tounicode_dropped": 2,
+  "rc": 0,
+  "elapsed_s": 0.19,
+  "fixed": 2,
+  "pages": {
+    "oracle": 1,
+    "mutated": 1,
+    "repaired": 1
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "intact": 1
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "intact",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 0
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=6 tounicode_dropped=2\n\n== worker stdout ==\nmode=font-plan fixed=2 inputBytes=369258 outputBytes=373263 elapsedMs=64\n\n== worker stderr ==\n\nrc=0 elapsed=0.19s\n"
+}

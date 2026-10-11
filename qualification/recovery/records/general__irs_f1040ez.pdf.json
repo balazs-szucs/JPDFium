@@ -1,0 +1,42 @@
+{
+  "group": "general",
+  "id": "irs_f1040ez.pdf",
+  "tounicode_dropped": 2,
+  "rc": 0,
+  "elapsed_s": 0.21,
+  "fixed": 7,
+  "pages": {
+    "oracle": 2,
+    "mutated": 2,
+    "repaired": 2
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 2
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 15,
+        "repaired": 15
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 2,
+        "repaired": 2
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=14 tounicode_dropped=2\n\n== worker stdout ==\nmode=font-plan fixed=7 inputBytes=186082 outputBytes=188112 elapsedMs=78\n\n== worker stderr ==\n\nrc=0 elapsed=0.21s\n"
+}
