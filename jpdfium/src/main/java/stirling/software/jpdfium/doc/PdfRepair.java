@@ -58,10 +58,12 @@ import java.util.List;
 public final class PdfRepair {
 
     // Core repair flags - must match jpdfium.h: JPDFIUM_REPAIR_NORMALIZE_XREF 0x01,
-    // JPDFIUM_REPAIR_FIX_STARTXREF 0x02, JPDFIUM_REPAIR_FORCE_V14 0x04.
+    // JPDFIUM_REPAIR_FIX_STARTXREF 0x02, JPDFIUM_REPAIR_FORCE_V14 0x04,
+    // JPDFIUM_REPAIR_PRESERVE_STRUCTURE 0x08.
     private static final int FLAG_NORMALIZE_XREF = 0x0001;
     private static final int FLAG_FIX_STARTXREF = 0x0002;
     private static final int FLAG_FORCE_V14 = 0x0004;
+    private static final int FLAG_PRESERVE_STRUCTURE = 0x0008;
 
     private final byte[] inputBytes;
     private final int flags;
@@ -310,6 +312,8 @@ public final class PdfRepair {
                 ? RepairReport.STRATEGY_REVISION_RECOVERY
                 : coreResult.report().strategy();
         report.strategy(finalStrategy);
+        describePageTree(report, current, coreResult.repairedPdf(), coreResult.isUsable(),
+                finalStrategy);
         describePreservation(report, coreResult.isUsable(), finalStrategy, inputPages,
                 verifiedPages);
         RepairReport finalReport = report.build();
@@ -321,6 +325,58 @@ public final class PdfRepair {
         }
 
         return coreResult;
+    }
+
+    /**
+     * Reports page-tree structure preservation from the actual before/after
+     * inspections, not from the repair's own bookkeeping: the native repair pass
+     * exposes no counters across the ABI, so the verdict is derived by comparing
+     * the reachable leaf count and the observed defects. A lossy strategy
+     * (page/raster salvage or revision recovery) rebuilds the tree and can never
+     * claim structural preservation; a truncated observation refuses to assert
+     * either way.
+     */
+    private static void describePageTree(
+            RepairReport.Builder report, byte[] input, byte[] output, boolean published,
+            String strategy) {
+        boolean lossy = RepairReport.STRATEGY_PDFIO_PAGE_SALVAGE.equals(strategy)
+                || RepairReport.STRATEGY_LOPDF_REWRITE.equals(strategy)
+                || RepairReport.STRATEGY_REVISION_RECOVERY.equals(strategy);
+        if (!published || output == null) {
+            report.preservation("page_tree", RepairReport.UNKNOWN);
+            return;
+        }
+        RepairInspection before = RepairInspection.parse(inspect(input));
+        RepairInspection after = RepairInspection.parse(inspect(output));
+        report.validation("page_tree_cycles_before",
+                Long.toString(before.pageTreeCycles()));
+        report.validation("page_tree_cycles_after",
+                Long.toString(after.pageTreeCycles()));
+        report.validation("page_tree_duplicate_refs_before",
+                Long.toString(before.pageTreeDuplicateRefs()));
+        report.validation("page_tree_duplicate_refs_after",
+                Long.toString(after.pageTreeDuplicateRefs()));
+        report.validation("page_tree_broken_parents_before",
+                Long.toString(before.pageTreeBrokenParents()));
+        report.validation("page_tree_broken_parents_after",
+                Long.toString(after.pageTreeBrokenParents()));
+        report.validation("page_tree_reachable_before",
+                Long.toString(before.pageTreeReachable()));
+        report.validation("page_tree_reachable_after",
+                Long.toString(after.pageTreeReachable()));
+
+        String claim;
+        if (lossy) {
+            claim = RepairReport.LOST;
+        } else if (before.pageTreeTruncated() || after.pageTreeTruncated()) {
+            // Incomplete knowledge: never certify structural preservation.
+            claim = RepairReport.UNKNOWN;
+        } else if (after.pageTreeReachable() == before.pageTreeReachable()) {
+            claim = RepairReport.PRESERVED;
+        } else {
+            claim = RepairReport.LOST;
+        }
+        report.preservation("page_tree", claim);
     }
 
     /**
@@ -553,6 +609,7 @@ public final class PdfRepair {
         private boolean doValidateJpx;
         private boolean doWriteDiagnostics = true;
         private boolean doSanitize;
+        private boolean doPreserveStructure;
 
         private Builder() {
         }
@@ -684,11 +741,13 @@ public final class PdfRepair {
          * <b>Preserve</b>: minimal structural repair only — normalize the xref and
          * correct a wrong startxref. No transcoding, fallbacks, validation or
          * sanitization. Use when maximum fidelity to the original structure is
-         * wanted and a tolerant reader is available.
+         * wanted and a tolerant reader is available. Pruning is forbidden: a page
+         * tree that would need a node or reference dropped is left untouched.
          */
         public Builder preserve() {
             this.doNormalizeXref = true;
             this.doFixStartxref = true;
+            this.doPreserveStructure = true;
             return this;
         }
 
@@ -702,6 +761,7 @@ public final class PdfRepair {
             this.doFixStartxref = true;
             this.doForceVersion14 = true;
             this.doTranscodeBrotli = true;
+            this.doPreserveStructure = true;
             return this;
         }
 
@@ -730,6 +790,7 @@ public final class PdfRepair {
             this.doNormalizeXref = true;
             this.doFixStartxref = true;
             this.doSanitize = true;
+            this.doPreserveStructure = true;
             return this;
         }
 
@@ -750,6 +811,8 @@ public final class PdfRepair {
                 flags |= FLAG_NORMALIZE_XREF;
             if (doFixStartxref)
                 flags |= FLAG_FIX_STARTXREF;
+            if (doPreserveStructure)
+                flags |= FLAG_PRESERVE_STRUCTURE;
 
             return new PdfRepair(inputBytes, flags,
                     doUsePdfioFallback, doUseLopdfFallback, doRecoverRevision, doTranscodeBrotli,

@@ -83,6 +83,7 @@ JPDFIUM_EXPORT int64_t jpdfium_abi_query(int32_t query) JPDFIUM_NOEXCEPT;
 #define JPDFIUM_REPAIR_NORMALIZE_XREF 0x01  // Normalize cross-reference table
 #define JPDFIUM_REPAIR_FIX_STARTXREF 0x02   // Brute-force startxref offset
 #define JPDFIUM_REPAIR_FORCE_V14 0x04       // Force PDF 1.4 output
+#define JPDFIUM_REPAIR_PRESERVE_STRUCTURE 0x08  // Never prune page-tree nodes/refs
 
 // Image placement position constants (match Java Position enum ordinals)
 #define JPDFIUM_POSITION_TOP_LEFT 0

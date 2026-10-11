@@ -390,7 +390,7 @@ StructuralFindings analyze_structure(QPDF& pdf) {
 // anything is written, so a limit reached mid-walk discards the whole candidate
 // instead of publishing a partially rewritten tree.
 struct PageTreeRepairResult {
-    enum class Status { COMPLETE, TRUNCATED, FAILED };
+    enum class Status { COMPLETE, TRUNCATED, PRUNE_REFUSED, FAILED };
     Status status = Status::COMPLETE;
     long long parent_fixes = 0;
     long long count_fixes = 0;
@@ -403,7 +403,12 @@ struct PageTreeRepairResult {
 // (the only way to make a cyclic tree finite without inventing pages), and set
 // /Count to the reachable leaves. Analysis, apply and verify are separate
 // stages; a truncated analysis applies nothing.
-PageTreeRepairResult repair_page_tree_structure(QPDF& pdf) {
+//
+// When allow_prune is false (preserve mode) any situation that would require
+// dropping a node or a repeated reference aborts the whole pass with
+// PRUNE_REFUSED and applies nothing, so a preserving repair never silently
+// discards structure it did not understand.
+PageTreeRepairResult repair_page_tree_structure(QPDF& pdf, bool allow_prune) {
     PageTreeRepairResult out;
 
     struct ParentEdit {
@@ -496,15 +501,27 @@ PageTreeRepairResult repair_page_tree_structure(QPDF& pdf) {
                 QPDFObjectHandle kid = kids.getArrayItem(fr.next);
                 ++fr.next;
                 if (!kid.isDictionary()) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
                     ++out.dropped_non_dict;
                     continue;
                 }
                 const std::string key = page_leaf_key(kid);
                 if (on_path.count(key) != 0) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
                     ++out.dropped_cycles;
                     continue;
                 }
                 if (seen.count(key) != 0) {
+                    if (!allow_prune) {
+                        out.status = PageTreeRepairResult::Status::PRUNE_REFUSED;
+                        return out;
+                    }
                     ++out.dropped_shared;
                     continue;
                 }
@@ -601,8 +618,10 @@ static int try_qpdf_repair(const uint8_t* input, int64_t inputLen, uint8_t** out
                               static_cast<size_t>(inputLen));
 
         // Repair the page tree before writing so structural defects are
-        // corrected rather than re-emitted.
-        repair_page_tree_structure(pdf);
+        // corrected rather than re-emitted. Preserve mode forbids pruning, so a
+        // tree that would need a node or reference dropped is left untouched.
+        repair_page_tree_structure(pdf,
+                                   (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
 
         QPDFWriter writer(pdf);
         writer.setOutputMemory();
@@ -661,6 +680,11 @@ static int try_qpdf_repair_file(const char* inputPath, const char* outputPath, i
             QPDF pdf;
             pdf.setSuppressWarnings(true);
             pdf.processFile(inputPath);
+
+            // Same bounded page-tree repair as the byte route, honouring the
+            // same preserve-mode refusal to prune.
+            repair_page_tree_structure(
+                pdf, (flags & JPDFIUM_REPAIR_PRESERVE_STRUCTURE) == 0);
 
             QPDFWriter writer(pdf);
             // qpdf writes to our fd and leaves closure to us (close_file=false).
