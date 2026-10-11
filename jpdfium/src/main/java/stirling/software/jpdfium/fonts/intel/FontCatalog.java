@@ -1,6 +1,7 @@
 package stirling.software.jpdfium.fonts.intel;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,8 +14,11 @@ import stirling.software.jpdfium.PdfDocument;
  * A document-local inventory of font resources and their evidence.
  *
  * <p>Fonts are cached by program identity (embedded bytes, glyph count, base
- * name) rather than display name, so two differently named resources that share
- * one embedded program are recognised as the same font.
+ * name) <em>and</em> by the mapping semantics that program is used with, so two
+ * differently named resources that share one embedded program are recognised as
+ * the same font only when they also carry the same code mappings. A shared
+ * program does not imply a shared meaning: the same bytes can be referenced with
+ * different /Encoding and /ToUnicode entries.
  *
  * <p>A catalog holds bounded evidence snapshots only; it never retains engine
  * state or a full document model.
@@ -49,10 +53,12 @@ public final class FontCatalog implements Iterable<FontEvidence> {
     }
 
     /**
-     * Distinct fonts keyed by program identity, with per-code mappings merged.
+     * Distinct fonts keyed by program identity and mapping semantics.
      *
-     * <p>Two resources that share an embedded program collapse into one entry;
-     * mappings are unioned by code, preferring an already-resolved mapping.
+     * <p>Two resources that share an embedded program <em>and</em> the same code
+     * mappings collapse into one entry. Resources that share only the program are
+     * kept apart: their per-code mappings are never unioned, because the same
+     * bytes can be referenced with different encoding semantics.
      */
     public List<FontEvidence> distinct() {
         Map<String, FontEvidence> byIdentity = new LinkedHashMap<>();
@@ -88,22 +94,37 @@ public final class FontCatalog implements Iterable<FontEvidence> {
     }
 
     private static String identity(FontEvidence e) {
-        return e.baseFont() + '\u0000' + e.glyphBytes() + '\u0000' + e.numGlyphs();
+        StringBuilder key = new StringBuilder();
+        key.append(e.baseFont()).append('\u0000')
+                .append(e.glyphBytes()).append('\u0000')
+                .append(e.numGlyphs()).append('\u0000')
+                .append(e.encoding()).append('\u0000')
+                .append(e.hasToUnicode()).append(e.toUnicodeValid()).append('\u0000')
+                .append(e.toUnicodeState());
+        // A shared program is not a shared meaning: include the code mappings so
+        // resources that reuse one embedded font with different /Encoding or
+        // /ToUnicode semantics are not collapsed together.
+        List<UnicodeMapping> sorted = new ArrayList<>(e.mappings());
+        sorted.sort(Comparator.comparingInt(UnicodeMapping::code));
+        for (UnicodeMapping m : sorted) {
+            key.append('\u0001').append(m.code()).append(':').append(m.unicode())
+                    .append(':').append(m.provenance()).append(':').append(m.resolved());
+        }
+        return key.toString();
     }
 
     private static FontEvidence merge(FontEvidence a, FontEvidence b) {
-        Map<Integer, UnicodeMapping> byCode = new LinkedHashMap<>();
-        for (UnicodeMapping m : a.mappings()) {
-            byCode.put(m.code(), m);
-        }
-        for (UnicodeMapping m : b.mappings()) {
-            byCode.merge(m.code(), m, (x, y) -> x.resolved() ? x : y);
+        // Keyed by identity, so the two sides agree on program and mappings; only
+        // widen the truncation flag and combine declared-map states conservatively.
+        if (a.mappingTruncated() == b.mappingTruncated()
+                && a.toUnicodeState().equals(b.toUnicodeState())) {
+            return a;
         }
         return new FontEvidence(
                 a.pageIndex(), a.resourceName(), a.baseFont(), a.family(), a.subtype(),
                 a.kind(), a.embedded(), a.sfnt(), a.cff(), a.cid(), a.subset(), a.hasCmap(),
                 a.numGlyphs(), a.unitsPerEm(), a.glyphBytes(), a.hasToUnicode(), a.toUnicodeValid(),
-                a.encoding(), a.embeddingFsType(), new ArrayList<>(byCode.values()),
+                a.encoding(), a.embeddingFsType(), a.mappings(),
                 a.mappingTruncated() || b.mappingTruncated(),
                 mergeState(a.toUnicodeState(), b.toUnicodeState()));
     }

@@ -230,12 +230,13 @@ class FontIntelligenceTest {
     // --- catalog identity ---------------------------------------------------
 
     @Test
-    void catalogKeysByProgramIdentityNotResourceName() {
+    void catalogKeepsSameProgramWithDifferentMappingsSeparate() {
         FontEvidence a = new FontEvidence(0, "F1", "Base", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 500, false, false,
                 "WinAnsiEncoding", 0,
                 List.of(new UnicodeMapping(65, 65, FontProvenance.RECOVERED, "n")), false);
-        // Same program identity, different resource name, different code.
+        // Same embedded program, different resource name, different code. A shared
+        // program is not a shared meaning, so these must not be collapsed or unioned.
         FontEvidence b = new FontEvidence(1, "F9", "Base", "Fam", "TrueType", FontKind.SIMPLE,
                 true, true, false, false, false, true, 100, 1000, 500, false, false,
                 "WinAnsiEncoding", 0,
@@ -243,10 +244,31 @@ class FontIntelligenceTest {
 
         FontCatalog catalog = FontCatalog.of(List.of(a, b));
         assertEquals(2, catalog.fonts().size());
-        assertEquals(1, catalog.size(), "same program identity collapses to one entry");
+        assertEquals(2, catalog.size(), "same program but different mappings stay separate");
+        assertEquals(2, catalog.distinct().size());
+        for (FontEvidence e : catalog.distinct()) {
+            assertEquals(1, e.mappings().size(), "mappings are never unioned across resources");
+        }
+        assertEquals(2, catalog.requiringRepair().size());
+    }
+
+    @Test
+    void catalogCollapsesSameProgramWithIdenticalMappings() {
+        FontEvidence a = new FontEvidence(0, "F1", "Base", "Fam", "TrueType", FontKind.SIMPLE,
+                true, true, false, false, false, true, 100, 1000, 500, false, false,
+                "WinAnsiEncoding", 0,
+                List.of(new UnicodeMapping(65, 65, FontProvenance.RECOVERED, "n")), false);
+        // Same program, same code, same provenance and resolution: one resource
+        // repeated (e.g. referenced from several pages) still collapses.
+        FontEvidence b = new FontEvidence(1, "F9", "Base", "Fam", "TrueType", FontKind.SIMPLE,
+                true, true, false, false, false, true, 100, 1000, 500, false, false,
+                "WinAnsiEncoding", 0,
+                List.of(new UnicodeMapping(65, 65, FontProvenance.RECOVERED, "n")), false);
+
+        FontCatalog catalog = FontCatalog.of(List.of(a, b));
+        assertEquals(1, catalog.size());
         assertEquals(1, catalog.distinct().size());
-        FontEvidence merged = catalog.distinct().get(0);
-        assertEquals(2, merged.mappings().size(), "mappings are unioned by code");
+        assertEquals(1, catalog.distinct().get(0).mappings().size());
         assertEquals(1, catalog.requiringRepair().size());
     }
 
