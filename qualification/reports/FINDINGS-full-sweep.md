@@ -5,8 +5,15 @@
 > `99bd09ca` (the planner now declines the font, `SYMBOLIC_FONT_UNSUPPORTED`,
 > instead of synthesising an ASCII identity `/ToUnicode`; regression
 > `FontSymbolicEncodingTest`). The raw `summary.json` / `run-full.log` quoted
-> here are archived evidence, not tracked. A post-fix re-run re-confirms the
-> gate; see `reports/RECEIPT.md`.
+> here are archived evidence, not tracked.
+>
+> **Post-fix re-run (same host, native with `99bd09ca`):** `preservation_regressions`
+> and `repair_induced_regressions` drop **10 → 8**, removing exactly the two
+> `pdfjs_ZapfDingbats.pdf` cases. The gate still fails on the raw byte-exact text
+> oracle, but the eight remaining flags are the documented oracle artifacts
+> (2 recoveries, 1 NFKC-equivalent ligature set, 1 neutral hyphen↔soft-hyphen)
+> plus the `save` reflow — no genuine text/mapping loss remains. Counters and the
+> per-case classification are in `reports/RECEIPT.md`.
 
 Command:
 

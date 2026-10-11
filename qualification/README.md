@@ -249,15 +249,26 @@ unsupported cases, `serialization_render_delta`, limited render scopes, and
 
 The full frozen corpus (391 inputs, 1564 cases) has now been run end to end
 (`reports/FINDINGS-full-sweep.md`; the generated `summary.json` / `run-full.log`
-are archived per run, not tracked). This run predates the ZapfDingbats fix
-(`99bd09ca`); a post-fix re-run of the same command re-confirms the gate and is
-recorded in `reports/RECEIPT.md`.
+are archived per run, not tracked). The pre-fix run (revision `ff9b06e8`) is
+documented in `reports/FINDINGS-full-sweep.md`.
 
 ```
-unexpected_failures 1   preservation_regressions 10   repair_induced_regressions 10
-serialization_render_delta 201   serialization_attributed 404
-expected_refusals 10   unexpected_skips 0   missing_fixtures 0   exit 1  =>  FAIL
+pre-fix:  unexpected_failures 1   preservation_regressions 10   repair_induced_regressions 10
+
+post-fix: unexpected_failures 1   preservation_regressions  8   repair_induced_regressions  8
+          serialization_render_delta 201   serialization_attributed 404
+          expected_refusals 10   unexpected_skips 0   missing_fixtures 0   exit 1  =>  FAIL
 ```
+
+The post-fix re-run (native with `99bd09ca`) removes exactly the two
+`pdfjs_ZapfDingbats.pdf` cases. The gate still fails on the **raw byte-exact**
+text oracle, but no genuine text/mapping loss remains: the eight flags are four
+known oracle artifacts across four inputs (`pdfjs_ThuluthFeatures.pdf` and
+`pdfjs_Test-plusminus.pdf` are recoveries the byte oracle misreads as loss,
+`mozilla_tracemonkey.pdf` is `NFKC`-equal, `pdfjs_XiaoBiaoSong.pdf` is a neutral
+`-`→U+00AD swap), and the remaining `unexpected_failures` is the pure `save`
+reflow of `pdfjs_Type3WordSpacing.pdf`. Per-case evidence is in
+`reports/RECEIPT.md`.
 
 Of the 11 flagged cases, **one is a genuine hard-gate failure**:
 `pdfjs_ZapfDingbats.pdf` (both `font` and `font-plan`) synthesises an ASCII

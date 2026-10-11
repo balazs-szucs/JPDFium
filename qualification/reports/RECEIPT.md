@@ -86,6 +86,39 @@ declining the font (`SYMBOLIC_FONT_UNSUPPORTED`, commit `99bd09ca`) plus
 `FontSymbolicEncodingTest`. See `reports/FINDINGS-full-sweep.md` for the full
 classification of all eleven flagged cases.
 
+### POST-FIX full run (rc 1, FAIL) — same host, native with `99bd09ca`
+
+| counter | value |
+|---|---|
+| files_discovered / baselined | 391 / 391 |
+| controls_run | 391 |
+| operations_attempted / written | 1173 / 1164 |
+| expected_refusals | 10 |
+| unexpected_failures | 1 (`pdfjs_Type3WordSpacing.pdf` `save`, a pure layout reflow) |
+| unexpected_skips | 0 |
+| missing_fixtures | 0 |
+| preservation_regressions | **8** (was 10) |
+| repair_induced_regressions | **8** (was 10) |
+| serialization_render_delta / attributed | 201 / 404 |
+
+The two removed cases are exactly `pdfjs_ZapfDingbats.pdf` `font` and
+`font-plan`: the identity-map regression is gone. The gate still fails on the
+**raw byte-exact** text oracle, but every remaining flag is a known oracle
+artifact, not a text/mapping loss introduced by the code under test:
+
+| flagged case(s) | class | evidence |
+|---|---|---|
+| `pdfjs_ThuluthFeatures.pdf` `font`,`font-plan` | recovery (improvement) | original extraction is a −3 code-offset garbage layer (`JDWXUHV`); repaired output is readable English |
+| `pdfjs_Test-plusminus.pdf` `font`,`font-plan` | recovery (improvement) | the inserted `±` (U+00B1) the un-mapped Symbol font could not expose |
+| `mozilla_tracemonkey.pdf` `font`,`font-plan` | NFKC-equivalent | diffs are `fi`→`ﬁ`, `fl`→`ﬂ`; `NFKC` of the whole extraction is equal |
+| `pdfjs_XiaoBiaoSong.pdf` `font`,`font-plan` | neutral | 104 `-` (U+002D) → 104 U+00AD; all other 586 chars identical, visually identical |
+| `pdfjs_Type3WordSpacing.pdf` `save` | serializer reflow | char multiset exactly equal (48/48); only `-layout` grouping differs; no mutation |
+
+Per the governing direction the **raw-text oracle stays the published gate**
+(the multiset oracle is diagnostic only, `--text-oracle multiset`); these
+classes are itemised here rather than excused. No genuine mapping regression
+remains.
+
 ## Run record — recovery lane
 
 | corpus | disturbed pages | recovered | improved | unrecovered | disagreements |
