@@ -1,0 +1,60 @@
+{
+  "group": "generated",
+  "id": "gen-0201.pdf",
+  "tounicode_dropped": 1,
+  "rc": 0,
+  "elapsed_s": 0.2,
+  "fixed": 25,
+  "pages": {
+    "oracle": 4,
+    "mutated": 4,
+    "repaired": 4
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 4
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 22,
+        "repaired": 22
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 71,
+        "repaired": 71
+      }
+    },
+    {
+      "page": 3,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 100,
+        "repaired": 100
+      }
+    },
+    {
+      "page": 4,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 137,
+        "repaired": 137
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=27 tounicode_dropped=1\n\n== worker stdout ==\nmode=font-plan fixed=25 inputBytes=293757 outputBytes=324839 elapsedMs=73\n\n== worker stderr ==\n\nrc=0 elapsed=0.20s\n"
+}

@@ -1,0 +1,115 @@
+{
+  "group": "generated",
+  "id": "gen-0021.pdf",
+  "tounicode_dropped": 1,
+  "rc": 0,
+  "elapsed_s": 0.24,
+  "fixed": 52,
+  "pages": {
+    "oracle": 10,
+    "mutated": 10,
+    "repaired": 10
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 9,
+    "intact": 1
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 20,
+        "repaired": 20
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 152,
+        "repaired": 152
+      }
+    },
+    {
+      "page": 3,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 48,
+        "repaired": 48
+      }
+    },
+    {
+      "page": 4,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 117,
+        "repaired": 117
+      }
+    },
+    {
+      "page": 5,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 22,
+        "repaired": 22
+      }
+    },
+    {
+      "page": 6,
+      "outcome": "intact",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 0,
+        "repaired": 0
+      }
+    },
+    {
+      "page": 7,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 39,
+        "repaired": 39
+      }
+    },
+    {
+      "page": 8,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 185,
+        "repaired": 185
+      }
+    },
+    {
+      "page": 9,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 175,
+        "repaired": 175
+      }
+    },
+    {
+      "page": 10,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 134,
+        "repaired": 134
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=54 tounicode_dropped=1\n\n== worker stdout ==\nmode=font-plan fixed=52 inputBytes=1046805 outputBytes=1112071 elapsedMs=108\n\n== worker stderr ==\n\nrc=0 elapsed=0.24s\n"
+}

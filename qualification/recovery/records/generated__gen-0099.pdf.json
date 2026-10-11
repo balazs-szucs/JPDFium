@@ -1,0 +1,33 @@
+{
+  "group": "generated",
+  "id": "gen-0099.pdf",
+  "tounicode_dropped": 1,
+  "rc": 0,
+  "elapsed_s": 0.22,
+  "fixed": 3,
+  "pages": {
+    "oracle": 1,
+    "mutated": 1,
+    "repaired": 1
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 1
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 4,
+        "repaired": 4
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=5 tounicode_dropped=1\n\n== worker stdout ==\nmode=font-plan fixed=3 inputBytes=88595 outputBytes=92048 elapsedMs=89\n\n== worker stderr ==\n\nrc=0 elapsed=0.22s\n"
+}

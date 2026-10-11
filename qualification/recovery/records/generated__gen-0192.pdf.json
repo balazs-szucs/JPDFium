@@ -1,0 +1,51 @@
+{
+  "group": "generated",
+  "id": "gen-0192.pdf",
+  "tounicode_dropped": 1,
+  "rc": 0,
+  "elapsed_s": 0.22,
+  "fixed": 27,
+  "pages": {
+    "oracle": 3,
+    "mutated": 3,
+    "repaired": 3
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 3
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 166,
+        "repaired": 166
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 282,
+        "repaired": 282
+      }
+    },
+    {
+      "page": 3,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 181,
+        "repaired": 181
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=29 tounicode_dropped=1\n\n== worker stdout ==\nmode=font-plan fixed=27 inputBytes=456879 outputBytes=490464 elapsedMs=78\n\n== worker stderr ==\n\nrc=0 elapsed=0.22s\n"
+}

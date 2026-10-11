@@ -72,7 +72,8 @@ python3 qualification/qualify.py \
   --ops save,font,font-plan,preserve --idempotence --timeout 60
 
 # 5. run the paired-mutation recovery lane (separate report, never overwrites step 4)
-python3 qualification/qualify.py --lane recovery --group general --limit 0 --timeout 60
+python3 qualification/qualify.py --lane recovery --group general   --limit 0 --timeout 60
+python3 qualification/qualify.py --lane recovery --group generated --limit 0 --timeout 60
 ```
 
 The driver launches exactly one JVM per (input, operation) so a native crash is
@@ -177,6 +178,32 @@ corruption.
 declared `/ToUnicode` — an end-to-end, user-visible oracle — not a
 decoder-independent comparison of the decoded CMap.
 
+### Measured result and finding (both corpora, reported as-is)
+
+`general` (`recovery-general.md`): 50 inputs, 36 `not_applicable` (no declared
+`/ToUnicode` to remove), 1 `mutation_failed`, 13 run. Of 12 disturbed pages: 1
+`improved` (`basic-text.pdf`, residual char diff 1531 → 1), 11 `unrecovered`;
+30 `intact`, 12 `intact_nfkc`, 0 disagreements, 0 containment/structural
+violations. Headline: reconstructing `/ToUnicode` repairs a badly damaged page
+but does not restore extraction where the planner declines or cannot fully map.
+
+`generated` (`recovery-generated.md`): 300 inputs, 205 `not_applicable`, 95 run,
+0 failed. Of 357 disturbed pages: **0 `recovered`, 0 `improved`, 357
+`unrecovered`**; 12 `intact`, 0 disagreements, 0 containment/structural
+violations.
+
+Measured cause on the synthetic corpus (sample, not a general proof): every
+generated original declares exactly one `/ToUnicode`, on a font whose CMap uses
+a **2-byte** codespace (`<0000> <FFFF>`, `beginbfrange`). Each repaired file
+re-emits 15–42 `/ToUnicode` maps, **all 1-byte** (`<00> <FF>`, identity ASCII
+`<20>`→U+0020 …), and never re-emits a 2-byte map. Poppler's per-page extraction
+of the repaired file is byte-identical to the damaged input on all 357 disturbed
+pages — i.e. the re-emitted maps do not carry the deleted information for those
+fonts. The synthetic generator's maps are an author's arbitrary CID map, not
+recoverable from the font program, so reconstruct-from-evidence has a real
+ceiling here. Recorded as a limitation, not misattributed to corruption, and not
+claimed as recovery.
+
 ## Hard release gate
 
 ```
@@ -193,21 +220,28 @@ unsupported cases, `serialization_render_delta`, limited render scopes, and
 - No **independent `/ToUnicode` mapping oracle** yet: declared-mapping
   preservation is currently proxied by `pdftotext` + render + `qpdf`, not by a
   decoder-independent comparison of the decoded CMap.
-- A **paired-mutation recovery lane** now exists (`--lane recovery`), but it has
-  only been run over `general`. On that corpus
-  (`recovery/reports/recovery-general.md`): of 12 pages the mutation actually disturbed, 0 returned exactly to the oracle,
-  1 was `improved` (`basic-text.pdf`, residual char distance 1531 → 1), and 11
-  were `unrecovered` (mostly small residuals: 1–17 chars on the IRS forms, plus
-  pages where the planner rewrote 0 fonts because the font is
+- A **paired-mutation recovery lane** now exists (`--lane recovery`), run over
+  `general` and `generated`. On `general`
+  (`recovery/reports/recovery-general.md`): of 12 pages the mutation actually
+  disturbed, 0 returned exactly to the oracle, 1 was `improved`
+  (`basic-text.pdf`, residual char distance 1531 → 1), and 11 were `unrecovered`
+  (mostly small residuals: 1–17 chars on the IRS forms, plus pages where the
+  planner rewrote 0 fonts because the font is
   `MANUAL_CONFIRMATION_REQUIRED`/`REPLACEMENT_REQUIRED` and correctly declined —
-  `irs_*`, `pdfjs_ArabicCIDTrueType`, `pdfjs_PDFJS-9279-reduced`,
-  `w3c_dummy`). Headline honest result: reconstructing `/ToUnicode` improves a
-  badly-damaged page but does not by itself restore extraction where the damage
-  is in a font the planner declines or cannot fully map. It is not a
-  "recovery success rate" and is never read as one.
+  `irs_*`, `pdfjs_ArabicCIDTrueType`, `pdfjs_PDFJS-9279-reduced`, `w3c_dummy`).
+  On `generated` (`recovery/reports/recovery-generated.md`): 357 disturbed
+  pages, **0 recovered, 0 improved, 357 unrecovered**, 0 disagreements — the
+  disturbed font is a CID font whose 2-byte author map is not re-emitted (all
+  re-emitted maps are 1-byte), so nothing is restored; a documented ceiling of
+  reconstruct-from-evidence, not a corruption and not a recovery. Headline
+  honest result: reconstructing `/ToUnicode` improves a badly-damaged page but
+  does not by itself restore extraction where the damage is in a font the
+  planner declines or cannot fully map. It is not a "recovery success rate" and
+  is never read as one.
 - `unresolved_oracle_disagreements` is reported by the recovery lane
-  (`recovery/reports/recovery.json`); it is 0 on `general`. A second independent
-  oracle (e.g. PDF.js) and the veraPDF lane are still absent.
+  (`recovery/reports/recovery-<group>.json`); it is 0 on both `general` and
+  `generated`. A second independent oracle (e.g. PDF.js) and the veraPDF lane are
+  still absent.
 - Render comparison covers documents ≤ 25 pages and only the first N pages when
   the cap applies; it is not an all-page claim.
 - The full frozen corpus (391 inputs) has not been run to completion in CI; only

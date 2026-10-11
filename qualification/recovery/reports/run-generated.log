@@ -1,0 +1,21 @@
+== paired-mutation recovery summary ==
+files_discovered                   300
+not_applicable                     205
+cases_run                          95
+refused                            0
+mutation_failed                    0
+recovery_targets                   357
+recovered                          0
+recovered_nfkc                     0
+improved                           0
+unrecovered                        357
+intact                             12
+intact_nfkc                        0
+nfkc_only_pages                    0
+changed_correct_page               0
+worsened                           0
+unresolved_oracle_disagreements    0
+recovery_containment_violations    0
+recovery_structural_regressions    0
+PASS (no containment violations, no structural regressions, no unresolved disagreements)
+EXIT=0

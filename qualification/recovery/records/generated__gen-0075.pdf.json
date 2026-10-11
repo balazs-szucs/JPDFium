@@ -1,0 +1,78 @@
+{
+  "group": "generated",
+  "id": "gen-0075.pdf",
+  "tounicode_dropped": 1,
+  "rc": 0,
+  "elapsed_s": 0.23,
+  "fixed": 41,
+  "pages": {
+    "oracle": 6,
+    "mutated": 6,
+    "repaired": 6
+  },
+  "qpdf_check": {
+    "mutated": 0,
+    "repaired": 0
+  },
+  "page_outcomes": {
+    "unrecovered": 6
+  },
+  "pages_detail": [
+    {
+      "page": 1,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 36,
+        "repaired": 36
+      }
+    },
+    {
+      "page": 2,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 125,
+        "repaired": 125
+      }
+    },
+    {
+      "page": 3,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 273,
+        "repaired": 273
+      }
+    },
+    {
+      "page": 4,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 173,
+        "repaired": 173
+      }
+    },
+    {
+      "page": 5,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 83,
+        "repaired": 83
+      }
+    },
+    {
+      "page": 6,
+      "outcome": "unrecovered",
+      "nfkc_needed": false,
+      "char_diff_to_oracle": {
+        "mutated": 73,
+        "repaired": 73
+      }
+    }
+  ],
+  "result": "ok",
+  "logs": "== mutator ==\nfont_dicts=43 tounicode_dropped=1\n\n== worker stdout ==\nmode=font-plan fixed=41 inputBytes=628002 outputBytes=679274 elapsedMs=92\n\n== worker stderr ==\n\nrc=0 elapsed=0.23s\n"
+}
