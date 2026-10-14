@@ -15,19 +15,30 @@ fi
 echo "Checking exports in $LIB"
 
 EXPECTED=(
+  jpdfium_abi_version
+  jpdfium_abi_query
   jpdfium_init
+  jpdfium_init_ex
+  jpdfium_destroy
   jpdfium_doc_open
+  jpdfium_doc_open_bytes
   jpdfium_doc_page_count
+  jpdfium_doc_close
+  jpdfium_page_open
+  jpdfium_page_close
   jpdfium_render_page
   jpdfium_render_page_into
   jpdfium_render_page_form_into
   jpdfium_text_get_chars
+  jpdfium_free_buffer
   jpdfium_redact_words_ex
   jpdfium_pcre2_compile
   jpdfium_flashtext_create
   jpdfium_font_fix_tounicode
   jpdfium_repair_pdf
   jpdfium_brotli_decode
+  jpdfium_has_rust
+  jpdfium_rust_compress_pdf
 )
 MISSING=0
 if [[ "$LIB" == *.dll ]]; then

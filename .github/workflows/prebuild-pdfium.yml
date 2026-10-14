@@ -145,6 +145,9 @@ jobs:
           # are hours long and add tens of MB). Warn-only below.
           - { platform: linux-x64,    runner: ubuntu-latest,     target_cpu: x64,   mode: v8 }
           - { platform: linux-x64,    runner: ubuntu-latest,     target_cpu: x64,   mode: xfa }
+          # Experimental FreeBSD x64 cross-compile
+          - { platform: freebsd-x64,  runner: ubuntu-latest,     target_cpu: x64,   target_os: freebsd, mode: component }
+          - { platform: freebsd-x64,  runner: ubuntu-latest,     target_cpu: x64,   target_os: freebsd, mode: static }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -153,10 +156,15 @@ jobs:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
 
       - name: Install build deps (Linux)
-        if: startsWith(matrix.platform, 'linux-') && matrix.libc != 'musl'
+        if: (startsWith(matrix.platform, 'linux-') || startsWith(matrix.platform, 'freebsd-')) && matrix.libc != 'musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config python3 git
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config python3 git xz-utils nasm zstd
+
+      - name: Setup FreeBSD Sysroot
+        if: startsWith(matrix.platform, 'freebsd-')
+        run: |
+          bash native/ci/setup-freebsd-sysroot.sh native/freebsd-sysroot 14.4-RELEASE amd64
 
       - name: Install build deps (macOS)
         if: startsWith(matrix.platform, 'darwin-')
@@ -167,7 +175,11 @@ jobs:
       - name: Install build deps (Windows)
         if: startsWith(matrix.platform, 'windows-')
         run: |
-          choco install -y --allow-downgrade cmake ninja python3
+          # ninja and python3 are pre-installed in the runner image toolcache;
+          # verify/ensure ninja is present without hitting chocolatey registry timeouts
+          if ! command -v ninja >/dev/null 2>&1; then
+            choco install -y --no-progress ninja || true
+          fi
 
       - name: Configure Windows depot_tools environment
         if: startsWith(matrix.platform, 'windows-')
@@ -199,6 +211,8 @@ jobs:
         env:
           PINNED_SHA: ${{ needs.resolve-sha.outputs.sha }}
           TARGET_CPU: ${{ matrix.target_cpu }}
+          TARGET_OS: ${{ matrix.target_os }}
+          FREEBSD_SYSROOT: ${{ github.workspace }}/native/freebsd-sysroot
           JPDFIUM_BUILD_MODE: ${{ matrix.mode }}
           JPDFIUM_LIBC: ${{ matrix.libc }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -208,6 +222,8 @@ jobs:
           # moves while the matrix is running.
           export EMBEDPDF_PIN_SHA="$PINNED_SHA"
           export TARGET_CPU="$TARGET_CPU"
+          export TARGET_OS="${TARGET_OS:-}"
+          export FREEBSD_SYSROOT="${FREEBSD_SYSROOT:-}"
           export JPDFIUM_BUILD_MODE="$JPDFIUM_BUILD_MODE"
           bash native/setup-pdfium.sh
 
@@ -353,6 +369,7 @@ jobs:
           | darwin-arm64  | pdfium-darwin-arm64.tar.gz       | pdfium-darwin-arm64-static.tar.gz        |
           | windows-x64   | pdfium-windows-x64.tar.gz        | pdfium-windows-x64-static.tar.gz         |
           | windows-arm64 | pdfium-windows-arm64.tar.gz      | pdfium-windows-arm64-static.tar.gz       |
+          | freebsd-x64   | pdfium-freebsd-x64.tar.gz        | pdfium-freebsd-x64-static.tar.gz         |
 
           Component tarballs hold libpdfium.{so,dylib,dll} + sibling component
           shared libs (abseil, partition_alloc, etc.); easier to iterate against
@@ -360,9 +377,8 @@ jobs:
           PDFium + every bundled dep - picked up by release.yml so the final
           natives jars dead-strip aggressively across PDFium internals.
 
-          The \`linux-musl-*\` tarballs are built inside an Alpine container and are
-          musl-linked (for Alpine / musl runtimes); they are experimental until
-          the Prebuild PDFium workflow goes green on them.
+          The \`linux-musl-*\` and \`freebsd-*\` tarballs are experimental
+          until the corresponding build targets and tests are fully qualified in CI.
 
           Each tarball contains \`include/\` + \`lib/\` ready to extract into \`native/pdfium/\`.
           EOF

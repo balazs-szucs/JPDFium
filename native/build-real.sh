@@ -47,6 +47,10 @@ ARCH="$(uname -m)"
 PLATFORM="darwin-arm64"
 if [ "$OS" = "darwin" ]; then
     if [ "$ARCH" = "arm64" ]; then PLATFORM="darwin-arm64"; else PLATFORM="darwin-x64"; fi
+elif [ "$OS" = "freebsd" ]; then
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then PLATFORM="freebsd-arm64"; else PLATFORM="freebsd-x64"; fi
+elif [ "$OS" = "openbsd" ]; then
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then PLATFORM="openbsd-arm64"; else PLATFORM="openbsd-x64"; fi
 elif [ "$OS" = "linux" ]; then
     if [ "$ARCH" = "aarch64" ]; then PLATFORM="linux-arm64"; else PLATFORM="linux-x64"; fi
 fi

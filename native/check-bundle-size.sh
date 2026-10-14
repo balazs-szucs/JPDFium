@@ -80,4 +80,18 @@ if [ "$TOTAL" -gt "$WARN_AT" ]; then
     echo "WARNING: $PLATFORM bundle is past 75% of budget ($(mb "$WARN_AT") MB)" >&2
 fi
 
+# Diagnostic binary size and section breakdown report
+echo "--- Native Library Size & Section Breakdown ($PLATFORM) ---"
+for lib in "$DIST_DIR"/libjpdfium.* "$DIST_DIR"/jpdfium.dll; do
+    [ -f "$lib" ] || continue
+    echo "Library: $(basename "$lib") ($(wc -c < "$lib") bytes)"
+    if command -v llvm-size >/dev/null 2>&1; then
+        llvm-size --format=sysv "$lib" 2>/dev/null || llvm-size "$lib" 2>/dev/null || true
+    elif command -v size >/dev/null 2>&1; then
+        size "$lib" 2>/dev/null || true
+    fi
+done
+echo "--------------------------------------------------------"
+
 echo "OK: $PLATFORM bundle is within size budget"
+
