@@ -231,6 +231,9 @@ val jpdfiumFunctions = listOf(
     "jpdfium_rust_resize_pixels",
     "jpdfium_rust_unpack_pixels",
     "jpdfium_rust_svg_to_rgba",
+    "jpdfium_rust_svg_to_pdf",
+    "jpdfium_page_gradients",
+    "jpdfium_page_gradients_file",
     "jpdfium_rust_free",
     // QPDF in-process functions
     "jpdfium_qpdf_optimize",
@@ -241,6 +244,7 @@ val jpdfiumFunctions = listOf(
     "jpdfium_qpdf_merge_files",
     "jpdfium_qpdf_extract_pages",
     "jpdfium_qpdf_extract_pages_file",
+    "jpdfium_qpdf_stamp_page",
     "jpdfium_qpdf_encrypt",
     "jpdfium_qpdf_encrypt_file",
     "jpdfium_qpdf_decrypt",

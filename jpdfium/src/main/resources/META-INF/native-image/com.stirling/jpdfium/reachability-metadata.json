@@ -1787,6 +1787,22 @@
           "jlong",
           "void*"
         ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": ["void*", "jlong"]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": ["void*", "jint", "jfloat"]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*", "jlong", "void*", "jlong", "jint", "jint", "jdouble", "jdouble", "jdouble", "jdouble", "jdouble", "jdouble", "void*", "void*"]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*", "jlong", "jint", "jint", "jint", "void*", "void*"]
       }
     ],
     "upcalls": [
