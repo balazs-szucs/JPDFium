@@ -12,6 +12,15 @@ application {
     mainClass.set("stirling.software.jpdfium.GraalVmSmokeApp")
 }
 
+// The GraalVM smoke fixtures stay on the build classpath, because GraalVmSmokeApp
+// reads them as classpath resources when the native image runs, but they are about
+// 1 MB of test data with nothing to offer a library consumer, so they are left out
+// of the published jar. Nothing may read them across a project boundary: the
+// jpdfium-vips tests keep their own copy of the one fixture they need.
+tasks.named<Jar>("jar") {
+    exclude("pdfs/**")
+}
+
 graalvmNative {
     metadataRepository {
         enabled.set(false)
@@ -501,7 +510,10 @@ tasks.register<Test>("nativeSmokeTest") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath       = sourceSets.test.get().runtimeClasspath
     systemProperty("jpdfium.smoke", "true")
-    filter { includeTestsMatching("*NativeSmokeTest") }
+    filter {
+        includeTestsMatching("*NativeSmokeTest")
+        includeTestsMatching("*PdfEncryptionCopyTest")
+    }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     // CI has no access to the HTML report; a load failure must name the
     // missing library in the console.

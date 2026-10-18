@@ -1,7 +1,9 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
+        // Central first: the plugin portal proxies Central and throttles shared
+        // runner IPs, so a 429 there would otherwise fail plugin resolution.
         mavenCentral()
+        gradlePluginPortal()
         google()
     }
 }
@@ -29,6 +31,7 @@ include(
     "jpdfium-natives:jpdfium-natives-darwin-arm64",
     "jpdfium-natives:jpdfium-natives-windows-x64",
     "jpdfium-natives:jpdfium-natives-windows-arm64",
+    "jpdfium-natives:jpdfium-natives-freebsd-x64",
     "jpdfium-natives:jpdfium-natives-vips-linux-x64",
     "jpdfium-natives:jpdfium-natives-vips-linux-arm64",
     "jpdfium-natives:jpdfium-natives-vips-darwin-x64",
