@@ -705,7 +705,18 @@ jobs:
           fi
           ASSET="vips-${{ matrix.platform }}.tar.gz"
           rm -rf /tmp/vips-pinned && mkdir -p /tmp/vips-pinned
-          gh release download "$PIN" --repo "$GITHUB_REPOSITORY" \
+          # The pinned release is produced by the upstream Prebuild libvips
+          # workflow. Forks do not carry it, so fall back to the parent
+          # repository before giving up: the assets are public and identical.
+          RELEASE_REPO="$GITHUB_REPOSITORY"
+          if ! gh release view "$PIN" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+            UPSTREAM_REPO=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.parent.full_name // empty' 2>/dev/null || true)
+            if [ -n "$UPSTREAM_REPO" ] && gh release view "$PIN" --repo "$UPSTREAM_REPO" >/dev/null 2>&1; then
+              echo "Pinned libvips release $PIN is missing from $GITHUB_REPOSITORY; using $UPSTREAM_REPO."
+              RELEASE_REPO="$UPSTREAM_REPO"
+            fi
+          fi
+          gh release download "$PIN" --repo "$RELEASE_REPO" \
             --pattern "$ASSET" --dir /tmp/vips-pinned
           DIST="native/dist/vips-${{ matrix.platform }}"
           rm -rf "$DIST" && mkdir -p "$DIST"
