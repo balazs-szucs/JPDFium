@@ -1823,6 +1823,32 @@
           "void*",
           "void*"
         ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "void*",
+          "jint",
+          "void*",
+          "void*",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "void*",
+          "jint",
+          "void*",
+          "jfloat",
+          "void*",
+          "void*",
+          "jint"
+        ]
       }
     ],
     "upcalls": [
