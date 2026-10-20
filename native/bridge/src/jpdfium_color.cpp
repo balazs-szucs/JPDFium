@@ -134,8 +134,7 @@ int32_t EncodeSamplesToCmykJpeg(const uint8_t* samples, int64_t samples_len, int
 
 // An image with an /SMask or /Mask loses that mask when its stream dict is
 // replaced by a re-encoded JPEG (CMYK JPEG has no alpha channel), so those
-[[maybe_unused]] bool ImageHasTransparency(FPDF_DOCUMENT doc, FPDF_PAGE page,
-                                          FPDF_PAGEOBJECT obj) {
+[[maybe_unused]] bool ImageHasTransparency(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT obj) {
     FPDF_BITMAP bitmap = FPDFImageObj_GetRenderedBitmap(doc, page, obj);
     if (!bitmap) return true;  // Unknown -> conservatively skip.
 
@@ -215,8 +214,8 @@ int32_t ConvertImageToCmykJpeg(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJEC
 }
 
 // Recurse into forms only when dirty-stream write-back is available.
-void ConvertImagesInObject(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT obj,
-                           int32_t quality, int32_t flags, bool strict, int64_t* converted,
+void ConvertImagesInObject(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT obj, int32_t quality,
+                           int32_t flags, bool strict, int64_t* converted,
                            std::unordered_set<FPDF_PAGEOBJECT>* visited, int32_t* failure) {
     if (!obj || *failure != JPDFIUM_OK) return;
 
@@ -267,10 +266,9 @@ int32_t IccComponentCount(const uint8_t* icc, size_t len) {
     // not an ICC profile no matter what the declared size or colour space says.
     if (std::memcmp(icc + 36, "acsp", 4) != 0) return 0;
     // Header-only blobs are not valid profiles; require a tag table.
-    const uint32_t tag_count = (static_cast<uint32_t>(icc[128]) << 24) |
-                               (static_cast<uint32_t>(icc[129]) << 16) |
-                               (static_cast<uint32_t>(icc[130]) << 8) |
-                               static_cast<uint32_t>(icc[131]);
+    const uint32_t tag_count =
+        (static_cast<uint32_t>(icc[128]) << 24) | (static_cast<uint32_t>(icc[129]) << 16) |
+        (static_cast<uint32_t>(icc[130]) << 8) | static_cast<uint32_t>(icc[131]);
     if (tag_count == 0 || tag_count > (declared - 132) / 12) return 0;
 
     const char* space = reinterpret_cast<const char*>(icc + 16);
@@ -398,8 +396,7 @@ void UpdatePdfxMetadata(QPDF* qpdf) {
     if (version.empty()) return;
 
     xml = std::regex_replace(xml, version_tag, "$1" + version + "$3");
-    metadata.replaceStreamData(xml, QPDFObjectHandle::newNull(),
-                               QPDFObjectHandle::newNull());
+    metadata.replaceStreamData(xml, QPDFObjectHandle::newNull(), QPDFObjectHandle::newNull());
 }
 
 // In-memory variant: replaces /OutputIntents and returns the rewritten document.
@@ -427,12 +424,24 @@ std::string XmlEscape(const std::string& value) {
     out.reserve(value.size());
     for (char c : value) {
         switch (c) {
-            case '&': out += "&amp;"; break;
-            case '<': out += "&lt;"; break;
-            case '>': out += "&gt;"; break;
-            case '"': out += "&quot;"; break;
-            case '\'': out += "&apos;"; break;
-            default: out += c; break;
+            case '&':
+                out += "&amp;";
+                break;
+            case '<':
+                out += "&lt;";
+                break;
+            case '>':
+                out += "&gt;";
+                break;
+            case '"':
+                out += "&quot;";
+                break;
+            case '\'':
+                out += "&apos;";
+                break;
+            default:
+                out += c;
+                break;
         }
     }
     return out;
@@ -447,17 +456,22 @@ std::string BuildPdfxXmp(const std::string& version, const std::string& conforma
            "  <rdf:Description rdf:about=\"\""
            " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\""
            " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\""
-           " pdfxid:GTS_PDFXVersion=\"" + v + "\""
-           " pdfx:GTS_PDFXVersion=\"" + v + "\""
-           " pdfx:GTS_PDFXConformance=\"" + c + "\"/>\n"
+           " pdfxid:GTS_PDFXVersion=\"" +
+           v +
+           "\""
+           " pdfx:GTS_PDFXVersion=\"" +
+           v +
+           "\""
+           " pdfx:GTS_PDFXConformance=\"" +
+           c +
+           "\"/>\n"
            " </rdf:RDF>\n"
            "</x:xmpmeta>\n"
            "<?xpacket end=\"w\"?>";
 }
 
-bool AddPdfxAttributes(std::string* xml, const std::string& version,
-                       const std::string& conformance, bool add_version,
-                       bool add_conformance) {
+bool AddPdfxAttributes(std::string* xml, const std::string& version, const std::string& conformance,
+                       bool add_version, bool add_conformance) {
     // Add missing properties to the first rdf:Description.
     std::regex description("(<rdf:Description\\b[^>]*?)(\\s*/?>)");
     std::smatch match;
@@ -509,14 +523,12 @@ void UpdateOrCreatePdfxMetadata(QPDF* qpdf, const char* version, const char* con
         std::regex version_tag("(<(?:pdfxid|pdfx):GTS_PDFXVersion>)([^<]*)(</)");
         const bool has_version = std::regex_search(xml, version_tag);
         if (has_version) {
-            xml = std::regex_replace(xml, version_tag,
-                                     "$1" + XmlEscape(ver) + "$3");
+            xml = std::regex_replace(xml, version_tag, "$1" + XmlEscape(ver) + "$3");
         }
         std::regex conformance_tag("(<(?:pdfxid|pdfx):GTS_PDFXConformance>)([^<]*)(</)");
         const bool has_conformance = std::regex_search(xml, conformance_tag);
         if (has_conformance) {
-            xml = std::regex_replace(xml, conformance_tag,
-                                     "$1" + XmlEscape(conf) + "$3");
+            xml = std::regex_replace(xml, conformance_tag, "$1" + XmlEscape(conf) + "$3");
         }
         if ((!has_version || !has_conformance) &&
             !AddPdfxAttributes(&xml, ver, conf, !has_version, !has_conformance)) {
@@ -733,10 +745,11 @@ JPDFIUM_EXPORT int32_t jpdfium_color_output_intent_file(const char* in_path, con
 }
 
 // Write a GTS_PDFX output intent and create/update the catalog XMP packet.
-JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(
-    const uint8_t* input, int64_t input_len, const uint8_t* icc, int64_t icc_len,
-    const char* version, const char* conformance, const char* condition_identifier,
-    const char* info, uint8_t** output, int64_t* output_len) {
+JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(const uint8_t* input, int64_t input_len,
+                                                const uint8_t* icc, int64_t icc_len,
+                                                const char* version, const char* conformance,
+                                                const char* condition_identifier, const char* info,
+                                                uint8_t** output, int64_t* output_len) {
     if (output) *output = nullptr;
     if (output_len) *output_len = 0;
     try {
@@ -751,13 +764,13 @@ JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(
         (void)info;
         return JPDFIUM_ERR_NOT_FOUND;
 #else
-        if (!input || input_len <= 0 || !icc || icc_len <= 0 || !version || !*version ||
-            !output || !output_len) {
+        if (!input || input_len <= 0 || !icc || icc_len <= 0 || !version || !*version || !output ||
+            !output_len) {
             return JPDFIUM_ERR_INVALID;
         }
-        std::shared_ptr<Buffer> buffer = InjectPdfx(
-            input, static_cast<size_t>(input_len), icc, static_cast<size_t>(icc_len), version,
-            conformance, condition_identifier, info);
+        std::shared_ptr<Buffer> buffer =
+            InjectPdfx(input, static_cast<size_t>(input_len), icc, static_cast<size_t>(icc_len),
+                       version, conformance, condition_identifier, info);
         if (!buffer) return JPDFIUM_ERR_NATIVE;
 
         const int64_t length = static_cast<int64_t>(buffer->getSize());
@@ -778,10 +791,10 @@ JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(
     }
 }
 
-JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(
-    const char* in_path, const char* out_path, const uint8_t* icc, int64_t icc_len,
-    const char* version, const char* conformance, const char* condition_identifier,
-    const char* info) {
+JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(const char* in_path, const char* out_path,
+                                               const uint8_t* icc, int64_t icc_len,
+                                               const char* version, const char* conformance,
+                                               const char* condition_identifier, const char* info) {
     try {
 #ifndef JPDFIUM_HAS_QPDF
         (void)in_path;
@@ -802,10 +815,9 @@ JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(
             auto qpdf = QPDF::create();
             qpdf->processFile(in_path);
             qpdf->getRoot().replaceKey(
-                "/OutputIntents",
-                QPDFObjectHandle::newArray({BuildOutputIntent(
-                    qpdf.get(), icc, static_cast<size_t>(icc_len), "GTS_PDFX",
-                    condition_identifier, info)}));
+                "/OutputIntents", QPDFObjectHandle::newArray({BuildOutputIntent(
+                                      qpdf.get(), icc, static_cast<size_t>(icc_len), "GTS_PDFX",
+                                      condition_identifier, info)}));
             UpdateOrCreatePdfxMetadata(qpdf.get(), version, conformance);
             QPDFWriter writer{*qpdf};
             writer.setOutputFilename(target.c_str());

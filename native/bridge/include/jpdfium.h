@@ -757,16 +757,17 @@ JPDFIUM_EXPORT int32_t jpdfium_color_output_intent_file(const char* in_path, con
 // PDF/X bootstrap: write a GTS_PDFX output intent and create/update the
 // catalog XMP metadata with |version| (for example "PDF/X-4") and
 // |conformance| (for example "PDF/X-4"). Returns PDF bytes in *output.
-JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(
-    const uint8_t* input, int64_t input_len, const uint8_t* icc, int64_t icc_len,
-    const char* version, const char* conformance, const char* condition_identifier,
-    const char* info, uint8_t** output, int64_t* output_len);
+JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_bytes(const uint8_t* input, int64_t input_len,
+                                                const uint8_t* icc, int64_t icc_len,
+                                                const char* version, const char* conformance,
+                                                const char* condition_identifier, const char* info,
+                                                uint8_t** output, int64_t* output_len);
 
 // File-to-file variant of jpdfium_color_pdfx_bytes.
-JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(
-    const char* in_path, const char* out_path, const uint8_t* icc, int64_t icc_len,
-    const char* version, const char* conformance, const char* condition_identifier,
-    const char* info);
+JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(const char* in_path, const char* out_path,
+                                               const uint8_t* icc, int64_t icc_len,
+                                               const char* version, const char* conformance,
+                                               const char* condition_identifier, const char* info);
 
 // N-Up Layout
 //
