@@ -505,7 +505,7 @@ swap_full_icudata() {
     # Only swap same-major ICU versions: the vips build links the distro/
     # brew ICU, whose major must match the trimmed core data's.
     icu_major() {
-        echo "$1" | grep -oE '(icudata\.so\.|icudata\.|icudt)([0-9]+)' | grep -oE '[0-9]+$' | head -1
+        echo "$1" | sed -n 's/.*icudata[^0-9]*\([0-9][0-9]*\).*/\1/p' | awk 'NR == 1 { print }' 
     }
     local trimmed_major
     trimmed_major=$(icu_major "$(basename "$trimmed")")
@@ -539,8 +539,8 @@ dedupe_icu() {
             done
             [ -f "$unversioned" ] && [ -f "$versioned" ] || return 0
             local um vm
-            um=$(nm -gU "$unversioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
-            vm=$(nm -gU "$versioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            um=$(nm -gU "$unversioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
+            vm=$(nm -gU "$versioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
             if [ -z "$um" ] || [ "$um" != "$vm" ]; then
                 echo "  ICU dedupe skipped: PDFium ${um:-?} vs bundle ${vm:-?}" >&2
                 return 0
@@ -565,8 +565,8 @@ dedupe_icu() {
             [ -f "$unversioned" ] && [ -f "$versioned" ] || return 0
             command -v patchelf >/dev/null 2>&1 || return 0
             local um vm
-            um=$(nm -D --defined-only "$unversioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
-            vm=$(nm -D --defined-only "$versioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            um=$(nm -D --defined-only "$unversioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
+            vm=$(nm -D --defined-only "$versioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
             if [ -z "$um" ] || [ "$um" != "$vm" ]; then
                 echo "  ICU dedupe skipped: PDFium ${um:-?} vs bundle ${vm:-?}" >&2
                 return 0
