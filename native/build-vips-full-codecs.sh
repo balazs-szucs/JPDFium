@@ -171,27 +171,35 @@ build_aom() {
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' RETURN
 
-    # aomedia.googlesource.com intermittently answers 503 to shared runner
-    # IPs; retry with backoff and fall back to brew's aom (which links the
-    # permissive BSD libvmaf) rather than failing the whole vips leg.
-    local attempt ok=0
-    for attempt in 1 2 3 4 5; do
-        if curl -fsSL --retry 3 --retry-delay 3 \
-            "https://aomedia.googlesource.com/aom/+archive/${tag}.tar.gz" \
-            -o "$work/aom.tar.gz"; then
-            ok=1
-            break
-        fi
-        echo "build-vips-full-codecs.sh: aom download attempt $attempt failed; retrying..." >&2
-        sleep $((attempt * 15))
-    done
-    if [ "$ok" != "1" ]; then
-        echo "build-vips-full-codecs.sh: aom download failed; keeping brew's aom (with libvmaf)" >&2
-        return 0
-    fi
+    # Prefer Google's release tarball: it is stable and has a normal
+    # libaom-<version>/ top level. aomedia.googlesource.com intermittently
+    # answers 503 to shared runner IPs and its archive is flat, so it is only
+    # the fallback.
     mkdir -p "$work/src"
-    tar -xzf "$work/aom.tar.gz" -C "$work/src" \
-        || { echo "build-vips-full-codecs.sh: aom extract failed; keeping brew's aom" >&2; return 0; }
+    if curl -fsSL --retry 3 --retry-delay 3 \
+        "https://storage.googleapis.com/aom-releases/libaom-${tag#v}.tar.gz" \
+        -o "$work/aom.tar.gz"; then
+        tar -xzf "$work/aom.tar.gz" -C "$work/src" --strip-components=1 \
+            || { echo "build-vips-full-codecs.sh: aom extract failed; keeping brew's aom" >&2; return 0; }
+    else
+        local attempt ok=0
+        for attempt in 1 2 3 4 5; do
+            if curl -fsSL --retry 3 --retry-delay 3 \
+                "https://aomedia.googlesource.com/aom/+archive/${tag}.tar.gz" \
+                -o "$work/aom.tar.gz"; then
+                ok=1
+                break
+            fi
+            echo "build-vips-full-codecs.sh: aom download attempt $attempt failed; retrying..." >&2
+            sleep $((attempt * 15))
+        done
+        if [ "$ok" != "1" ]; then
+            echo "build-vips-full-codecs.sh: aom download failed; keeping brew's aom (with libvmaf)" >&2
+            return 0
+        fi
+        tar -xzf "$work/aom.tar.gz" -C "$work/src" \
+            || { echo "build-vips-full-codecs.sh: aom extract failed; keeping brew's aom" >&2; return 0; }
+    fi
 
     local arch_args=()
     if [ -n "${CMAKE_OSX_ARCHITECTURES:-}" ]; then
