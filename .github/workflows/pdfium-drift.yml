@@ -102,6 +102,6 @@ jobs:
             gh issue create --repo "$GITHUB_REPOSITORY" \
               --title "PDFium prebuild drift: pinned $PIN vs latest $LATEST" \
               --label pdfium-drift \
-              --body "$BODY"
+              --body "$BODY" || echo "::warning::Could not open drift issue (issues may be disabled on this fork)."
             echo "Opened drift issue."
           fi
