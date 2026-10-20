@@ -78,6 +78,7 @@ configurations.named("testRuntimeClasspath") { extendsFrom(localNatives) }
 // GraalVM's native-image classpath is created from a snapshot of the runtime
 // dependencies, so extending runtimeClasspath is not enough for nativeCompile.
 configurations.named("nativeImageClasspath") { extendsFrom(localNatives) }
+configurations.findByName("nativeImageCliClasspath")?.extendsFrom(localNatives)
 configurations.findByName("nativeImageTestClasspath")?.extendsFrom(localNatives)
 
 dependencies {
