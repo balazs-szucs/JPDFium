@@ -35,6 +35,25 @@ val stagedPlatformDir = stagedRoot.map { it.dir("natives/$platform") } // real f
 val stagedLicensesDir = stagedRoot.map { it.dir("licenses") }
 val licensesDir = rootProject.layout.projectDirectory.dir("native/licenses")
 
+// A natives jar only needs the notices for the libraries it actually ships.
+// The old blanket copy put libvips/libheif/OpenEXR/LibRaw notices in the core
+// jar (and PDFium/qpdf notices in the vips jar), which is pure duplication.
+// Keep the lists conservative: anything a bundle may load at runtime stays.
+val coreLicenses = listOf(
+    "FREETYPE.txt", "HARFBUZZ.txt", "ICU.txt", "LIBJPEG-TURBO.txt",
+    "LIBPNG.txt", "NOTICE.txt", "PDFIUM-BSD-3.txt", "QPDF-APACHE-2.0.txt",
+    "ZLIB.txt"
+)
+val vipsLicenses = listOf(
+    "GLIB-LGPL-2.1.txt", "HIGHWAY-APACHE-2.0.txt", "KVAZAAR-BSD-3.txt",
+    "LCMS2-MIT.txt", "LIBDE265-LGPL-3.0.txt", "LIBHEIF-LGPL-3.0.txt",
+    "LIBJPEG-TURBO.txt", "LIBJXL-BSD-3.txt", "LIBNSGIF-MIT.txt",
+    "LIBPNG.txt", "LIBSPNG-BSD-2.txt", "LIBTIFF.txt", "LIBVIPS-LGPL-2.1.txt",
+    "LIBVMAF-BSD-2-CLAUSE-PATENT.txt", "LIBWEBP-BSD-3.txt", "NOTICE.txt",
+    "OPENJPEG-BSD-2.txt", "ZLIB.txt", "ZSTD-BSD-3.txt"
+)
+val bundledLicenses = if (platform.startsWith("vips-")) vipsLicenses else coreLicenses
+
 val stageNatives = tasks.register<Copy>("stageNatives") {
     description = "Copy pre-built native libraries and license notices into the jar resource tree"
     group = "build"
@@ -48,6 +67,7 @@ val stageNatives = tasks.register<Copy>("stageNatives") {
         into("natives/$platform")
     }
     from(licensesDir) {
+        include(bundledLicenses)
         into("licenses")
     }
     into(stagedRoot)

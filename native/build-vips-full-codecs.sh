@@ -3,10 +3,11 @@
 # codec libraries (libjxl, libaom, libde265, kvazaar, libwebp, libpng, libjpeg,
 # libtiff) the package manager provides. x265 is intentionally excluded (GPL).
 #
-# The pinned PDFium prebuild (native/pdfium) is wired in via a generated
-# pdfium.pc so libvips' pdfload renders PDFs with the same BSD-licensed
-# renderer as the core bridge instead of GPL poppler. The permissive loaders
-# (libspng, highway) are enabled to match the upstream Windows "all" bundle;
+# PDFium is deliberately not linked: JPDFium renders PDFs through the core
+# bridge and only uses libvips for image codecs, so pdfload would duplicate
+# the whole PDFium renderer (plus its ICU/HarfBuzz chain) in every vips jar.
+# The permissive loaders (libspng, highway) are enabled to match the upstream
+# Windows "all" bundle;
 # OpenEXR and libraw are disabled to reduce bundle size. cfitsio is skipped: the distro build drags in the
 # whole curl/gnutls/krb5/ldap closure. ImageMagick stays off: apt's IM6 links
 # GPL-3 liblqr and brew's IM7 loads its coders from module files that are not
@@ -400,37 +401,10 @@ build_vips() {
         export LD_LIBRARY_PATH="$PREFIX/lib:${LD_LIBRARY_PATH:-}"
     fi
 
-    # Wire the pinned PDFium prebuild (fetch-prebuilt-pdfium.sh extracts it
-    # into native/pdfium) into libvips' pdfload. libvips only checks
-    # pdfium >= 4200, so the placeholder version just has to clear that gate.
-    # The component build is used deliberately: its libpdfium exports only the
-    # FPDF API, so its bundled openjpeg/lcms/libpng/zlib cannot shadow the
-    # copies libvips was compiled against (a whole-archive static link did
-    # exactly that and crashed vips_jp2kload). Static dedup needs a PDFium
-    # prebuild built with use_system_* (see prebuild-pdfium.yml).
+    # PDF loading is the core bridge's job. Keeping pdfload here would drag
+    # PDFium + Skia + ICU + HarfBuzz into every vips jar for an operation the
+    # jpdfium-vips API never calls.
     local pdfium_flag="-Dpdfium=disabled"
-    if [ -f "$SCRIPT_DIR/pdfium/include/fpdfview.h" ]; then
-        local pdfium_pc="$work/pdfium-pc"
-        mkdir -p "$pdfium_pc"
-        cat > "$pdfium_pc/pdfium.pc" <<EOF
-prefix=$SCRIPT_DIR/pdfium
-exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib
-includedir=\${prefix}/include
-
-Name: pdfium
-Description: pdfium
-Version: 9999
-Requires:
-Libs: -L\${libdir} -lpdfium
-Cflags: -I\${includedir}
-EOF
-        export PKG_CONFIG_PATH="$pdfium_pc:${PKG_CONFIG_PATH:-}"
-        pdfium_flag="-Dpdfium=enabled"
-        echo "==> build-vips-full-codecs.sh: libvips will load PDFs with PDFium ($SCRIPT_DIR/pdfium)"
-    else
-        echo "==> build-vips-full-codecs.sh: no PDFium tree; libvips built without PDF loading" >&2
-    fi
 
     # magick stays disabled: apt IM6 links GPL-3 liblqr, and brew IM7 loads
     # its coders from module .so files that need MAGICK_CODER_MODULE_PATH at

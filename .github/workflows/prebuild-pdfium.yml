@@ -33,6 +33,16 @@ on:
         type: boolean
         required: false
         default: false
+      platforms:
+        description: 'Optional comma-separated platform filter for fast iteration (e.g. darwin-arm64). Empty builds all.'
+        type: string
+        required: false
+        default: ''
+      modes:
+        description: 'Optional comma-separated mode filter (component,static,v8,xfa). Empty builds all.'
+        type: string
+        required: false
+        default: ''
   schedule:
     - cron: '0 3 * * 1'
   # Auto-run on the test branch so pushes there self-bootstrap.
@@ -92,7 +102,10 @@ jobs:
 
   build:
     needs: resolve-sha
-    if: needs.resolve-sha.outputs.skip != 'true'
+    if: >-
+      needs.resolve-sha.outputs.skip != 'true' &&
+      (inputs.platforms == '' || contains(format(',{0},', inputs.platforms), format(',{0},', matrix.platform))) &&
+      (inputs.modes == '' || contains(format(',{0},', inputs.modes), format(',{0},', matrix.mode)))
     strategy:
       fail-fast: false
       matrix:

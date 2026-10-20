@@ -73,32 +73,9 @@ jobs:
           echo "short=${sha:0:7}" >> "$GITHUB_OUTPUT"
           echo "tag=vips-$(date -u +%Y%m%d)-${sha:0:7}" >> "$GITHUB_OUTPUT"
 
-  # Cross-build the trimmed ICU data on Linux (used by the macOS wrap step)
-  # before the matrix so the macOS jobs can download it. Mirrors the snapshot
-  # workflow's prep-windows-icu job; saves ~10 MB per macOS tarball.
-  prep-icu:
-    needs: [marker, resolve-sha]
-    if: always() && (github.event_name != 'pull_request' || needs.marker.outputs.run == 'true')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
-      - name: Install ICU tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential icu-devtools libicu-dev \
-            mingw-w64 binutils-mingw-w64 curl unzip
-      - name: Cross-build trimmed ICU data
-        run: bash native/build-minimal-icu-windows.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: icu-data-trimmed
-          path: native/dist/icu-data/icudt*l.dat
-          if-no-files-found: error
-          retention-days: 1
-
   build:
-    needs: [resolve-sha, prep-icu]
-    if: always() && needs.prep-icu.result == 'success' && (github.event_name != 'pull_request' || needs.marker.outputs.run == 'true')
+    needs: [resolve-sha]
+    if: always() && (github.event_name != 'pull_request' || needs.marker.outputs.run == 'true')
     permissions:
       contents: read
     strategy:
@@ -293,15 +270,8 @@ jobs:
         run: bash native/ci/alpine-exec.sh ${{ matrix.platform }} vips
 
       # Linux + macOS: build the full-codec libvips from source with the
-      # system deps (the script installs them), linking the pinned component
-      # PDFium for pdfload. darwin-x64 is a native Intel runner.
-      - name: Fetch prebuilt PDFium (vips pdfload)
-        if: matrix.libc != 'musl' && (matrix.os == 'linux' || matrix.os == 'darwin')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: bash native/fetch-prebuilt-pdfium.sh ${{ matrix.platform }}
-
+      # system deps (the script installs them). darwin-x64 is a native Intel
+      # runner. PDF rendering is not part of libvips here.
       - name: x86_64 brew bootstrap (darwin-x64)
         if: matrix.platform == 'darwin-x64'
         env:
@@ -347,28 +317,6 @@ jobs:
           else
             bash native/build-vips-full-codecs.sh
           fi
-
-      - name: Trim ICU data for the bundle (Linux)
-        # The vips bundle links PDFium, whose full ICU data file (~30 MB) would
-        # dominate the tarball. Pre-stage the trimmed carrier so the bundler's
-        # swap replaces it (same trick the core natives use).
-        if: matrix.os == 'linux' && matrix.libc != 'musl'
-        run: JPDFIUM_TARGET_PLATFORM=${{ matrix.platform }} bash native/build-minimal-icu.sh
-
-      - name: Download trimmed ICU data (macOS)
-        if: matrix.os == 'darwin'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.1
-        with:
-          name: icu-data-trimmed
-          path: native/dist/icu-data/
-
-      - name: Trim ICU data for the bundle (macOS)
-        # Wraps the trimmed .dat into libicudata.<MAJ>.dylib via a clang
-        # .incbin stub; the bundler then swaps PDFium's full 33 MB copy.
-        if: matrix.os == 'darwin'
-        env:
-          CMAKE_OSX_ARCHITECTURES: ${{ matrix.platform == 'darwin-x64' && 'x86_64' || 'arm64' }}
-        run: bash native/build-minimal-icu-macos.sh
 
       - name: Stage + bundle vips (Linux + macOS)
         if: matrix.libc != 'musl' && (matrix.os == 'linux' || matrix.os == 'darwin')
