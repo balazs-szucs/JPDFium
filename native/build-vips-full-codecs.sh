@@ -38,8 +38,6 @@ case "$(uname -s)" in
         ;;
 esac
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
 resolve_latest_tag() {
     local repo="$1"
     # Authenticated API calls get 1000 req/hour instead of 60 for shared

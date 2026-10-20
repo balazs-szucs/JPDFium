@@ -505,7 +505,7 @@ swap_full_icudata() {
     # Only swap same-major ICU versions: the vips build links the distro/
     # brew ICU, whose major must match the trimmed core data's.
     icu_major() {
-        echo "$1" | sed -n 's/.*icudata[^0-9]*\([0-9][0-9]*\).*/\1/p' | awk 'NR == 1 { print }' 
+        echo "$1" | sed -n 's/.*icudata[^0-9]*\([0-9][0-9]*\).*/\1/p' | awk 'NR == 1 { print }'
     }
     local trimmed_major
     trimmed_major=$(icu_major "$(basename "$trimmed")")
