@@ -567,7 +567,13 @@ unsafe fn encode_cmyk_jpeg(
 
     let ptr = malloc_copy(&buffer);
     let len = buffer.len();
-    CMYK_JPEG_BUFFER.with(|cell| *cell.borrow_mut() = buffer);
+    let capacity = buffer.capacity();
+    if capacity > 16 * 1024 * 1024 {
+        // A single huge JPEG must not pin its capacity to a long-lived worker.
+        CMYK_JPEG_BUFFER.with(|cell| *cell.borrow_mut() = Vec::new());
+    } else {
+        CMYK_JPEG_BUFFER.with(|cell| *cell.borrow_mut() = buffer);
+    }
     if ptr.is_null() {
         return JPDFIUM_ERR_GENERIC;
     }

@@ -17,6 +17,7 @@ on:
       - 'jpdfium/src/main/java/stirling/software/jpdfium/panama/ColorBindings.java'
       - 'jpdfium/src/test/java/stirling/software/jpdfium/doc/GhentOutputSuiteTest.java'
       - 'jpdfium/src/test/java/stirling/software/jpdfium/doc/PdfXConverterTest.java'
+      - '.github/scripts/verify-ghent-inkcov.sh'
       - '.github/workflows/ghent.yml'
 
 permissions:
@@ -45,7 +46,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config libqpdf-dev qpdf unzip
+            build-essential cmake ninja-build pkg-config libqpdf-dev qpdf unzip ghostscript
           # Optional: gives PdfXConverterTest a real CMYK profile. It skips
           # cleanly when this package is unavailable.
           sudo apt-get install -y --no-install-recommends icc-profiles-free || true
@@ -72,6 +73,11 @@ jobs:
             --tests 'stirling.software.jpdfium.doc.GhentOutputSuiteTest' \
             --tests 'stirling.software.jpdfium.doc.PdfXConverterTest' \
             --no-daemon --stacktrace
+
+      - name: Verify Ghent process ink coverage
+        env:
+          GHENT_DIR: /tmp/ghent/Ghent_PDF_Output_Suite_V50_Testpages
+        run: bash .github/scripts/verify-ghent-inkcov.sh "$GHENT_DIR" /tmp
 
       - name: Upload Ghent output
         if: always()

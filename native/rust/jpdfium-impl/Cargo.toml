@@ -22,4 +22,6 @@ tiny-skia = { version = "0.12", default-features = false, features = ["std", "si
 # CMYK JPEG encoder for DeviceCMYK image conversion. `ColorType::Cmyk` writes
 # an Adobe APP14 (transform=0) JPEG with the samples inverted, which is exactly
 # the layout PDFium decodes back with /Decode [1 0 1 0 1 0 1 0].
-jpeg-encoder = "0.7"
+# `simd` enables runtime-detected AVX2 DCT/color paths on x86_64. It is a
+# no-op on other architectures and falls back to the scalar path.
+jpeg-encoder = { version = "0.7", features = ["simd"] }

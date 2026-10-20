@@ -83,6 +83,8 @@ void GrayToCmyk(uint8_t v, bool extract_black, uint8_t* out) {
 // Reusable buffers for one image-conversion pass. The image pass can see many
 // XObjects; resizing vectors would zero-fill and reallocating would churn the
 // allocator. Grow only when an image is larger than the previous one.
+constexpr size_t kMaxRetainedScratchBytes = 32u * 1024u * 1024u;
+
 struct ImageScratch {
     std::unique_ptr<uint8_t[]> samples;
     size_t samples_capacity = 0;
@@ -103,6 +105,25 @@ struct ImageScratch {
             cmyk_capacity = size;
         }
         return cmyk.get();
+    }
+
+    // Do not pin a very large image/RGBA buffer to a long-lived worker forever.
+    void trim() {
+        if (samples_capacity > kMaxRetainedScratchBytes) {
+            samples.reset();
+            samples_capacity = 0;
+        }
+        if (cmyk_capacity > kMaxRetainedScratchBytes) {
+            cmyk.reset();
+            cmyk_capacity = 0;
+        }
+    }
+};
+
+struct ImageScratchTrim {
+    ImageScratch* scratch;
+    ~ImageScratchTrim() {
+        scratch->trim();
     }
 };
 
@@ -668,6 +689,7 @@ JPDFIUM_EXPORT int32_t jpdfium_color_samples_to_cmyk_jpeg(const uint8_t* samples
     try {
         if (jpdfium_has_rust() == 0) return JPDFIUM_ERR_NOT_FOUND;
         thread_local ImageScratch scratch;
+        ImageScratchTrim trim{&scratch};
         return EncodeSamplesToCmykJpeg(samples, samples_len, width, height, components, quality,
                                        flags, &scratch, out_ptr, out_len);
     } catch (const std::exception& e) {
@@ -706,6 +728,7 @@ JPDFIUM_EXPORT int32_t jpdfium_color_page_images_to_cmyk(int64_t doc_handle, int
         // The buffers only grow to the largest image seen, so multi-page jobs do
         // not reallocate for every page.
         thread_local ImageScratch scratch;
+        ImageScratchTrim trim{&scratch};
         const int object_count = FPDFPage_CountObjects(page.get());
         for (int i = 0; i < object_count && failure == JPDFIUM_OK; ++i) {
             FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page.get(), i);

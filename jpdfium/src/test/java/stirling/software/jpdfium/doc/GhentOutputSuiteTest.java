@@ -77,8 +77,11 @@ class GhentOutputSuiteTest {
     }
 
     private static void assertFixturePreserved(Path input) throws Exception {
-        Path out = Path.of(System.getProperty("java.io.tmpdir"),
-                "jpdfium-ghent-" + input.getFileName());
+        String outputDir = System.getenv("GHENT_OUTPUT_DIR");
+        Path out = (outputDir == null || outputDir.isBlank()
+                        ? Path.of(System.getProperty("java.io.tmpdir"))
+                        : Path.of(outputDir))
+                .resolve("jpdfium-ghent-" + input.getFileName());
         int converted;
         try (PdfDocument doc = PdfDocument.open(input)) {
             converted = PdfColorConverter.toCmyk(doc);
