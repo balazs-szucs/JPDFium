@@ -846,8 +846,6 @@ PY_EOF
     done
     grep -q 'FPDFImageObj_HasTransparency' "${EDITHEADER}" \
         || CMYK_MISSING="${CMYK_MISSING} FPDFImageObj_HasTransparency(header)"
-    grep -q 'FPDFImageObj_HasTransparency' "${EDITIMG:-fpdfsdk/fpdf_editimg.cpp}" \
-        || CMYK_MISSING="${CMYK_MISSING} FPDFImageObj_HasTransparency(impl)"
     if [ -n "${CMYK_MISSING}" ]; then
         echo "  ERROR: CMYK patch incomplete; missing:${CMYK_MISSING}" >&2
         exit 1
@@ -926,6 +924,12 @@ with open(path, "w") as f:
     f.write(src.replace(anchor, addition, 1))
 print("  Added FPDFImageObj_HasTransparency to fpdf_editimg.cpp.")
 PY_EOF
+fi
+
+if ! grep -q 'FPDFImageObj_HasTransparency' "${EDITHEADER}" \
+    || ! grep -q 'FPDFImageObj_HasTransparency' "${EDITIMG}"; then
+    echo "  ERROR: image transparency probe patch incomplete" >&2
+    exit 1
 fi
 
 # EmbedPDF annot font subsetting mixes two span pointer types in a ternary.
