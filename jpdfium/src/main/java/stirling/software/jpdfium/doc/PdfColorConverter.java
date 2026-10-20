@@ -16,7 +16,8 @@ import stirling.software.jpdfium.panama.PageEditBindings;
 
 /**
  * Converts page-object fill/stroke colours to grayscale, RGB or DeviceCMYK.
- * CMYK and form write-back require the JPDFium PDFium patch.
+ * CMYK and form write-back require the JPDFium PDFium patch. A CMYK target
+ * preserves existing DeviceCMYK, DeviceGray and special colours.
  */
 public final class PdfColorConverter {
 
@@ -137,14 +138,14 @@ public final class PdfColorConverter {
         return total;
     }
 
-    /** Convert every page to DeviceCMYK (throws when the CMYK setters are absent). */
+    /** Convert DeviceRGB page colours to DeviceCMYK (throws when the CMYK setters are absent). */
     public static int toCmyk(PdfDocument doc) {
         return convert(doc, ColorConvertOptions.builder()
                 .targetColorSpace(ColorSpace.CMYK)
                 .build());
     }
 
-    /** Convert specific pages to DeviceCMYK (throws when the setters are absent). */
+    /** Convert DeviceRGB colours on specific pages to DeviceCMYK (throws when the setters are absent). */
     public static int toCmyk(PdfDocument doc, Set<Integer> pageIndices) {
         ColorConvertOptions options = ColorConvertOptions.builder()
                 .targetColorSpace(ColorSpace.CMYK)
@@ -428,12 +429,16 @@ public final class PdfColorConverter {
                         : ColorBindings.strokeColorSpace(obj);
                 // Preserve raw ink values; the RGB getter would alter 100% K.
                 if (sourceSpace == ColorBindings.COLORSPACE_DEVICECMYK) return false;
+                // DeviceGray is a valid PDF/X process colour and already means K.
+                // Leaving it alone also avoids regenerating pages that only have
+                // gray strokes, which can shift text and spot-colour artwork.
+                if (sourceSpace == ColorBindings.COLORSPACE_DEVICEGRAY) return false;
                 // Never flatten patterns.
                 if (sourceSpace == ColorBindings.COLORSPACE_PATTERN) return false;
 
                 if (sourceSpace == ColorBindings.COLORSPACE_ICCBASED) {
                     if (!options.convertSpecialColors()) return false;
-                    if (convertIccToCmyk(obj, xform, options, r, g, b, a, fill)) return true;
+                    if (convertIccToCmyk(obj, xform, options, r, g, b, a, cmyk, fill)) return true;
                 } else if (sourceSpace == ColorBindings.COLORSPACE_SEPARATION
                         || sourceSpace == ColorBindings.COLORSPACE_DEVICEN) {
                     if (!options.convertSpotColors()) return false;
@@ -493,7 +498,7 @@ public final class PdfColorConverter {
     private static boolean convertIccToCmyk(MemorySegment obj, IccCmykTransform xform,
                                             ColorConvertOptions options,
                                             MemorySegment r, MemorySegment g, MemorySegment b,
-                                            MemorySegment a, boolean fill) {
+                                            MemorySegment a, int[] cmyk, boolean fill) {
         float[] comps = fill
                 ? ColorBindings.fillColorComponents(obj)
                 : ColorBindings.strokeColorComponents(obj);
@@ -501,7 +506,6 @@ public final class PdfColorConverter {
                 ? ColorBindings.fillColorIccProfile(obj)
                 : ColorBindings.strokeColorIccProfile(obj);
         if (comps == null || sourceIcc == null) return false;
-        int[] cmyk = new int[4];
         try {
             if (xform != null) {
                 xform.toCmykFromIcc(sourceIcc, comps, cmyk);

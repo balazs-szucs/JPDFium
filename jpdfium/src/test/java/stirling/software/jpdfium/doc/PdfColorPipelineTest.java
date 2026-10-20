@@ -12,12 +12,16 @@ import java.io.ByteArrayOutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.net.URL;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.zip.DeflaterOutputStream;
+
+import javax.imageio.ImageIO;
 
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.PdfPage;
@@ -66,6 +70,20 @@ class PdfColorPipelineTest {
         return icc;
     }
 
+    /** A structurally plausible profile whose only tag points outside the profile. */
+    private static byte[] profileWithOutOfBoundsTag() {
+        byte[] icc = new byte[200];
+        ByteBuffer b = ByteBuffer.wrap(icc);
+        b.putInt(0, icc.length);
+        b.put(16, "CMYK".getBytes(StandardCharsets.US_ASCII));
+        b.put(36, "acsp".getBytes(StandardCharsets.US_ASCII));
+        b.putInt(128, 1);           // one tag
+        b.putInt(132, 0x64657363);  // "desc"
+        b.putInt(136, 500);         // offset past the declared profile
+        b.putInt(140, 4);
+        return icc;
+    }
+
     /**
      * Minimal PDF with one form XObject containing a DeviceCMYK fill and a
      * DeviceRGB fill. Exercises form recursion, CMYK preservation and dirty
@@ -75,7 +93,9 @@ class PdfColorPipelineTest {
         byte[] formContent = ("0.1 0.2 0.3 0.4 k\n"
                 + "10 10 80 80 re f\n"
                 + "1 0 0 rg\n"
-                + "100 10 80 80 re f\n").getBytes(StandardCharsets.US_ASCII);
+                + "100 10 80 80 re f\n"
+                + "0.5 g\n"
+                + "10 100 80 80 re f\n").getBytes(StandardCharsets.US_ASCII);
         byte[] pageContent = "q\n/Fm0 Do\nQ\n".getBytes(StandardCharsets.US_ASCII);
         List<byte[]> objects = new ArrayList<>();
         objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
@@ -91,6 +111,182 @@ class PdfColorPipelineTest {
                 + new String(pageContent, StandardCharsets.US_ASCII) + "endstream")
                 .getBytes(StandardCharsets.US_ASCII));
 
+        return assemblePdf(objects);
+    }
+
+    /** A JPEG wrapped in Flate exercises PDFium's chained-filter decode path. */
+    private static byte[] filteredImagePdf() throws Exception {
+        BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            g.setColor(new Color(255, 0, 0));
+            g.fillRect(0, 0, 4, 4);
+            g.setColor(new Color(0, 255, 0));
+            g.fillRect(4, 0, 4, 4);
+            g.setColor(new Color(0, 0, 255));
+            g.fillRect(0, 4, 4, 4);
+            g.setColor(new Color(255, 255, 0));
+            g.fillRect(4, 4, 4, 4);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        assertTrue(ImageIO.write(img, "jpeg", jpeg), "JPEG writer missing");
+
+        ByteArrayOutputStream deflated = new ByteArrayOutputStream();
+        try (DeflaterOutputStream z = new DeflaterOutputStream(deflated)) {
+            z.write(jpeg.toByteArray());
+        }
+        byte[] imageData = deflated.toByteArray();
+        byte[] pageContent = "q 100 0 0 100 0 0 cm /Im0 Do Q"
+                .getBytes(StandardCharsets.US_ASCII);
+        List<byte[]> objects = new ArrayList<>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] "
+                + "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>")
+                .getBytes(StandardCharsets.US_ASCII));
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        image.write(("<< /Type /XObject /Subtype /Image /Width 8 /Height 8 "
+                + "/ColorSpace /DeviceRGB /BitsPerComponent 8 "
+                + "/Filter [/FlateDecode /DCTDecode] /Length " + imageData.length + " >>\nstream\n")
+                .getBytes(StandardCharsets.US_ASCII));
+        image.write(imageData);
+        image.write("\nendstream".getBytes(StandardCharsets.US_ASCII));
+        objects.add(image.toByteArray());
+        objects.add(("<< /Length " + pageContent.length + " >>\nstream\n"
+                + new String(pageContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        return assemblePdf(objects);
+    }
+
+    /** Minimal PDF containing only a DeviceGray JPEG image. */
+    private static byte[] grayImagePdf() throws Exception {
+        BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = img.createGraphics();
+        try {
+            g.setColor(Color.GRAY);
+            g.fillRect(0, 0, 8, 8);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        assertTrue(ImageIO.write(img, "jpeg", jpeg), "JPEG writer missing");
+        byte[] imageData = jpeg.toByteArray();
+        byte[] pageContent = "q 100 0 0 100 0 0 cm /Im0 Do Q"
+                .getBytes(StandardCharsets.US_ASCII);
+        List<byte[]> objects = new ArrayList<>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] "
+                + "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>")
+                .getBytes(StandardCharsets.US_ASCII));
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        image.write(("<< /Type /XObject /Subtype /Image /Width 8 /Height 8 "
+                + "/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode "
+                + "/Length " + imageData.length + " >>\nstream\n")
+                .getBytes(StandardCharsets.US_ASCII));
+        image.write(imageData);
+        image.write("\nendstream".getBytes(StandardCharsets.US_ASCII));
+        objects.add(image.toByteArray());
+        objects.add(("<< /Length " + pageContent.length + " >>\nstream\n"
+                + new String(pageContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        return assemblePdf(objects);
+    }
+
+    /** A form XObject containing a DeviceRGB JPEG image. */
+    private static byte[] imageFormPdf() throws Exception {
+        BufferedImage img = new BufferedImage(8, 8, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        try {
+            g.setColor(new Color(10, 120, 240));
+            g.fillRect(0, 0, 8, 8);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        assertTrue(ImageIO.write(img, "jpeg", jpeg), "JPEG writer missing");
+        byte[] imageData = jpeg.toByteArray();
+        byte[] formContent = "q 100 0 0 100 0 0 cm /Im0 Do Q"
+                .getBytes(StandardCharsets.US_ASCII);
+        byte[] pageContent = "q /Fm0 Do Q".getBytes(StandardCharsets.US_ASCII);
+        List<byte[]> objects = new ArrayList<>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] "
+                + "/Resources << /XObject << /Fm0 4 0 R >> >> /Contents 5 0 R >>")
+                .getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] "
+                + "/Resources << /XObject << /Im0 6 0 R >> >> /Length "
+                + formContent.length + " >>\nstream\n"
+                + new String(formContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Length " + pageContent.length + " >>\nstream\n"
+                + new String(pageContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        ByteArrayOutputStream image = new ByteArrayOutputStream();
+        image.write(("<< /Type /XObject /Subtype /Image /Width 8 /Height 8 "
+                + "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode "
+                + "/Length " + imageData.length + " >>\nstream\n")
+                .getBytes(StandardCharsets.US_ASCII));
+        image.write(imageData);
+        image.write("\nendstream".getBytes(StandardCharsets.US_ASCII));
+        objects.add(image.toByteArray());
+        return assemblePdf(objects);
+    }
+
+    /** Colour space of the first image inside the first image-bearing form. */
+    private static int firstImageColorspaceInForm(PdfDocument doc) {
+        try (PdfPage page = doc.page(0); Arena arena = Arena.ofConfined()) {
+            MemorySegment rawPage = page.rawHandleForRead();
+            int count = (int) PageEditBindings.FPDFPage_CountObjects.invokeExact(rawPage);
+            MemorySegment meta = arena.allocate(ImageObjBindings.IMAGE_METADATA_LAYOUT);
+            for (int i = 0; i < count; i++) {
+                MemorySegment form = (MemorySegment) PageEditBindings.FPDFPage_GetObject
+                        .invokeExact(rawPage, i);
+                if (form.equals(MemorySegment.NULL)
+                        || (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(form) != 5) {
+                    continue;
+                }
+                int children = (int) PageEditBindings.FPDFFormObj_CountObjects.invokeExact(form);
+                for (int j = 0; j < children; j++) {
+                    MemorySegment child = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject
+                            .invokeExact(form, (long) j);
+                    if (child.equals(MemorySegment.NULL)
+                            || (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(child) != 3) {
+                        continue;
+                    }
+                    int ok = (int) ImageObjBindings.FPDFImageObj_GetImageMetadata
+                            .invokeExact(child, rawPage, meta);
+                    if (ok != 0) return meta.get(JAVA_INT, META_COLORSPACE_OFFSET);
+                }
+            }
+        } catch (Throwable t) {
+            throw new AssertionError("form image metadata probe failed", t);
+        }
+        return -1;
+    }
+
+    /** A page painted with a Separation colour; CMYK conversion must leave it alone. */
+    private static byte[] spotColorPdf() throws Exception {
+        byte[] content = "/CS0 cs 0.5 scn\n10 10 80 80 re f\n"
+                .getBytes(StandardCharsets.US_ASCII);
+        List<byte[]> objects = new ArrayList<>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] "
+                + "/Resources << /ColorSpace << /CS0 [/Separation /Spot /DeviceCMYK 5 0 R] >> >> "
+                + "/Contents 4 0 R >>").getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Length " + content.length + " >>\nstream\n"
+                + new String(content, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 1 1 0] /N 1 >>"
+                .getBytes(StandardCharsets.US_ASCII));
+        return assemblePdf(objects);
+    }
+
+    private static byte[] assemblePdf(List<byte[]> objects) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write("%PDF-1.4\n".getBytes(StandardCharsets.US_ASCII));
         int[] offsets = new int[objects.size() + 1];
@@ -238,6 +434,82 @@ class PdfColorPipelineTest {
     }
 
     @Test
+    void convertsImageWithChainedFilters() throws Exception {
+        assumeTrue(PdfColorConverter.supportsImageConversion(),
+                "CMYK image conversion unavailable");
+
+        Path out = temp(".pdf");
+        int converted;
+        try (PdfDocument doc = PdfDocument.open(filteredImagePdf())) {
+            converted = PdfColorConverter.convertImagesToCmyk(doc, 90);
+            doc.save(out);
+        }
+        assertTrue(converted >= 1, "chained-filter image must be converted");
+        try (PdfDocument reopened = PdfDocument.open(out)) {
+            assertEquals(PDF_COLORSPACE_DEVICECMYK, firstImageColorspace(reopened),
+                    "chained-filter image must become DeviceCMYK");
+        }
+    }
+
+    @Test
+    void preservesDeviceGrayImages() throws Exception {
+        assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
+                "vector CMYK unavailable");
+
+        Path out = temp(".pdf");
+        try (PdfDocument doc = PdfDocument.open(grayImagePdf())) {
+            assertEquals(0, PdfColorConverter.toCmyk(doc),
+                    "DeviceGray images are already K-only and must be preserved");
+            doc.save(out);
+        }
+        try (PdfDocument reopened = PdfDocument.open(out)) {
+            assertEquals(ColorBindings.COLORSPACE_DEVICEGRAY, firstImageColorspace(reopened),
+                    "grayscale image must stay DeviceGray");
+        }
+    }
+
+    @Test
+    void convertsImageInsideForm() throws Exception {
+        assumeTrue(PdfColorConverter.supportsImageConversion(),
+                "CMYK image conversion unavailable");
+        assumeTrue(PdfColorConverter.supportsFormConversion(),
+                "form write-back unavailable");
+
+        Path out = temp(".pdf");
+        int converted;
+        try (PdfDocument doc = PdfDocument.open(imageFormPdf())) {
+            converted = PdfColorConverter.convertImagesToCmyk(doc, 90);
+            doc.save(out);
+        }
+        assertTrue(converted >= 1, "image inside form must be converted");
+        try (PdfDocument reopened = PdfDocument.open(out)) {
+            assertEquals(PDF_COLORSPACE_DEVICECMYK, firstImageColorspaceInForm(reopened),
+                    "form image must become DeviceCMYK");
+        }
+    }
+
+    @Test
+    void preservesSeparationColoursByDefault() throws Throwable {
+        assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
+                "vector CMYK unavailable");
+
+        Path out = temp(".pdf");
+        try (PdfDocument doc = PdfDocument.open(spotColorPdf())) {
+            assertEquals(0, PdfColorConverter.toCmyk(doc),
+                    "Separation colours must not be flattened by default");
+            doc.save(out);
+        }
+        try (PdfDocument reopened = PdfDocument.open(out);
+                PdfPage page = reopened.page(0)) {
+            MemorySegment obj = (MemorySegment) PageEditBindings.FPDFPage_GetObject
+                    .invokeExact(page.rawHandleForRead(), 0);
+            assertEquals(ColorBindings.COLORSPACE_SEPARATION,
+                    ColorBindings.fillColorSpace(obj),
+                    "Separation fill must stay a Separation colour");
+        }
+    }
+
+    @Test
     void cmykFormConversionPreservesCmykAndConvertsRgb() throws Throwable {
         assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
                 "vector CMYK unavailable");
@@ -258,7 +530,7 @@ class PdfColorPipelineTest {
                     .invokeExact(rawPage, 0);
             assertNotNull(form, "form object must survive save");
             int count = (int) PageEditBindings.FPDFFormObj_CountObjects.invokeExact(form);
-            assertEquals(2, count);
+            assertEquals(3, count);
 
             int[] cmyk = new int[5];
             MemorySegment preserved = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject
@@ -278,6 +550,12 @@ class PdfColorPipelineTest {
             assertEquals(255, cmyk[1]);
             assertEquals(255, cmyk[2]);
             assertEquals(0, cmyk[3]);
+
+            MemorySegment preservedGray = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject
+                    .invokeExact(form, 2L);
+            assertEquals(ColorBindings.COLORSPACE_DEVICEGRAY,
+                    ColorBindings.fillColorSpace(preservedGray),
+                    "DeviceGray content is already a valid PDF/X process colour");
         }
     }
 
@@ -396,6 +674,16 @@ class PdfColorPipelineTest {
         malformed[36] = 0;  // destroy the mandatory "acsp" signature
         assertThrows(JPDFiumException.class,
                 () -> PdfOutputIntent.apply(pdf, malformed, PdfOutputIntent.Spec.pdfx("x", "y")));
+    }
+
+    @Test
+    void outputIntentRejectsProfileWithOutOfBoundsTag() throws Exception {
+        assumeTrue(PdfOutputIntent.isSupported(), "OutputIntent support unavailable");
+
+        byte[] pdf = Files.readAllBytes(resource("/pdfs/general/minimal.pdf"));
+        assertThrows(JPDFiumException.class,
+                () -> PdfOutputIntent.apply(pdf, profileWithOutOfBoundsTag(),
+                        PdfOutputIntent.Spec.pdfx("x", "y")));
     }
 
     @Test

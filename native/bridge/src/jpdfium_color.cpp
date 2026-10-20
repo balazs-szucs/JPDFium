@@ -80,11 +80,37 @@ void GrayToCmyk(uint8_t v, bool extract_black, uint8_t* out) {
     }
 }
 
+// Reusable buffers for one image-conversion pass. The image pass can see many
+// XObjects; resizing vectors would zero-fill and reallocating would churn the
+// allocator. Grow only when an image is larger than the previous one.
+struct ImageScratch {
+    std::unique_ptr<uint8_t[]> samples;
+    size_t samples_capacity = 0;
+    std::unique_ptr<uint8_t[]> cmyk;
+    size_t cmyk_capacity = 0;
+
+    uint8_t* samples_for(size_t size) {
+        if (size > samples_capacity) {
+            samples = std::make_unique_for_overwrite<uint8_t[]>(size);
+            samples_capacity = size;
+        }
+        return samples.get();
+    }
+
+    uint8_t* cmyk_for(size_t size) {
+        if (size > cmyk_capacity) {
+            cmyk = std::make_unique_for_overwrite<uint8_t[]>(size);
+            cmyk_capacity = size;
+        }
+        return cmyk.get();
+    }
+};
+
 // Convert a chunky sample buffer (1 or 3 components, 8bpc) to CMYK JPEG bytes.
 // Returns a malloc'd buffer in *out_ptr (or nullptr) plus its length.
 int32_t EncodeSamplesToCmykJpeg(const uint8_t* samples, int64_t samples_len, int32_t width,
                                 int32_t height, int32_t components, int32_t quality, int32_t flags,
-                                uint8_t** out_ptr, int64_t* out_len) {
+                                ImageScratch* scratch, uint8_t** out_ptr, int64_t* out_len) {
     if (!samples || samples_len <= 0 || !out_ptr || !out_len) return JPDFIUM_ERR_INVALID;
     if (width <= 0 || height <= 0) return JPDFIUM_ERR_INVALID;
     if (components != 1 && components != 3) return JPDFIUM_ERR_INVALID;
@@ -98,9 +124,16 @@ int32_t EncodeSamplesToCmykJpeg(const uint8_t* samples, int64_t samples_len, int
     const bool extract_black = (flags & JPDFIUM_COLOR_IMAGE_NO_GCR) == 0;
     // Overwrite-allocated: every byte is written below, so skip the zero-fill memset.
     const size_t cmyk_len = static_cast<size_t>(pixels) * 4u;
-    auto cmyk = std::make_unique_for_overwrite<uint8_t[]>(cmyk_len);
+    std::unique_ptr<uint8_t[]> local_cmyk;
+    uint8_t* cmyk;
+    if (scratch) {
+        cmyk = scratch->cmyk_for(cmyk_len);
+    } else {
+        local_cmyk = std::make_unique_for_overwrite<uint8_t[]>(cmyk_len);
+        cmyk = local_cmyk.get();
+    }
     for (int64_t i = 0; i < pixels; ++i) {
-        uint8_t* dst = cmyk.get() + static_cast<size_t>(i) * 4u;
+        uint8_t* dst = cmyk + static_cast<size_t>(i) * 4u;
         if (components == 3) {
             const uint8_t* src = samples + static_cast<size_t>(i) * 3u;
             RgbToCmyk(src[0], src[1], src[2], extract_black, dst);
@@ -111,21 +144,16 @@ int32_t EncodeSamplesToCmykJpeg(const uint8_t* samples, int64_t samples_len, int
 
     uint8_t* rust_ptr = nullptr;
     int64_t rust_len = 0;
-    const int32_t rc = jpdfium_rust_encode_cmyk_jpeg(cmyk.get(), static_cast<int64_t>(cmyk_len),
-                                                     width, height, quality, &rust_ptr, &rust_len);
+    const int32_t rc = jpdfium_rust_encode_cmyk_jpeg(cmyk, static_cast<int64_t>(cmyk_len), width,
+                                                     height, quality, &rust_ptr, &rust_len);
     if (rc != JPDFIUM_OK || !rust_ptr || rust_len <= 0) {
         if (rust_ptr) jpdfium_rust_free(rust_ptr);
         return rc == JPDFIUM_OK ? JPDFIUM_ERR_NATIVE : rc;
     }
 
-    auto* copy = static_cast<uint8_t*>(std::malloc(static_cast<size_t>(rust_len)));
-    if (!copy) {
-        jpdfium_rust_free(rust_ptr);
-        return JPDFIUM_ERR_NATIVE;
-    }
-    std::memcpy(copy, rust_ptr, static_cast<size_t>(rust_len));
-    jpdfium_rust_free(rust_ptr);
-    *out_ptr = copy;
+    // jpdfium_rust_* output is libc malloc; callers free it with std::free or
+    // jpdfium_free_buffer, so ownership can transfer without a second copy.
+    *out_ptr = rust_ptr;
     *out_len = rust_len;
     return JPDFIUM_OK;
 }
@@ -159,21 +187,51 @@ int32_t EncodeSamplesToCmykJpeg(const uint8_t* samples, int64_t samples_len, int
     return transparent;
 }
 
+// Some PDFs wrap a JPEG in another filter. GetImageDataDecoded() then returns
+// the intermediate bytes, so decode through the image bitmap instead.
+bool DecodeImageBitmap(FPDF_PAGEOBJECT obj, int width, int height, uint8_t* samples) {
+    FPDF_BITMAP bitmap = FPDFImageObj_GetBitmap(obj);
+    if (!bitmap) return false;
+    const int bw = FPDFBitmap_GetWidth(bitmap);
+    const int bh = FPDFBitmap_GetHeight(bitmap);
+    const int stride = FPDFBitmap_GetStride(bitmap);
+    const int format = FPDFBitmap_GetFormat(bitmap);
+    const uint8_t* buffer = static_cast<const uint8_t*>(FPDFBitmap_GetBuffer(bitmap));
+    int bytes_per_pixel = 0;
+    if (format == FPDFBitmap_BGR) {
+        bytes_per_pixel = 3;
+    } else if (format == FPDFBitmap_BGRx || format == FPDFBitmap_BGRA) {
+        bytes_per_pixel = 4;
+    }
+    bool ok = buffer && bytes_per_pixel != 0 && bw == width && bh == height &&
+              stride >= width * bytes_per_pixel;
+    if (ok) {
+        for (int y = 0; y < height; ++y) {
+            const uint8_t* row = buffer + static_cast<size_t>(y) * static_cast<size_t>(stride);
+            for (int x = 0; x < width; ++x) {
+                const uint8_t* pixel = row + static_cast<size_t>(x) * bytes_per_pixel;
+                uint8_t* dst = samples + (static_cast<size_t>(y) * width + x) * 3;
+                dst[0] = pixel[2];
+                dst[1] = pixel[1];
+                dst[2] = pixel[0];
+            }
+        }
+    }
+    FPDFBitmap_Destroy(bitmap);
+    return ok;
+}
+
 // Returns 1 when the image was converted, 0 when it was skipped, -1 on failure.
 int32_t ConvertImageToCmykJpeg(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT obj,
-                               int32_t quality, int32_t flags) {
+                               int32_t quality, int32_t flags, ImageScratch* scratch) {
     FPDF_IMAGEOBJ_METADATA meta{};
     if (!FPDFImageObj_GetImageMetadata(obj, page, &meta)) return 0;
 
-    int32_t components = 0;
-    if (meta.colorspace == FPDF_COLORSPACE_DEVICERGB) {
-        components = 3;
-    } else if (meta.colorspace == FPDF_COLORSPACE_DEVICEGRAY) {
-        components = 1;
-    } else {
-        return 0;  // Already CMYK, indexed, ICC-based, separation, or unknown.
-    }
-    if (meta.bits_per_pixel != static_cast<unsigned int>(8 * components)) return 0;
+    // DeviceGray is already ink-only (K) and valid in PDF/X. DeviceCMYK,
+    // indexed, ICC-based, separation and unknown images are preserved.
+    if (meta.colorspace != FPDF_COLORSPACE_DEVICERGB) return 0;
+    constexpr int32_t components = 3;
+    if (meta.bits_per_pixel != 24) return 0;
     if (meta.width == 0 || meta.height == 0) return 0;
     // Over the encoder's per-dimension limit: skipping avoids a huge allocation
     // that the JPEG encoder would reject only after the buffer is filled.
@@ -191,18 +249,27 @@ int32_t ConvertImageToCmykJpeg(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJEC
     const int64_t pixels = static_cast<int64_t>(meta.width) * static_cast<int64_t>(meta.height);
     if (pixels <= 0 || pixels > (INT64_MAX / 4)) return 0;
     const size_t sample_len = static_cast<size_t>(pixels) * static_cast<size_t>(components);
-    // Overwrite-allocated: the decode below fills the whole buffer.
-    auto samples = std::make_unique_for_overwrite<uint8_t[]>(sample_len);
+    std::unique_ptr<uint8_t[]> local_samples;
+    uint8_t* samples;
+    if (scratch) {
+        samples = scratch->samples_for(sample_len);
+    } else {
+        local_samples = std::make_unique_for_overwrite<uint8_t[]>(sample_len);
+        samples = local_samples.get();
+    }
 
-    const unsigned long got = FPDFImageObj_GetImageDataDecoded(
-        obj, samples.get(), static_cast<unsigned long>(sample_len));
-    if (got != sample_len) return 0;  // Not plain 8bpc gray/RGB after all.
+    const unsigned long got =
+        FPDFImageObj_GetImageDataDecoded(obj, samples, static_cast<unsigned long>(sample_len));
+    if (got != sample_len && !DecodeImageBitmap(obj, static_cast<int>(meta.width),
+                                                static_cast<int>(meta.height), samples)) {
+        return 0;
+    }
 
     uint8_t* jpeg = nullptr;
     int64_t jpeg_len = 0;
     const int32_t rc = EncodeSamplesToCmykJpeg(
-        samples.get(), static_cast<int64_t>(sample_len), static_cast<int32_t>(meta.width),
-        static_cast<int32_t>(meta.height), components, quality, flags, &jpeg, &jpeg_len);
+        samples, static_cast<int64_t>(sample_len), static_cast<int32_t>(meta.width),
+        static_cast<int32_t>(meta.height), components, quality, flags, scratch, &jpeg, &jpeg_len);
     if (rc != JPDFIUM_OK) return -1;
 
     // Own the encoder output so a throw from the embedding call cannot leak it.
@@ -216,12 +283,13 @@ int32_t ConvertImageToCmykJpeg(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJEC
 // Recurse into forms only when dirty-stream write-back is available.
 void ConvertImagesInObject(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT obj, int32_t quality,
                            int32_t flags, bool strict, int64_t* converted,
-                           std::unordered_set<FPDF_PAGEOBJECT>* visited, int32_t* failure) {
+                           std::unordered_set<FPDF_PAGEOBJECT>* visited, int32_t* failure,
+                           ImageScratch* scratch) {
     if (!obj || *failure != JPDFIUM_OK) return;
 
     const int type = FPDFPageObj_GetType(obj);
     if (type == FPDF_PAGEOBJ_IMAGE) {
-        const int32_t result = ConvertImageToCmykJpeg(doc, page, obj, quality, flags);
+        const int32_t result = ConvertImageToCmykJpeg(doc, page, obj, quality, flags, scratch);
         if (result < 0) {
             if (strict) *failure = JPDFIUM_ERR_NATIVE;
             return;
@@ -239,8 +307,8 @@ void ConvertImagesInObject(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT ob
     const int64_t before = *converted;
     for (int i = 0; i < count && *failure == JPDFIUM_OK; ++i) {
         FPDF_PAGEOBJECT child = FPDFFormObj_GetObject(obj, static_cast<unsigned long>(i));
-        ConvertImagesInObject(doc, page, child, quality, flags, strict, converted, visited,
-                              failure);
+        ConvertImagesInObject(doc, page, child, quality, flags, strict, converted, visited, failure,
+                              scratch);
     }
     if (*converted != before) {
         FPDFFormObj_MarkDirty(obj);
@@ -254,22 +322,32 @@ void ConvertImagesInObject(FPDF_DOCUMENT doc, FPDF_PAGE page, FPDF_PAGEOBJECT ob
 
 #ifdef JPDFIUM_HAS_QPDF
 
+uint32_t ReadUint32Be(const uint8_t* p) {
+    return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+           (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+}
+
 // ICC header "data colour space" signature at offset 16 identifies the profile's
 // component count; /N on a DestOutputProfile must match.
 int32_t IccComponentCount(const uint8_t* icc, size_t len) {
-    if (!icc || len < 128) return 0;
-    const uint32_t declared = (static_cast<uint32_t>(icc[0]) << 24) |
-                              (static_cast<uint32_t>(icc[1]) << 16) |
-                              (static_cast<uint32_t>(icc[2]) << 8) | static_cast<uint32_t>(icc[3]);
-    if (declared == 0 || declared > len || declared < 132) return 0;
+    if (!icc || len < 132) return 0;
+    const uint32_t declared = ReadUint32Be(icc);
+    if (declared < 132 || declared > len) return 0;
     // The "acsp" signature at offset 36 is mandatory; without it the bytes are
     // not an ICC profile no matter what the declared size or colour space says.
     if (std::memcmp(icc + 36, "acsp", 4) != 0) return 0;
-    // Header-only blobs are not valid profiles; require a tag table.
-    const uint32_t tag_count =
-        (static_cast<uint32_t>(icc[128]) << 24) | (static_cast<uint32_t>(icc[129]) << 16) |
-        (static_cast<uint32_t>(icc[130]) << 8) | static_cast<uint32_t>(icc[131]);
+    // Header-only blobs are not valid profiles; require a tag table whose
+    // entries all point inside the declared profile.
+    const uint32_t tag_count = ReadUint32Be(icc + 128);
     if (tag_count == 0 || tag_count > (declared - 132) / 12) return 0;
+    for (uint32_t i = 0; i < tag_count; ++i) {
+        const uint8_t* entry = icc + 132 + i * 12;
+        const uint32_t offset = ReadUint32Be(entry + 4);
+        const uint32_t size = ReadUint32Be(entry + 8);
+        if (size == 0 || offset < 132 || offset > declared || size > declared - offset) {
+            return 0;
+        }
+    }
 
     const char* space = reinterpret_cast<const char*>(icc + 16);
     if (std::memcmp(space, "CMYK", 4) == 0) return 4;
@@ -348,6 +426,27 @@ bool PublishStaged(const std::string& staging, const char* destination) {
 #endif
 }
 
+// Preserve the input stream representation. Letting QPDFWriter recompress
+// unfiltered metadata streams produced zlib data without a /Filter entry on
+// some Acrobat-generated files, which breaks XMP readers.
+void ConfigureWriter(QPDFWriter& writer) {
+    writer.setCompressStreams(false);
+    writer.setDecodeLevel(qpdf_dl_none);
+}
+
+// PDFium may serialise a PDF 2.0 source with a 1.0 header. PDF/X-4 requires
+// PDF 1.6 and PDF/X-3 a PDF 1.3 base, so raise the header when needed.
+void ConfigurePdfxWriter(QPDFWriter& writer, const char* version) {
+    ConfigureWriter(writer);
+    if (!version) return;
+    const std::string value(version);
+    if (value.find("PDF/X-4") != std::string::npos) {
+        writer.setMinimumPDFVersion("1.6");
+    } else if (value.find("PDF/X-3") != std::string::npos) {
+        writer.setMinimumPDFVersion("1.3");
+    }
+}
+
 // Builds the /OutputIntent dictionary embedding `icc` as the /DestOutputProfile.
 QPDFObjectHandle BuildOutputIntent(QPDF* qpdf, const uint8_t* icc, size_t icc_len,
                                    const char* subtype, const char* condition_identifier,
@@ -377,28 +476,6 @@ QPDFObjectHandle BuildOutputIntent(QPDF* qpdf, const uint8_t* icc, size_t icc_le
     return intent;
 }
 
-// Keep existing XMP PDF/X version tags consistent with the catalog intent.
-void UpdatePdfxMetadata(QPDF* qpdf) {
-    QPDFObjectHandle root = qpdf->getRoot();
-    if (!root.hasKey("/Metadata")) return;
-    QPDFObjectHandle metadata = root.getKey("/Metadata");
-    if (!metadata.isStream()) return;
-
-    std::shared_ptr<Buffer> buffer = metadata.getStreamData(qpdf_dl_all);
-    if (!buffer || buffer->getSize() == 0) return;
-    std::string xml(reinterpret_cast<const char*>(buffer->getBuffer()),
-                    static_cast<size_t>(buffer->getSize()));
-
-    std::regex version_tag("(<(?:pdfxid|pdfx):GTS_PDFXVersion>)([^<]*)(</)");
-    std::smatch match;
-    if (!std::regex_search(xml, match, version_tag)) return;
-    const std::string version = match[2].str();
-    if (version.empty()) return;
-
-    xml = std::regex_replace(xml, version_tag, "$1" + version + "$3");
-    metadata.replaceStreamData(xml, QPDFObjectHandle::newNull(), QPDFObjectHandle::newNull());
-}
-
 // In-memory variant: replaces /OutputIntents and returns the rewritten document.
 std::shared_ptr<Buffer> InjectOutputIntent(const uint8_t* input, size_t input_len,
                                            const uint8_t* icc, size_t icc_len, const char* subtype,
@@ -408,9 +485,9 @@ std::shared_ptr<Buffer> InjectOutputIntent(const uint8_t* input, size_t input_le
     qpdf->getRoot().replaceKey(
         "/OutputIntents", QPDFObjectHandle::newArray({BuildOutputIntent(
                               qpdf.get(), icc, icc_len, subtype, condition_identifier, info)}));
-    UpdatePdfxMetadata(qpdf.get());
 
     QPDFWriter writer{*qpdf};
+    ConfigureWriter(writer);
     writer.setOutputMemory();
     writer.write();
     return writer.getBufferSharedPointer();
@@ -555,6 +632,7 @@ std::shared_ptr<Buffer> InjectPdfx(const uint8_t* input, size_t input_len, const
     UpdateOrCreatePdfxMetadata(qpdf.get(), version, conformance);
 
     QPDFWriter writer{*qpdf};
+    ConfigurePdfxWriter(writer, version);
     writer.setOutputMemory();
     writer.write();
     return writer.getBufferSharedPointer();
@@ -589,8 +667,9 @@ JPDFIUM_EXPORT int32_t jpdfium_color_samples_to_cmyk_jpeg(const uint8_t* samples
     if (out_len) *out_len = 0;
     try {
         if (jpdfium_has_rust() == 0) return JPDFIUM_ERR_NOT_FOUND;
+        thread_local ImageScratch scratch;
         return EncodeSamplesToCmykJpeg(samples, samples_len, width, height, components, quality,
-                                       flags, out_ptr, out_len);
+                                       flags, &scratch, out_ptr, out_len);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "jpdfium color samples: %s\n", e.what());
         return JPDFIUM_ERR_NATIVE;
@@ -623,11 +702,15 @@ JPDFIUM_EXPORT int32_t jpdfium_color_page_images_to_cmyk(int64_t doc_handle, int
         int64_t converted = 0;
         int32_t failure = JPDFIUM_OK;
         std::unordered_set<FPDF_PAGEOBJECT> visited_forms;
+        // Retain decode/encode scratch across pages on the same worker thread.
+        // The buffers only grow to the largest image seen, so multi-page jobs do
+        // not reallocate for every page.
+        thread_local ImageScratch scratch;
         const int object_count = FPDFPage_CountObjects(page.get());
         for (int i = 0; i < object_count && failure == JPDFIUM_OK; ++i) {
             FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page.get(), i);
             ConvertImagesInObject(wrapper->core->doc, page.get(), obj, quality, flags, strict,
-                                  &converted, &visited_forms, &failure);
+                                  &converted, &visited_forms, &failure, &scratch);
         }
 
         if (failure != JPDFIUM_OK) return failure;
@@ -718,8 +801,8 @@ JPDFIUM_EXPORT int32_t jpdfium_color_output_intent_file(const char* in_path, con
                 QPDFObjectHandle::newArray({BuildOutputIntent(
                     qpdf.get(), reinterpret_cast<const uint8_t*>(icc), static_cast<size_t>(icc_len),
                     subtype, condition_identifier, info)}));
-            UpdatePdfxMetadata(qpdf.get());
             QPDFWriter writer{*qpdf};
+            ConfigureWriter(writer);
             writer.setOutputFilename(target.c_str());
             writer.write();
         } catch (...) {
@@ -820,6 +903,7 @@ JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(const char* in_path, const char* 
                                       condition_identifier, info)}));
             UpdateOrCreatePdfxMetadata(qpdf.get(), version, conformance);
             QPDFWriter writer{*qpdf};
+            ConfigurePdfxWriter(writer, version);
             writer.setOutputFilename(target.c_str());
             writer.write();
         } catch (...) {

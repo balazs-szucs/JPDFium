@@ -132,6 +132,14 @@ public final class PdfXOptions {
             return this;
         }
 
+        /** Use the bundled compact generic CMYK profile as an output-intent fallback. */
+        public Builder useCompactCmyk() {
+            this.outputIntentProfile = PdfIccProfiles.compactCmyk();
+            this.conditionIdentifier = PdfIccProfiles.COMPACT_CMYK_CONDITION;
+            this.info = PdfIccProfiles.COMPACT_CMYK_CONDITION;
+            return this;
+        }
+
         public Builder conditionIdentifier(String value) {
             this.conditionIdentifier = value == null ? "" : value;
             return this;

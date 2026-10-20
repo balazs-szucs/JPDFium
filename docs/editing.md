@@ -210,10 +210,13 @@ PdfColorConverter.ColorConvertOptions opts = PdfColorConverter.ColorConvertOptio
 int converted = PdfColorConverter.convert(doc, opts);
 ```
 
-With a CMYK target, already-DeviceCMYK objects keep their exact ink values. By default
-ICCBased, Separation, DeviceN, Indexed and pattern colours are left untouched:
-rewriting them through the RGB getter would flatten spot colours and destroy overprint
-semantics. DeviceGray and DeviceRGB text/path objects are converted.
+With a CMYK target, already-DeviceCMYK objects keep their exact ink values.
+DeviceGray is also preserved: it is already a valid process colour (K) and
+converting it forces a page-content rebuild that can shift text and spot-colour
+artwork. By default ICCBased, Separation, DeviceN, Indexed and pattern colours
+are left untouched: rewriting them through the RGB getter would flatten spot
+colours and destroy overprint semantics. DeviceRGB text/path objects are
+converted.
 
 Opt in with `convertSpecialColors(true)` to convert ICCBased/Cal/Lab/Indexed colours;
 ICCBased fills use their embedded source ICC profile when one is available. Spots stay
@@ -235,8 +238,10 @@ are visited once per document and their content stream is marked dirty before th
 is regenerated. On stock PDFium the traversal APIs exist but the dirty marker does not,
 so form content is skipped rather than silently lost.
 
-Image XObjects are decoded, converted to CMYK and re-encoded as 4-component JPEGs.
-Images whose rendered alpha is not fully opaque are skipped, because the public
+DeviceRGB image XObjects are decoded, converted to CMYK and re-encoded as
+4-component JPEGs. DeviceGray and already-DeviceCMYK images are preserved;
+grayscale is already K-only and valid in PDF/X. Images whose rendered alpha is
+not fully opaque are skipped, because the public
 PDFium API cannot preserve the mask when the image stream is replaced. On a patched
 build with form conversion, images inside form XObjects are visited too. The image
 dictionary keys `/OC`, `/Intent`, `/Interpolate`, `/Name`, `/Metadata`, `/Alternate`
@@ -254,8 +259,10 @@ doc = PdfOutputIntent.apply(doc, icc, PdfOutputIntent.Spec.pdfx("FOGRA39", "Coat
 
 `PdfOutputIntent.apply` returns a new document; the original is left open. The native
 path rewrites the whole file with QPDF and replaces any existing `/OutputIntents` array.
-It copies the existing XMP `GTS_PDFXVersion` into both `pdfx:` and `pdfxid:` tags so
-the metadata stays consistent, but QPDF still performs a full-file rewrite. It is not
+It preserves the original stream encoding, including page-level XMP streams, and
+raises the PDF/X-4 header to at least PDF 1.6. It copies the existing XMP
+`GTS_PDFXVersion` into both `pdfx:` and `pdfxid:` tags so the metadata stays
+consistent, but QPDF still performs a full-file rewrite. It is not
 a metadata-only incremental update: validate rendering after changing the print
 condition.
 
@@ -265,6 +272,12 @@ same ICC profile is used as the vector conversion target:
 
 ```java
 PdfXOptions pdfx = PdfXOptions.builder()
+        .standard(PdfXStandard.PDF_X_4)
+        .useCompactCmyk()   // bundled 5.2 KB generic fallback
+        .build();
+
+// Or supply a print-condition profile explicitly:
+PdfXOptions explicit = PdfXOptions.builder()
         .standard(PdfXStandard.PDF_X_4)
         .outputIntentProfile(cmykProfileBytes)
         .conditionIdentifier("FOGRA39")

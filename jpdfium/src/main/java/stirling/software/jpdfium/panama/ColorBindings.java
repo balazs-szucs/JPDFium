@@ -16,7 +16,7 @@ public final class ColorBindings {
 
     /** PDFium CMYK page-object setters are present. */
     public static final int CAP_CMYK_VECTOR = 0x01;
-    /** RGB/gray images can be converted to DeviceCMYK JPEG. */
+    /** DeviceRGB images can be converted to DeviceCMYK JPEG. */
     public static final int CAP_CMYK_IMAGE = 0x02;
     /** An ICC OutputIntent can be written to the catalog. */
     public static final int CAP_OUTPUT_INTENT = 0x04;
@@ -161,7 +161,7 @@ public final class ColorBindings {
         return SET_FILL_CMYK != null && SET_STROKE_CMYK != null && has(CAP_CMYK_VECTOR);
     }
 
-    /** True when RGB/gray images can be re-encoded as DeviceCMYK JPEGs. */
+    /** True when DeviceRGB images can be re-encoded as DeviceCMYK JPEGs. */
     public static boolean imageConversionAvailable() {
         return SAMPLES_TO_CMYK_JPEG != null && PAGE_IMAGES_TO_CMYK != null && has(CAP_CMYK_IMAGE);
     }

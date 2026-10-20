@@ -17,6 +17,8 @@ final class IccCmykTransform {
     private final ColorSpace srgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
     private final ICC_ColorSpace cmyk;
     private final float[] rgb = new float[3];
+    private byte[] lastSourceIcc;
+    private ICC_ColorSpace lastSourceSpace;
     private final int[] cacheKeys = new int[CACHE_SIZE];
     private final int[] cacheVals = new int[CACHE_SIZE * 4];
 
@@ -82,7 +84,7 @@ final class IccCmykTransform {
      */
     static void sourceToCmyk(byte[] sourceIcc, float[] components,
                              boolean extractBlack, int[] out) {
-        ICC_ColorSpace source = sourceSpace(sourceIcc, components.length);
+        ICC_ColorSpace source = staticSourceSpace(sourceIcc, components.length);
         float[] xyz = source.toCIEXYZ(components);
         ColorSpace srgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
         float[] rgb = srgb.fromCIEXYZ(xyz);
@@ -92,7 +94,29 @@ final class IccCmykTransform {
         PdfColorConverter.rgbToCmyk(r, g, b, extractBlack, out);
     }
 
-    private static ICC_ColorSpace sourceSpace(byte[] sourceIcc, int expectedComponents) {
+    private ICC_ColorSpace sourceSpace(byte[] sourceIcc, int expectedComponents) {
+        if (lastSourceSpace != null && lastSourceIcc != null
+                && lastSourceIcc.length == sourceIcc.length
+                && Arrays.equals(lastSourceIcc, sourceIcc)) {
+            return lastSourceSpace;
+        }
+        ICC_Profile profile;
+        try {
+            profile = ICC_Profile.getInstance(sourceIcc);
+        } catch (IllegalArgumentException e) {
+            throw new JPDFiumException("Invalid source ICC profile: " + e.getMessage(), e);
+        }
+        if (profile.getNumComponents() != expectedComponents) {
+            throw new JPDFiumException("Source ICC component count mismatch: profile="
+                    + profile.getNumComponents() + " components=" + expectedComponents);
+        }
+        ICC_ColorSpace space = new ICC_ColorSpace(profile);
+        lastSourceIcc = sourceIcc.clone();
+        lastSourceSpace = space;
+        return space;
+    }
+
+    private static ICC_ColorSpace staticSourceSpace(byte[] sourceIcc, int expectedComponents) {
         ICC_Profile profile;
         try {
             profile = ICC_Profile.getInstance(sourceIcc);

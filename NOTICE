@@ -15,6 +15,10 @@ Native bridge deps (linked at build time):
 - pugixml - MIT
 - libunibreak - zlib
 
+Bundled ICC profile (jpdfium main jar):
+- JPDFiumCompactCmyk.icc - generated generic CMYK fallback, MIT; see
+  jpdfium/src/main/resources/icc/JPDFiumCompactCmyk.NOTICE.txt
+
 Bundled image stack (shipped in jpdfium-natives-vips-* jars,
 see native/licenses/NOTICE.txt for details):
 - libvips - LGPL-2.1-or-later
