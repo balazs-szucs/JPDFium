@@ -46,7 +46,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config libqpdf-dev qpdf unzip ghostscript
+            build-essential cmake ninja-build pkg-config libqpdf-dev qpdf unzip ghostscript \
+            libpcre2-dev libfreetype6-dev libharfbuzz-dev libicu-dev libpugixml-dev libunibreak-dev
           # Optional: gives PdfXConverterTest a real CMYK profile. It skips
           # cleanly when this package is unavailable.
           sudo apt-get install -y --no-install-recommends icc-profiles-free || true
