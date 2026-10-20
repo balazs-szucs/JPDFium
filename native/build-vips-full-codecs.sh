@@ -320,7 +320,7 @@ build_libheif() {
             [ -d "$opt_pc" ] || continue
             PKG_CONFIG_PATH="$opt_pc:${PKG_CONFIG_PATH:-}"
         done
-        export PKG_CONFIG_PATH="$bp/lib/pkgconfig:$bp/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:$bp/lib/pkgconfig:$bp/share/pkgconfig"
         if [ "${CMAKE_OSX_ARCHITECTURES:-}" = "x86_64" ]; then
             export PKG_CONFIG="$bp/bin/pkg-config"
         fi
@@ -403,7 +403,7 @@ build_vips() {
             [ -d "$opt_pc" ] || continue
             PKG_CONFIG_PATH="$opt_pc:${PKG_CONFIG_PATH:-}"
         done
-        export PKG_CONFIG_PATH="$bp/lib/pkgconfig:$bp/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:$bp/lib/pkgconfig:$bp/share/pkgconfig"
         if [ "${CMAKE_OSX_ARCHITECTURES:-}" = "x86_64" ]; then
             export PKG_CONFIG="$bp/bin/pkg-config"
         fi
