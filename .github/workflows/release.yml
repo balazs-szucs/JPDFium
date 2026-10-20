@@ -768,6 +768,11 @@ jobs:
 
       - name: Build full-codec libvips (Linux + macOS)
         if: steps.vips_fetch.outputs.pinned != 'true' && (startsWith(matrix.platform, 'linux-') || startsWith(matrix.platform, 'darwin-'))
+        env:
+          # Build AOM from source on macOS so it does not link brew's libvmaf
+          # (~1 MB of video-quality code AVIF never uses). The script falls
+          # back to brew's AOM if the source download fails.
+          JPDFIUM_BUILD_AOM: '1'
         run: |
           # Reproducible pins (libvips, libheif, aom, kvazaar); the Vips Drift
           # Check workflow reports when upstream has newer versions.

@@ -18,8 +18,8 @@
 # so the native backend's AES/RC4 is fully sufficient for our use.
 #
 # Output:
-#   Linux  - /usr/local/lib/libqpdf.so.<v> + headers + libqpdf.pc
-#   macOS  - $(brew --prefix)/lib/libqpdf.<v>.dylib + headers + libqpdf.pc
+#   Linux  - /usr/local/lib/libqpdf.a + headers + libqpdf.pc
+#   macOS  - $(brew --prefix)/lib/libqpdf.a + headers + libqpdf.pc
 # Both picked up by the bridge's pkg_check_modules(libqpdf) via the
 # default pkg-config search path. The original (apt / brew) libqpdf
 # files are moved aside so the bundler's ldd/otool walk resolves to

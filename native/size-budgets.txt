@@ -24,11 +24,16 @@ windows-x64    64000000  # plus an explicit trimmed-icudt*.dll presence gate in 
 windows-arm64  64000000  # ditto
 freebsd-x64    64000000
 
-# vips bundles grew with the PDFium pdfload link plus the librsvg/spng/highway
-# loaders (ImageMagick too on macOS/Windows; OpenEXR/libraw dropped for size).
-vips-linux-x64   140000000
-vips-linux-arm64 140000000
-vips-darwin-x64  80000000
-vips-darwin-arm64 80000000
+# vips no longer links PDFium/pdfload: PDF rendering stays in the core bridge,
+# which removes libpdfium + Skia + the PDFium ICU/HarfBuzz closure from every
+# vips jar. Budgets are ~2.5x the measured bundles (Aug 2026: linux 25-29 MB,
+# darwin 18-21 MB) so they catch a re-introduced PDFium or codec chain without
+# flaking on normal variance.
+vips-linux-x64   64000000
+vips-linux-arm64 64000000
+vips-linux-musl-x64 64000000
+vips-linux-musl-arm64 64000000
+vips-darwin-x64  56000000
+vips-darwin-arm64 56000000
 vips-windows-x64 100000000
 vips-windows-arm64 100000000

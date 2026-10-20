@@ -522,11 +522,71 @@ swap_full_icudata() {
     done
 }
 
+# PDFium ships its own ICU (libicuuc.dylib/.so, data compiled in). When the
+# distro/brew ICU already in the bundle is the same major version, the two
+# libraries are ABI-compatible and one copy is enough - rewrite PDFium's
+# imports to the versioned distro library and drop the unversioned duplicate
+# (~1.7 MB per bundle). A version mismatch leaves both copies alone.
+dedupe_icu() {
+    local unversioned="" versioned="" f
+    case "$PLATFORM" in
+        darwin-*|vips-darwin-*)
+            unversioned="$DIST_DIR/libicuuc.dylib"
+            for f in "$DIST_DIR"/libicuuc.*.dylib; do
+                [ -f "$f" ] || continue
+                case "$(basename "$f")" in libicuuc.[0-9]*.dylib) versioned="$f";; esac
+                [ -n "$versioned" ] && break
+            done
+            [ -f "$unversioned" ] && [ -f "$versioned" ] || return 0
+            local um vm
+            um=$(nm -gU "$unversioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            vm=$(nm -gU "$versioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            if [ -z "$um" ] || [ "$um" != "$vm" ]; then
+                echo "  ICU dedupe skipped: PDFium ${um:-?} vs bundle ${vm:-?}" >&2
+                return 0
+            fi
+            for f in "$DIST_DIR"/*.dylib; do
+                [ -f "$f" ] || continue
+                install_name_tool -change "@loader_path/libicuuc.dylib" \
+                    "@loader_path/$(basename "$versioned")" "$f" 2>/dev/null || true
+                install_name_tool -change "@rpath/libicuuc.dylib" \
+                    "@loader_path/$(basename "$versioned")" "$f" 2>/dev/null || true
+            done
+            rm -f "$unversioned"
+            echo "  Deduped PDFium ICU into $(basename "$versioned") (major ${um#_})"
+            ;;
+        linux-*|vips-linux-*)
+            unversioned="$DIST_DIR/libicuuc.so"
+            for f in "$DIST_DIR"/libicuuc.so.*; do
+                [ -f "$f" ] || continue
+                case "$(basename "$f")" in libicuuc.so.[0-9]*) versioned="$f";; esac
+                [ -n "$versioned" ] && break
+            done
+            [ -f "$unversioned" ] && [ -f "$versioned" ] || return 0
+            command -v patchelf >/dev/null 2>&1 || return 0
+            local um vm
+            um=$(nm -D --defined-only "$unversioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            vm=$(nm -D --defined-only "$versioned" 2>/dev/null | awk '{print $NF}' | grep -oE '_[0-9]+$' | head -1)
+            if [ -z "$um" ] || [ "$um" != "$vm" ]; then
+                echo "  ICU dedupe skipped: PDFium ${um:-?} vs bundle ${vm:-?}" >&2
+                return 0
+            fi
+            for f in "$DIST_DIR"/lib*.so "$DIST_DIR"/lib*.so.*; do
+                [ -f "$f" ] || continue
+                patchelf --replace-needed libicuuc.so "$(basename "$versioned")" "$f" 2>/dev/null || true
+            done
+            rm -f "$unversioned"
+            echo "  Deduped PDFium ICU into $(basename "$versioned") (major ${um#_})"
+            ;;
+    esac
+}
+
 case "$PLATFORM" in
     linux-*|vips-linux-*)
         bundle_linux
         assert_bundle_arch
         swap_full_icudata
+        dedupe_icu
         find "$DIST_DIR" -maxdepth 1 -type f -name '*allocator_shim*' -print -delete
         if command -v strip >/dev/null 2>&1; then
             strip --strip-unneeded "$DIST_DIR/libjpdfium.so" 2>/dev/null || true
@@ -558,6 +618,7 @@ case "$PLATFORM" in
         bundle_macos
         assert_bundle_arch
         swap_full_icudata
+        dedupe_icu
         if command -v strip >/dev/null 2>&1; then
             # -x drops local symbols too (the static harfbuzz contributes
             # thousands); exports and the dynamic symbol table stay.

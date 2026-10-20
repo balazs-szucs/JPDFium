@@ -121,7 +121,11 @@ val writeNativeManifest = tasks.register("writeNativeManifest") {
 }
 
 sourceSets.named("main") {
-    resources.setSrcDirs(listOf(stagedRoot, "src/main/resources"))
+    // native/dist is the only source of truth: CMake still drops a legacy
+    // copy of the PDFium component libs into src/main/resources, and mixing
+    // that with the stripped/bundled dist set could publish unstripped or
+    // already-deduped-away libraries. Stub builds stage into native/dist too.
+    resources.setSrcDirs(listOf(stagedRoot))
 }
 
 // Resource-only jars, so the module name would otherwise be derived from the

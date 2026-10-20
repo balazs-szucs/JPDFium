@@ -273,11 +273,14 @@ build_libtiff() {
     tar -xzf "$work/tiff.tar.gz" -C "$work"
     local src="$work/tiff-${tag#v}"
 
+    # LERC is a rare TIFF codec and pulls libLerc (~0.5 MB) into every Linux
+    # vips bundle; deflate/LZW/JPEG TIFFs are unaffected.
     cmake -S "$src" -B "$work/build" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DCMAKE_DISABLE_FIND_PACKAGE_JBIG=TRUE \
         -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF \
+        -Dlerc=OFF -DCMAKE_DISABLE_FIND_PACKAGE_LERC=TRUE \
         || { echo "build-vips-full-codecs.sh: libtiff cmake configure failed" >&2; exit 1; }
 
     local nproc
