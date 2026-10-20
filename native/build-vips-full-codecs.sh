@@ -153,6 +153,10 @@ EOF
 }
 
 build_aom() {
+    # Windows uses the vcpkg AOM package; this source build is POSIX-only.
+    if [ "$OS" != linux ] && [ "$OS" != darwin ]; then
+        return 0
+    fi
     # Opt-in: brew's macOS AOM links libvmaf (BSD-2-Clause-Patent, ~0.9 MB of
     # video-quality code AVIF never uses); Debian's AOM is vmaf-free but much
     # larger than a MinSizeRel build with the unused inspection/high-bitdepth/
