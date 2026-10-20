@@ -215,6 +215,7 @@ build_aom() {
     cmake -S "$work/src" -B "$work/build" \
         -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_INSTALL_PREFIX="$prefix" \
+        -DCMAKE_EXE_LINKER_FLAGS="-lm" \
         -DBUILD_SHARED_LIBS=1 \
         -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 -DENABLE_DOCS=0 \
         -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
