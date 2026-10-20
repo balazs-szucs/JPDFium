@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
@@ -24,6 +25,20 @@ public final class ColorBindings {
     public static final int IMAGE_NO_GCR = 0x01;
     /** Fail the whole conversion when any candidate image cannot be converted. */
     public static final int IMAGE_STRICT = 0x02;
+
+    // Values match public/fpdf_edit.h FPDF_COLORSPACE_*.
+    public static final int COLORSPACE_UNKNOWN = 0;
+    public static final int COLORSPACE_DEVICEGRAY = 1;
+    public static final int COLORSPACE_DEVICERGB = 2;
+    public static final int COLORSPACE_DEVICECMYK = 3;
+    public static final int COLORSPACE_CALGRAY = 4;
+    public static final int COLORSPACE_CALRGB = 5;
+    public static final int COLORSPACE_LAB = 6;
+    public static final int COLORSPACE_ICCBASED = 7;
+    public static final int COLORSPACE_SEPARATION = 8;
+    public static final int COLORSPACE_DEVICEN = 9;
+    public static final int COLORSPACE_INDEXED = 10;
+    public static final int COLORSPACE_PATTERN = 11;
 
     private static final int JPDFIUM_OK = 0;
 
@@ -65,6 +80,19 @@ public final class ColorBindings {
             FunctionDescriptor.of(JAVA_INT,
                     ADDRESS, ADDRESS, ADDRESS, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS));
 
+    /** PDF/X output intent + XMP metadata bootstrap. */
+    private static final MethodHandle PDFX_BYTES = downcallOptionalUnguarded(
+            "jpdfium_color_pdfx_bytes",
+            FunctionDescriptor.of(JAVA_INT,
+                    ADDRESS, JAVA_LONG, ADDRESS, JAVA_LONG,
+                    ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+
+    private static final MethodHandle PDFX_FILE = downcallOptionalUnguarded(
+            "jpdfium_color_pdfx_file",
+            FunctionDescriptor.of(JAVA_INT,
+                    ADDRESS, ADDRESS, ADDRESS, JAVA_LONG,
+                    ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+
     /** PDFium page-object CMYK setters/getters (absent on unpatched PDFium). */
     private static final MethodHandle SET_FILL_CMYK = downcallOptional(
             "FPDFPageObj_SetFillColorCMYK",
@@ -81,6 +109,26 @@ public final class ColorBindings {
     private static final MethodHandle GET_STROKE_CMYK = downcallOptional(
             "FPDFPageObj_GetStrokeColorCMYK",
             FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+
+    /** JPDFium PDFium extension: source colour-space family probes. */
+    private static final MethodHandle GET_FILL_COLORSPACE = downcallOptional(
+            "FPDFPageObj_GetFillColorSpace", FunctionDescriptor.of(JAVA_INT, ADDRESS));
+
+    private static final MethodHandle GET_STROKE_COLORSPACE = downcallOptional(
+            "FPDFPageObj_GetStrokeColorSpace", FunctionDescriptor.of(JAVA_INT, ADDRESS));
+
+    private static final MethodHandle GET_FILL_COMPONENTS = downcallOptional(
+            "FPDFPageObj_GetFillColorComponents",
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
+    private static final MethodHandle GET_STROKE_COMPONENTS = downcallOptional(
+            "FPDFPageObj_GetStrokeColorComponents",
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
+    private static final MethodHandle GET_FILL_ICC = downcallOptional(
+            "FPDFPageObj_GetFillColorIccProfile",
+            FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
+    private static final MethodHandle GET_STROKE_ICC = downcallOptional(
+            "FPDFPageObj_GetStrokeColorIccProfile",
+            FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
 
     private static volatile int capabilities = -1;
 
@@ -121,6 +169,100 @@ public final class ColorBindings {
     /** True when an ICC OutputIntent can be injected into the catalog. */
     public static boolean outputIntentAvailable() {
         return OUTPUT_INTENT_BYTES != null && OUTPUT_INTENT_FILE != null && has(CAP_OUTPUT_INTENT);
+    }
+
+    /**
+     * True when the source colour-space probes are available. Without them a
+     * CMYK conversion cannot distinguish DeviceCMYK from ICC, Separation,
+     * DeviceN, indexed or pattern colours and must not rewrite objects blindly.
+     */
+    public static boolean colorSpaceAvailable() {
+        return GET_FILL_COLORSPACE != null && GET_STROKE_COLORSPACE != null;
+    }
+
+    /** True when raw components and source ICC profile probes are available. */
+    public static boolean iccConversionAvailable() {
+        return GET_FILL_COMPONENTS != null && GET_STROKE_COMPONENTS != null
+                && GET_FILL_ICC != null && GET_STROKE_ICC != null;
+    }
+
+    /** Source colour-space family of the fill, or -1 when unavailable. */
+    public static int fillColorSpace(MemorySegment obj) {
+        return colorSpace(GET_FILL_COLORSPACE, obj);
+    }
+
+    /** Source colour-space family of the stroke, or -1 when unavailable. */
+    public static int strokeColorSpace(MemorySegment obj) {
+        return colorSpace(GET_STROKE_COLORSPACE, obj);
+    }
+
+    /** True for process colours this converter can rewrite losslessly. */
+    public static boolean isProcessColorSpace(int colorSpace) {
+        return colorSpace == COLORSPACE_DEVICEGRAY
+                || colorSpace == COLORSPACE_DEVICERGB
+                || colorSpace == COLORSPACE_DEVICECMYK;
+    }
+
+    private static int colorSpace(MethodHandle handle, MemorySegment obj) {
+        if (handle == null || obj == null) return -1;
+        try {
+            return (int) handle.invokeExact(obj);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return -1;
+        }
+    }
+
+    /** Raw fill components in the object's source colour space, or null. */
+    public static float[] fillColorComponents(MemorySegment obj) {
+        return components(GET_FILL_COMPONENTS, obj);
+    }
+
+    /** Raw stroke components in the object's source colour space, or null. */
+    public static float[] strokeColorComponents(MemorySegment obj) {
+        return components(GET_STROKE_COMPONENTS, obj);
+    }
+
+    /** Source ICC profile bytes for an ICCBased fill, or null. */
+    public static byte[] fillColorIccProfile(MemorySegment obj) {
+        return iccProfile(GET_FILL_ICC, obj);
+    }
+
+    /** Source ICC profile bytes for an ICCBased stroke, or null. */
+    public static byte[] strokeColorIccProfile(MemorySegment obj) {
+        return iccProfile(GET_STROKE_ICC, obj);
+    }
+
+    private static float[] components(MethodHandle handle, MemorySegment obj) {
+        if (handle == null || obj == null) return null;
+        try (Arena arena = Arena.ofConfined()) {
+            int count = (int) handle.invokeExact(obj, MemorySegment.NULL, 0);
+            if (count <= 0) return null;
+            MemorySegment buf = arena.allocate(JAVA_FLOAT, count);
+            int got = (int) handle.invokeExact(obj, buf, count);
+            if (got != count) return null;
+            float[] out = new float[count];
+            for (int i = 0; i < count; i++) out[i] = buf.get(JAVA_FLOAT, i * 4L);
+            return out;
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return null;
+        }
+    }
+
+    private static byte[] iccProfile(MethodHandle handle, MemorySegment obj) {
+        if (handle == null || obj == null) return null;
+        try (Arena arena = Arena.ofConfined()) {
+            long needed = (long) handle.invokeExact(obj, MemorySegment.NULL, 0L);
+            if (needed <= 0 || needed > Integer.MAX_VALUE) return null;
+            MemorySegment buf = arena.allocate(JAVA_BYTE, needed);
+            long got = (long) handle.invokeExact(obj, buf, needed);
+            if (got != needed) return null;
+            return buf.toArray(JAVA_BYTE);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return null;
+        }
     }
 
     /** Convert interleaved 8-bit samples to a DeviceCMYK JPEG. */
@@ -207,6 +349,61 @@ public final class ColorBindings {
         }
     }
 
+    /** True when the PDF/X output-intent + XMP bootstrap is available. */
+    public static boolean pdfxAvailable() {
+        return PDFX_BYTES != null && PDFX_FILE != null && outputIntentAvailable();
+    }
+
+    /** Write PDF/X output intent and XMP metadata into a byte-array PDF. */
+    public static byte[] pdfxBytes(byte[] pdf, byte[] icc, String version, String conformance,
+                                   String conditionIdentifier, String info) {
+        if (PDFX_BYTES == null || pdf == null || icc == null || icc.length == 0) return null;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment in = arena.allocateFrom(JAVA_BYTE, pdf);
+            MemorySegment iccSeg = arena.allocateFrom(JAVA_BYTE, icc);
+            MemorySegment ver = arena.allocateFrom(version == null ? "" : version);
+            MemorySegment conf = arena.allocateFrom(conformance == null ? "" : conformance);
+            MemorySegment cid = arena.allocateFrom(conditionIdentifier == null ? "" : conditionIdentifier);
+            MemorySegment inf = arena.allocateFrom(info == null ? "" : info);
+            MemorySegment outPtr = arena.allocate(ADDRESS);
+            MemorySegment outLen = arena.allocate(JAVA_LONG);
+
+            int rc = (int) PDFX_BYTES.invokeExact(
+                    in, (long) pdf.length, iccSeg, (long) icc.length,
+                    ver, conf, cid, inf, outPtr, outLen);
+            if (rc != JPDFIUM_OK) return null;
+            return extractAndFree(outPtr, outLen);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return null;
+        }
+    }
+
+    /** File-based variant of {@link #pdfxBytes}. */
+    public static boolean pdfxFile(String inPath, String outPath, byte[] icc, String version,
+                                   String conformance, String conditionIdentifier, String info) {
+        if (PDFX_FILE == null || inPath == null || outPath == null
+                || icc == null || icc.length == 0) {
+            return false;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment in = arena.allocateFrom(inPath);
+            MemorySegment out = arena.allocateFrom(outPath);
+            MemorySegment iccSeg = arena.allocateFrom(JAVA_BYTE, icc);
+            MemorySegment ver = arena.allocateFrom(version == null ? "" : version);
+            MemorySegment conf = arena.allocateFrom(conformance == null ? "" : conformance);
+            MemorySegment cid = arena.allocateFrom(conditionIdentifier == null ? "" : conditionIdentifier);
+            MemorySegment inf = arena.allocateFrom(info == null ? "" : info);
+
+            int rc = (int) PDFX_FILE.invokeExact(
+                    in, out, iccSeg, (long) icc.length, ver, conf, cid, inf);
+            return rc == JPDFIUM_OK;
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return false;
+        }
+    }
+
     /** Read a page object's fill colour as DeviceCMYK. */
     public static boolean getFillColorCmyk(MemorySegment obj, int[] cmyk) {
         return getCmyk(GET_FILL_CMYK, obj, cmyk);
@@ -230,6 +427,10 @@ public final class ColorBindings {
     private static boolean setCmyk(MethodHandle handle, MemorySegment obj,
                                    int c, int m, int y, int k, int a) {
         if (handle == null) return false;
+        if (c < 0 || c > 255 || m < 0 || m > 255 || y < 0 || y > 255
+                || k < 0 || k > 255 || a < 0 || a > 255) {
+            return false;
+        }
         try {
             return (int) handle.invokeExact(obj, c, m, y, k, a) != 0;
         } catch (Throwable t) {

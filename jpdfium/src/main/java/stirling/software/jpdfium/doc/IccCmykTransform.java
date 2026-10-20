@@ -63,6 +63,49 @@ final class IccCmykTransform {
         cacheKeys[index] = key;
     }
 
+    /**
+     * Convert raw source-ICC components through the source profile into the
+     * target CMYK profile.
+     */
+    void toCmykFromIcc(byte[] sourceIcc, float[] components, int[] out) {
+        ICC_ColorSpace source = sourceSpace(sourceIcc, components.length);
+        float[] xyz = source.toCIEXYZ(components);
+        float[] device = cmyk.fromCIEXYZ(xyz);
+        for (int i = 0; i < 4; i++) {
+            out[i] = clamp255(device[i]);
+        }
+    }
+
+    /**
+     * Convert raw source-ICC components to CMYK without a target profile:
+     * source ICC -> sRGB -> profile-free GCR.
+     */
+    static void sourceToCmyk(byte[] sourceIcc, float[] components,
+                             boolean extractBlack, int[] out) {
+        ICC_ColorSpace source = sourceSpace(sourceIcc, components.length);
+        float[] xyz = source.toCIEXYZ(components);
+        ColorSpace srgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
+        float[] rgb = srgb.fromCIEXYZ(xyz);
+        int r = clamp255(rgb[0]);
+        int g = clamp255(rgb[1]);
+        int b = clamp255(rgb[2]);
+        PdfColorConverter.rgbToCmyk(r, g, b, extractBlack, out);
+    }
+
+    private static ICC_ColorSpace sourceSpace(byte[] sourceIcc, int expectedComponents) {
+        ICC_Profile profile;
+        try {
+            profile = ICC_Profile.getInstance(sourceIcc);
+        } catch (IllegalArgumentException e) {
+            throw new JPDFiumException("Invalid source ICC profile: " + e.getMessage(), e);
+        }
+        if (profile.getNumComponents() != expectedComponents) {
+            throw new JPDFiumException("Source ICC component count mismatch: profile="
+                    + profile.getNumComponents() + " components=" + expectedComponents);
+        }
+        return new ICC_ColorSpace(profile);
+    }
+
     private static float clampUnit(int v) {
         if (v <= 0) return 0f;
         if (v >= 255) return 1f;

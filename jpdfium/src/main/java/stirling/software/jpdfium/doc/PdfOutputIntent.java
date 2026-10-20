@@ -46,6 +46,11 @@ public final class PdfOutputIntent {
         return ColorBindings.outputIntentAvailable();
     }
 
+    /** True when the PDF/X output-intent + XMP bootstrap is available. */
+    public static boolean pdfxSupported() {
+        return ColorBindings.pdfxAvailable();
+    }
+
     /** Write the output intent into a byte array PDF. */
     public static byte[] apply(byte[] pdf, byte[] iccProfile, Spec spec) {
         if (pdf == null || pdf.length == 0) {
@@ -83,5 +88,52 @@ public final class PdfOutputIntent {
     public static PdfDocument apply(PdfDocument doc, byte[] iccProfile, Spec spec) {
         if (doc == null) throw new JPDFiumException("Output intent requires a document");
         return PdfDocument.open(apply(doc.saveBytes(), iccProfile, spec));
+    }
+
+    /**
+     * Write a PDF/X output intent and create/update the catalog XMP metadata.
+     * This is the low-level bootstrap used by {@link PdfXConverter}; the
+     * resulting file still needs a PDF/X-aware validator for certification.
+     */
+    public static byte[] applyPdfx(byte[] pdf, byte[] iccProfile, Spec spec,
+                                   String gtsVersion, String gtsConformance) {
+        if (pdf == null || pdf.length == 0) {
+            throw new JPDFiumException("PDF/X metadata requires a non-empty PDF");
+        }
+        if (iccProfile == null || iccProfile.length == 0) {
+            throw new JPDFiumException("PDF/X metadata requires an ICC profile");
+        }
+        if (gtsVersion == null || gtsVersion.isBlank()) {
+            throw new JPDFiumException("PDF/X metadata requires a GTS_PDFXVersion");
+        }
+        if (!pdfxSupported()) {
+            throw new JPDFiumException("This native build has no PDF/X metadata bootstrap"
+                    + " (jpdfium_color_pdfx_* unavailable; requires QPDF)");
+        }
+        Spec effective = spec == null ? new Spec(SUBTYPE_PDFX, "", "") : spec;
+        String conformance = gtsConformance == null || gtsConformance.isBlank()
+                ? gtsVersion : gtsConformance;
+        byte[] result = ColorBindings.pdfxBytes(pdf, iccProfile, gtsVersion, conformance,
+                effective.conditionIdentifier(), effective.info());
+        if (result == null) {
+            throw new JPDFiumException("Failed to write PDF/X metadata"
+                    + " (check that the ICC profile is a valid 4-component profile)");
+        }
+        return result;
+    }
+
+    /** File-to-file PDF/X metadata bootstrap. */
+    public static boolean applyPdfx(Path in, Path out, byte[] iccProfile, Spec spec,
+                                    String gtsVersion, String gtsConformance) {
+        if (in == null || out == null || iccProfile == null || iccProfile.length == 0
+                || gtsVersion == null || gtsVersion.isBlank()) {
+            return false;
+        }
+        if (!pdfxSupported()) return false;
+        Spec effective = spec == null ? new Spec(SUBTYPE_PDFX, "", "") : spec;
+        String conformance = gtsConformance == null || gtsConformance.isBlank()
+                ? gtsVersion : gtsConformance;
+        return ColorBindings.pdfxFile(in.toString(), out.toString(), iccProfile, gtsVersion,
+                conformance, effective.conditionIdentifier(), effective.info());
     }
 }

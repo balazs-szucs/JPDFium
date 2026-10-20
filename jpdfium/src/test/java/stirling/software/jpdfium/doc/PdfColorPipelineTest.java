@@ -6,13 +6,17 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.color.ColorSpace;
+import java.awt.color.ICC_Profile;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import stirling.software.jpdfium.PdfDocument;
@@ -50,7 +54,7 @@ class PdfColorPipelineTest {
         return p;
     }
 
-    /** A synthetic but structurally valid ICC header declaring 4 components. */
+    /** A header-only blob used to exercise the malformed-profile rejection path. */
     private static byte[] syntheticCmykProfile() {
         byte[] icc = new byte[132];
         icc[0] = 0;
@@ -62,6 +66,52 @@ class PdfColorPipelineTest {
         return icc;
     }
 
+    /**
+     * Minimal PDF with one form XObject containing a DeviceCMYK fill and a
+     * DeviceRGB fill. Exercises form recursion, CMYK preservation and dirty
+     * stream regeneration.
+     */
+    private static byte[] cmykFormPdf() throws Exception {
+        byte[] formContent = ("0.1 0.2 0.3 0.4 k\n"
+                + "10 10 80 80 re f\n"
+                + "1 0 0 rg\n"
+                + "100 10 80 80 re f\n").getBytes(StandardCharsets.US_ASCII);
+        byte[] pageContent = "q\n/Fm0 Do\nQ\n".getBytes(StandardCharsets.US_ASCII);
+        List<byte[]> objects = new ArrayList<>();
+        objects.add("<< /Type /Catalog /Pages 2 0 R >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+                + "/Resources << /XObject << /Fm0 4 0 R >> >> /Contents 5 0 R >>")
+                .getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "
+                + "/Resources << >> /Length " + formContent.length + " >>\nstream\n"
+                + new String(formContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+        objects.add(("<< /Length " + pageContent.length + " >>\nstream\n"
+                + new String(pageContent, StandardCharsets.US_ASCII) + "endstream")
+                .getBytes(StandardCharsets.US_ASCII));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write("%PDF-1.4\n".getBytes(StandardCharsets.US_ASCII));
+        int[] offsets = new int[objects.size() + 1];
+        for (int i = 0; i < objects.size(); i++) {
+            offsets[i + 1] = out.size();
+            out.write((i + 1 + " 0 obj\n").getBytes(StandardCharsets.US_ASCII));
+            out.write(objects.get(i));
+            out.write("\nendobj\n".getBytes(StandardCharsets.US_ASCII));
+        }
+        int xref = out.size();
+        out.write(("xref\n0 " + (objects.size() + 1) + "\n").getBytes(StandardCharsets.US_ASCII));
+        out.write("0000000000 65535 f \n".getBytes(StandardCharsets.US_ASCII));
+        for (int i = 1; i < offsets.length; i++) {
+            out.write((String.format("%010d", offsets[i]) + " 00000 n \n")
+                    .getBytes(StandardCharsets.US_ASCII));
+        }
+        out.write(("trailer\n<< /Size " + (objects.size() + 1) + " /Root 1 0 R >>\nstartxref\n"
+                + xref + "\n%%EOF\n").getBytes(StandardCharsets.US_ASCII));
+        return out.toByteArray();
+    }
+
     /** First real CMYK profile on this machine, if any (used for the JDK ICC path). */
     private static Optional<byte[]> findCmykProfile() {
         String explicit = System.getProperty("jpdfium.test.cmykIcc");
@@ -69,14 +119,20 @@ class PdfColorPipelineTest {
             explicit,
             "/System/Library/ColorSync/Profiles/Generic CMYK Profile.icc",
             "/usr/share/color/icc/ghostscript/default_cmyk.icc",
+            "/usr/share/color/icc/ISOcoated_v2_300_eci.icc",
+            "/usr/share/color/icc/colord/ISOcoated_v2_300_eci.icc",
             "/usr/share/color/icc/colord/SwappedRedAndGreen.icc",
         };
         for (String candidate : candidates) {
             if (candidate == null) continue;
             try {
                 Path p = Path.of(candidate);
-                if (Files.isReadable(p)) {
-                    return Optional.of(Files.readAllBytes(p));
+                if (!Files.isReadable(p)) continue;
+                byte[] bytes = Files.readAllBytes(p);
+                // Colord ships RGB profiles too; only accept a real 4-component
+                // profile so the test cannot fail on a valid non-CMYK file.
+                if (ICC_Profile.getInstance(bytes).getNumComponents() == 4) {
+                    return Optional.of(bytes);
                 }
             } catch (Exception _) {
                 // try the next candidate
@@ -123,7 +179,9 @@ class PdfColorPipelineTest {
                 ColorBindings.imageConversionAvailable());
         assertEquals(ColorBindings.has(ColorBindings.CAP_OUTPUT_INTENT),
                 ColorBindings.outputIntentAvailable());
-        assertEquals(ColorBindings.vectorCmykAvailable(),
+        assertEquals(ColorBindings.vectorCmykAvailable()
+                        && ColorBindings.colorSpaceAvailable()
+                        && ColorBindings.iccConversionAvailable(),
                 PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK));
     }
 
@@ -180,15 +238,61 @@ class PdfColorPipelineTest {
     }
 
     @Test
+    void cmykFormConversionPreservesCmykAndConvertsRgb() throws Throwable {
+        assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
+                "vector CMYK unavailable");
+        assumeTrue(PdfColorConverter.supportsFormConversion(),
+                "form conversion requires the JPDFium PDFium patch");
+
+        Path out = temp(".pdf");
+        try (PdfDocument doc = PdfDocument.open(cmykFormPdf())) {
+            assertEquals(1, PdfColorConverter.toCmyk(doc),
+                    "the RGB child inside the form must be converted, the CMYK child skipped");
+            doc.save(out);
+        }
+
+        try (PdfDocument doc = PdfDocument.open(out);
+                PdfPage page = doc.page(0)) {
+            MemorySegment rawPage = page.rawHandleForRead();
+            MemorySegment form = (MemorySegment) PageEditBindings.FPDFPage_GetObject
+                    .invokeExact(rawPage, 0);
+            assertNotNull(form, "form object must survive save");
+            int count = (int) PageEditBindings.FPDFFormObj_CountObjects.invokeExact(form);
+            assertEquals(2, count);
+
+            int[] cmyk = new int[5];
+            MemorySegment preserved = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject
+                    .invokeExact(form, 0L);
+            assertTrue(ColorBindings.getFillColorCmyk(preserved, cmyk),
+                    "original DeviceCMYK fill must still be DeviceCMYK");
+            assertEquals(26, cmyk[0]);
+            assertEquals(51, cmyk[1]);
+            assertEquals(77, cmyk[2]);
+            assertEquals(102, cmyk[3]);
+
+            MemorySegment converted = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject
+                    .invokeExact(form, 1L);
+            assertTrue(ColorBindings.getFillColorCmyk(converted, cmyk),
+                    "RGB fill inside the form must become DeviceCMYK");
+            assertEquals(0, cmyk[0]);
+            assertEquals(255, cmyk[1]);
+            assertEquals(255, cmyk[2]);
+            assertEquals(0, cmyk[3]);
+        }
+    }
+
+    @Test
     void outputIntentInjectsCatalogEntry() throws Exception {
         assumeTrue(PdfOutputIntent.isSupported(), "OutputIntent support unavailable");
+        byte[] icc = findCmykProfile().orElse(null);
+        assumeTrue(icc != null, "no real CMYK ICC profile available on this machine");
 
         byte[] pdf = Files.readAllBytes(resource("/pdfs/general/minimal.pdf"));
         int expectedPages;
         try (PdfDocument source = PdfDocument.open(pdf)) {
             expectedPages = source.pageCount();
         }
-        byte[] out = PdfOutputIntent.apply(pdf, syntheticCmykProfile(),
+        byte[] out = PdfOutputIntent.apply(pdf, icc,
                 PdfOutputIntent.Spec.pdfx("JPDFium Test CMYK", "JPDFium pipeline test"));
         assertNotNull(out, "OutputIntent injection must produce bytes");
 
@@ -262,6 +366,20 @@ class PdfColorPipelineTest {
     }
 
     @Test
+    void iccSourceProfileRoundTripsThroughTargetProfile() {
+        byte[] profile = findCmykProfile().orElse(null);
+        assumeTrue(profile != null, "no CMYK ICC profile available on this machine");
+
+        IccCmykTransform transform = new IccCmykTransform(profile);
+        int[] out = new int[4];
+        transform.toCmykFromIcc(profile, new float[] {0f, 0f, 0f, 1f}, out);
+        assertTrue(out[3] >= 120, "100% K source must keep substantial black ink: " + out[3]);
+
+        IccCmykTransform.sourceToCmyk(profile, new float[] {0f, 0f, 0f, 0f}, true, out);
+        assertTrue(out[3] <= 32, "white source must carry little black: " + out[3]);
+    }
+
+    @Test
     void iccTransformRejectsNonCmykProfile() {
         byte[] srgb = java.awt.color.ICC_Profile.getInstance(ColorSpace.CS_sRGB).getData();
         JPDFiumException ex = assertThrows(JPDFiumException.class,
@@ -278,5 +396,15 @@ class PdfColorPipelineTest {
         malformed[36] = 0;  // destroy the mandatory "acsp" signature
         assertThrows(JPDFiumException.class,
                 () -> PdfOutputIntent.apply(pdf, malformed, PdfOutputIntent.Spec.pdfx("x", "y")));
+    }
+
+    @Test
+    void outputIntentRejectsProfileWithoutTagTable() throws Exception {
+        assumeTrue(PdfOutputIntent.isSupported(), "OutputIntent support unavailable");
+
+        byte[] pdf = Files.readAllBytes(resource("/pdfs/general/minimal.pdf"));
+        byte[] headerOnly = syntheticCmykProfile();
+        assertThrows(JPDFiumException.class,
+                () -> PdfOutputIntent.apply(pdf, headerOnly, PdfOutputIntent.Spec.pdfx("x", "y")));
     }
 }

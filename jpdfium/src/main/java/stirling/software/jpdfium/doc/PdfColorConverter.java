@@ -4,6 +4,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Set;
 
 import stirling.software.jpdfium.PdfDocument;
@@ -14,8 +15,8 @@ import stirling.software.jpdfium.panama.NativeRuntime;
 import stirling.software.jpdfium.panama.PageEditBindings;
 
 /**
- * Converts page object fill/stroke colors between grayscale, RGB and DeviceCMYK.
- * CMYK needs the JPDFium PDFium patch ({@link #supportsColorSpace(ColorSpace)}).
+ * Converts page-object fill/stroke colours to grayscale, RGB or DeviceCMYK.
+ * CMYK and form write-back require the JPDFium PDFium patch.
  */
 public final class PdfColorConverter {
 
@@ -31,21 +32,28 @@ public final class PdfColorConverter {
     /** True if the native conversion path can emit the given target. */
     public static boolean supportsColorSpace(ColorSpace target) {
         if (target == ColorSpace.GRAYSCALE || target == ColorSpace.RGB) return true;
-        return target == ColorSpace.CMYK && ColorBindings.vectorCmykAvailable();
+        // Colour-space probes prevent flattening CMYK/ICC/spot through sRGB.
+        return target == ColorSpace.CMYK
+                && ColorBindings.vectorCmykAvailable()
+                && ColorBindings.colorSpaceAvailable()
+                && ColorBindings.iccConversionAvailable();
     }
 
-    /**
-     * Color spaces this converter can currently emit.
-     */
+    /** Color spaces this converter can emit. */
     public static Set<ColorSpace> supportedColorSpaces() {
         EnumSet<ColorSpace> spaces = EnumSet.of(ColorSpace.GRAYSCALE, ColorSpace.RGB);
-        if (ColorBindings.vectorCmykAvailable()) spaces.add(ColorSpace.CMYK);
+        if (supportsColorSpace(ColorSpace.CMYK)) spaces.add(ColorSpace.CMYK);
         return spaces;
     }
 
     /** True if image XObjects can be re-encoded as DeviceCMYK JPEGs in this build. */
     public static boolean supportsImageConversion() {
         return ColorBindings.imageConversionAvailable();
+    }
+
+    /** True when form XObject content can be traversed and written back. */
+    public static boolean supportsFormConversion() {
+        return PageEditBindings.formConversionAvailable();
     }
 
     /**
@@ -55,10 +63,11 @@ public final class PdfColorConverter {
      * @return number of objects whose colors were converted
      */
     public static int toGrayscale(PdfDocument doc) {
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i = 0; i < doc.pageCount(); i++) {
             try (PdfPage page = doc.page(i)) {
-                total += convertPage(page.rawHandle(), ColorSpace.GRAYSCALE);
+                total += convertPage(page.rawHandle(), ColorSpace.GRAYSCALE, formIds);
             }
         }
         return total;
@@ -72,11 +81,12 @@ public final class PdfColorConverter {
      * @return number of objects whose colors were converted
      */
     public static int toGrayscale(PdfDocument doc, Set<Integer> pageIndices) {
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i : pageIndices) {
             if (i >= 0 && i < doc.pageCount()) {
                 try (PdfPage page = doc.page(i)) {
-                    total += convertPage(page.rawHandle(), ColorSpace.GRAYSCALE);
+                    total += convertPage(page.rawHandle(), ColorSpace.GRAYSCALE, formIds);
                 }
             }
         }
@@ -90,6 +100,7 @@ public final class PdfColorConverter {
      * @return number of objects whose colors were rewritten
      */
     public static int toRgb(PdfDocument doc) {
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i = 0; i < doc.pageCount(); i++) {
             try (PdfPage page = doc.page(i)) {
@@ -97,7 +108,7 @@ public final class PdfColorConverter {
                         ColorConvertOptions.builder()
                                 .targetColorSpace(ColorSpace.RGB)
                                 .preserveBlack(false)
-                                .build());
+                                .build(), formIds);
             }
         }
         return total;
@@ -111,6 +122,7 @@ public final class PdfColorConverter {
      * @return number of objects whose colors were rewritten
      */
     public static int toRgb(PdfDocument doc, Set<Integer> pageIndices) {
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i : pageIndices) {
             if (i >= 0 && i < doc.pageCount()) {
@@ -118,7 +130,7 @@ public final class PdfColorConverter {
                     total += convertPage(page.rawHandle(), ColorConvertOptions.builder()
                             .targetColorSpace(ColorSpace.RGB)
                             .preserveBlack(false)
-                            .build());
+                            .build(), formIds);
                 }
             }
         }
@@ -138,10 +150,12 @@ public final class PdfColorConverter {
                 .targetColorSpace(ColorSpace.CMYK)
                 .build();
         requireCmykSupport(options);
+        IccCmykTransform xform = cmykTransform(options);
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i : pageIndices) {
             if (i >= 0 && i < doc.pageCount()) {
-                total += convertDocumentPage(doc, i, options, cmykTransform(options));
+                total += convertDocumentPage(doc, i, options, xform, formIds);
             }
         }
         return total;
@@ -172,9 +186,10 @@ public final class PdfColorConverter {
     public static int convert(PdfDocument doc, ColorConvertOptions options) {
         requireCmykSupport(options);
         IccCmykTransform xform = cmykTransform(options);
+        Set<Long> formIds = new HashSet<>();
         int total = 0;
         for (int i = 0; i < doc.pageCount(); i++) {
-            total += convertDocumentPage(doc, i, options, xform);
+            total += convertDocumentPage(doc, i, options, xform, formIds);
         }
         return total;
     }
@@ -182,12 +197,15 @@ public final class PdfColorConverter {
     /** Reject CMYK requests the loaded library cannot satisfy, with an actionable message. */
     private static void requireCmykSupport(ColorConvertOptions options) {
         if (options.targetColorSpace() == ColorSpace.CMYK
-                && !ColorBindings.vectorCmykAvailable()) {
+                && (!ColorBindings.vectorCmykAvailable()
+                        || !ColorBindings.colorSpaceAvailable()
+                        || !ColorBindings.iccConversionAvailable())) {
             throw new JPDFiumException("Unsupported color conversion target: CMYK"
-                    + " (this PDFium build has no CMYK page-object colour API;"
-                    + " PDFium must be rebuilt with the JPDFium colour patch and the"
-                    + " prebuilt pin bumped. Image-only CMYK conversion is available"
-                    + " now via PdfColorConverter.convertImagesToCmyk)");
+                    + " (this PDFium build lacks the CMYK page-object accessors or"
+                    + " the colour-space probe; PDFium must be rebuilt with the"
+                    + " JPDFium colour patch and the prebuilt pin bumped. Image-only"
+                    + " CMYK conversion is available now via"
+                    + " PdfColorConverter.convertImagesToCmyk)");
         }
         if (options.targetColorSpace() == ColorSpace.CMYK
                 && options.convertImages() && options.strictImages()
@@ -214,7 +232,8 @@ public final class PdfColorConverter {
      * image pass reloads and regenerates page content, so it must come first).
      */
     private static int convertDocumentPage(PdfDocument doc, int pageIndex,
-                                           ColorConvertOptions options, IccCmykTransform xform) {
+                                           ColorConvertOptions options, IccCmykTransform xform,
+                                           Set<Long> formIds) {
         int total = 0;
         if (options.convertImages()
                 && options.targetColorSpace() == ColorSpace.CMYK
@@ -230,39 +249,30 @@ public final class PdfColorConverter {
             }
         }
         try (PdfPage page = doc.page(pageIndex)) {
-            total += convertPage(page.rawHandle(), options, xform);
+            total += convertPage(page.rawHandle(), options, xform, formIds);
         }
         return total;
     }
 
-    private static int convertPage(MemorySegment rawPage, ColorSpace target) {
+    private static int convertPage(MemorySegment rawPage, ColorSpace target, Set<Long> formIds) {
         return convertPage(rawPage, ColorConvertOptions.builder()
                 .targetColorSpace(target)
-                .build(), null);
-    }
-
-    private static int convertPage(MemorySegment rawPage, ColorConvertOptions options) {
-        return convertPage(rawPage, options, null);
+                .build(), null, formIds);
     }
 
     private static int convertPage(MemorySegment rawPage, ColorConvertOptions options,
-                                   IccCmykTransform xform) {
+                                   Set<Long> formIds) {
+        return convertPage(rawPage, options, null, formIds);
+    }
+
+    private static int convertPage(MemorySegment rawPage, ColorConvertOptions options,
+                                   IccCmykTransform xform, Set<Long> formIds) {
         ColorSpace target = options.targetColorSpace();
         if (!supportsColorSpace(target)) {
             throw new JPDFiumException("Unsupported color conversion target: " + target);
         }
-        int count;
-        try {
-            count = (int) PageEditBindings.FPDFPage_CountObjects.invokeExact(rawPage);
-        } catch (Throwable t) {
-            NativeRuntime.rethrowFatal(t);
-            return 0;
-        }
-        if (count <= 0) return 0;
 
-        int converted = 0;
-        boolean changed = false;
-
+        ConversionState state = new ConversionState(formIds);
         // One arena and four int slots are reused for every object on the page.
         // Allocating them per fill/stroke call dominated the allocation profile.
         try (Arena arena = Arena.ofConfined()) {
@@ -271,57 +281,137 @@ public final class PdfColorConverter {
             MemorySegment b = arena.allocate(ValueLayout.JAVA_INT);
             MemorySegment a = arena.allocate(ValueLayout.JAVA_INT);
             int[] cmyk = new int[4];
-
-            for (int i = 0; i < count; i++) {
-                MemorySegment obj;
-                try {
-                    obj = (MemorySegment) PageEditBindings.FPDFPage_GetObject.invokeExact(rawPage, i);
-                } catch (Throwable t) {
-                    NativeRuntime.rethrowFatal(t);
-                    continue;
-                }
-                if (obj.equals(MemorySegment.NULL)) continue;
-
-                int type;
-                try {
-                    type = (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(obj);
-                } catch (Throwable t) {
-                    NativeRuntime.rethrowFatal(t);
-                    continue;
-                }
-
-                // Type 1 = TEXT, 2 = PATH, 3 = IMAGE.
-                boolean isText = (type == 1);
-                boolean isPath = (type == 2);
-                if (isText && !options.convertText()) continue;
-                if (isPath && !options.convertVectors()) continue;
-                if (type == 3) continue;
-
-                if (isText || isPath) {
-                    if (convertColor(obj, options, xform, r, g, b, a, cmyk, true)) {
-                        changed = true;
-                        converted++;
-                    }
-                    if (convertColor(obj, options, xform, r, g, b, a, cmyk, false)) {
-                        changed = true;
-                    }
-                }
-            }
+            scanPageObjects(rawPage, options, xform, r, g, b, a, cmyk, state);
         }
 
-        if (changed) {
+        if (state.dirty) {
+            generateContent(rawPage);
+        }
+        return state.converted;
+    }
+
+    private static final class ConversionState {
+        // Shared across pages so a shared form is converted once.
+        private final Set<Long> visitedForms;
+        private int converted;
+        private boolean dirty;
+
+        private ConversionState(Set<Long> visitedForms) {
+            this.visitedForms = visitedForms;
+        }
+    }
+
+    private static void scanPageObjects(MemorySegment rawPage, ColorConvertOptions options,
+                                        IccCmykTransform xform,
+                                        MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
+                                        int[] cmyk, ConversionState state) {
+        int count;
+        try {
+            count = (int) PageEditBindings.FPDFPage_CountObjects.invokeExact(rawPage);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return;
+        }
+        for (int i = 0; i < count; i++) {
+            MemorySegment obj;
             try {
-                int ok = (int) PageEditBindings.FPDFPage_GenerateContent.invokeExact(rawPage);
-                if (ok == 0) {
-                    throw new JPDFiumException("FPDFPage_GenerateContent failed");
-                }
-            } catch (JPDFiumException e) {
-                throw e;
+                obj = (MemorySegment) PageEditBindings.FPDFPage_GetObject.invokeExact(rawPage, i);
             } catch (Throwable t) {
-                throw new JPDFiumException("FPDFPage_GenerateContent failed", t);
+                NativeRuntime.rethrowFatal(t);
+                continue;
             }
+            scanObject(obj, options, xform, r, g, b, a, cmyk, state);
         }
-        return converted;
+    }
+
+    // Recurses into forms when dirty-stream write-back is available.
+    private static void scanObject(MemorySegment obj, ColorConvertOptions options,
+                                   IccCmykTransform xform,
+                                   MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
+                                   int[] cmyk, ConversionState state) {
+        if (obj == null || obj.equals(MemorySegment.NULL)) return;
+
+        int type;
+        try {
+            type = (int) PageEditBindings.FPDFPageObj_GetType.invokeExact(obj);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return;
+        }
+
+        if (type == 5) {
+            if (!options.convertForms() || !PageEditBindings.formConversionAvailable()) return;
+            if (!state.visitedForms.add(PageEditBindings.formIdentity(obj))) return;
+
+            int beforeConverted = state.converted;
+            boolean beforeDirty = state.dirty;
+            scanFormObjects(obj, options, xform, r, g, b, a, cmyk, state);
+            if (state.converted != beforeConverted || state.dirty != beforeDirty) {
+                try {
+                    int ok = (int) PageEditBindings.FPDFFormObj_MarkDirty.invokeExact(obj);
+                    if (ok == 0) {
+                        throw new JPDFiumException("FPDFFormObj_MarkDirty failed");
+                    }
+                } catch (JPDFiumException e) {
+                    throw e;
+                } catch (Throwable t) {
+                    throw new JPDFiumException("FPDFFormObj_MarkDirty failed", t);
+                }
+            }
+            return;
+        }
+
+        // Type 1 = TEXT, 2 = PATH, 3 = IMAGE, 4 = SHADING, 5 = FORM.
+        boolean isText = (type == 1);
+        boolean isPath = (type == 2);
+        if (!isText && !isPath) return;
+        if (isText && !options.convertText()) return;
+        if (isPath && !options.convertVectors()) return;
+
+        if (convertColor(obj, options, xform, r, g, b, a, cmyk, true)) {
+            state.dirty = true;
+            state.converted++;
+        }
+        if (convertColor(obj, options, xform, r, g, b, a, cmyk, false)) {
+            state.dirty = true;
+        }
+    }
+
+    private static void scanFormObjects(MemorySegment form, ColorConvertOptions options,
+                                        IccCmykTransform xform,
+                                        MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
+                                        int[] cmyk, ConversionState state) {
+        int count;
+        try {
+            count = (int) PageEditBindings.FPDFFormObj_CountObjects.invokeExact(form);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return;
+        }
+        for (int i = 0; i < count; i++) {
+            MemorySegment child;
+            try {
+                child = (MemorySegment) PageEditBindings.FPDFFormObj_GetObject.invokeExact(
+                        form, (long) i);
+            } catch (Throwable t) {
+                NativeRuntime.rethrowFatal(t);
+                continue;
+            }
+            scanObject(child, options, xform, r, g, b, a, cmyk, state);
+        }
+    }
+
+    private static void generateContent(MemorySegment rawPage) {
+        try {
+            int ok = (int) PageEditBindings.FPDFPage_GenerateContent.invokeExact(rawPage);
+            if (ok == 0) {
+                throw new JPDFiumException("FPDFPage_GenerateContent failed");
+            }
+        } catch (JPDFiumException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new JPDFiumException("FPDFPage_GenerateContent failed", t);
+        }
     }
 
     /** Reads, remaps and writes one fill or stroke colour using the shared slots. */
@@ -330,6 +420,29 @@ public final class PdfColorConverter {
                                         MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
                                         int[] cmyk, boolean fill) {
         try {
+            ColorSpace target = options.targetColorSpace();
+            int sourceSpace = -1;
+            if (target == ColorSpace.CMYK) {
+                sourceSpace = fill
+                        ? ColorBindings.fillColorSpace(obj)
+                        : ColorBindings.strokeColorSpace(obj);
+                // Preserve raw ink values; the RGB getter would alter 100% K.
+                if (sourceSpace == ColorBindings.COLORSPACE_DEVICECMYK) return false;
+                // Never flatten patterns.
+                if (sourceSpace == ColorBindings.COLORSPACE_PATTERN) return false;
+
+                if (sourceSpace == ColorBindings.COLORSPACE_ICCBASED) {
+                    if (!options.convertSpecialColors()) return false;
+                    if (convertIccToCmyk(obj, xform, options, r, g, b, a, fill)) return true;
+                } else if (sourceSpace == ColorBindings.COLORSPACE_SEPARATION
+                        || sourceSpace == ColorBindings.COLORSPACE_DEVICEN) {
+                    if (!options.convertSpotColors()) return false;
+                } else if (!ColorBindings.isProcessColorSpace(sourceSpace)
+                        && !options.convertSpecialColors()) {
+                    return false;
+                }
+            }
+
             int ok = fill
                     ? (int) PageEditBindings.FPDFPageObj_GetFillColor.invokeExact(obj, r, g, b, a)
                     : (int) PageEditBindings.FPDFPageObj_GetStrokeColor.invokeExact(obj, r, g, b, a);
@@ -344,7 +457,6 @@ public final class PdfColorConverter {
             if (options.preserveBlack() && options.targetColorSpace() != ColorSpace.CMYK
                     && ri == 0 && gi == 0 && bi == 0) return false;
 
-            ColorSpace target = options.targetColorSpace();
             if (target == ColorSpace.CMYK) {
                 return convertColorToCmyk(obj, xform, options, ri, gi, bi, ai, cmyk, fill);
             }
@@ -374,6 +486,46 @@ public final class PdfColorConverter {
         } else {
             rgbToCmyk(r, g, b, options.extractBlack(), cmyk);
         }
+        return setCmykColor(obj, cmyk, a, fill);
+    }
+
+    // Returns false when the source profile/components are unavailable.
+    private static boolean convertIccToCmyk(MemorySegment obj, IccCmykTransform xform,
+                                            ColorConvertOptions options,
+                                            MemorySegment r, MemorySegment g, MemorySegment b,
+                                            MemorySegment a, boolean fill) {
+        float[] comps = fill
+                ? ColorBindings.fillColorComponents(obj)
+                : ColorBindings.strokeColorComponents(obj);
+        byte[] sourceIcc = fill
+                ? ColorBindings.fillColorIccProfile(obj)
+                : ColorBindings.strokeColorIccProfile(obj);
+        if (comps == null || sourceIcc == null) return false;
+        int[] cmyk = new int[4];
+        try {
+            if (xform != null) {
+                xform.toCmykFromIcc(sourceIcc, comps, cmyk);
+            } else {
+                IccCmykTransform.sourceToCmyk(sourceIcc, comps, options.extractBlack(), cmyk);
+            }
+        } catch (JPDFiumException e) {
+            return false;
+        }
+        int alpha;
+        try {
+            int ok = fill
+                    ? (int) PageEditBindings.FPDFPageObj_GetFillColor.invokeExact(obj, r, g, b, a)
+                    : (int) PageEditBindings.FPDFPageObj_GetStrokeColor.invokeExact(obj, r, g, b, a);
+            if (ok == 0) return false;
+            alpha = a.get(ValueLayout.JAVA_INT, 0);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return false;
+        }
+        return setCmykColor(obj, cmyk, alpha, fill);
+    }
+
+    private static boolean setCmykColor(MemorySegment obj, int[] cmyk, int a, boolean fill) {
         return fill
                 ? ColorBindings.setFillColorCmyk(obj, cmyk[0], cmyk[1], cmyk[2], cmyk[3], a)
                 : ColorBindings.setStrokeColorCmyk(obj, cmyk[0], cmyk[1], cmyk[2], cmyk[3], a);
@@ -411,6 +563,9 @@ public final class PdfColorConverter {
         private final boolean convertImages;
         private final boolean convertVectors;
         private final boolean convertText;
+        private final boolean convertForms;
+        private final boolean convertSpecialColors;
+        private final boolean convertSpotColors;
         private final boolean preserveBlack;
         private final byte[] iccProfile;
         private final boolean extractBlack;
@@ -422,6 +577,9 @@ public final class PdfColorConverter {
             this.convertImages = b.convertImages;
             this.convertVectors = b.convertVectors;
             this.convertText = b.convertText;
+            this.convertForms = b.convertForms;
+            this.convertSpecialColors = b.convertSpecialColors;
+            this.convertSpotColors = b.convertSpotColors;
             this.preserveBlack = b.preserveBlack;
             this.iccProfile = b.iccProfile == null ? null : b.iccProfile.clone();
             this.extractBlack = b.extractBlack;
@@ -433,6 +591,9 @@ public final class PdfColorConverter {
         public boolean convertImages() { return convertImages; }
         public boolean convertVectors() { return convertVectors; }
         public boolean convertText() { return convertText; }
+        public boolean convertForms() { return convertForms; }
+        public boolean convertSpecialColors() { return convertSpecialColors; }
+        public boolean convertSpotColors() { return convertSpotColors; }
         public boolean preserveBlack() { return preserveBlack; }
 
         /** CMYK ICC profile for profile-aware vector conversion; images always use GCR. */
@@ -456,6 +617,9 @@ public final class PdfColorConverter {
             private boolean convertImages = true;
             private boolean convertVectors = true;
             private boolean convertText = true;
+            private boolean convertForms = true;
+            private boolean convertSpecialColors;
+            private boolean convertSpotColors;
             private boolean preserveBlack = true;
             private byte[] iccProfile;
             private boolean extractBlack = true;
@@ -468,6 +632,19 @@ public final class PdfColorConverter {
             public Builder convertImages(boolean v) { this.convertImages = v; return this; }
             public Builder convertVectors(boolean v) { this.convertVectors = v; return this; }
             public Builder convertText(boolean v) { this.convertText = v; return this; }
+            /** Recurse into form XObjects when the patched PDFium is available. */
+            public Builder convertForms(boolean v) { this.convertForms = v; return this; }
+
+            /**
+             * Convert ICCBased/Cal/Lab/Indexed colours. ICCBased objects use
+             * their source profile when one is available. Spots stay preserved
+             * unless {@link #convertSpotColors(boolean)} is also enabled.
+             */
+            public Builder convertSpecialColors(boolean v) { this.convertSpecialColors = v; return this; }
+
+            /** Convert Separation/DeviceN spots to process CMYK (opt-in; names/overprint are lost). */
+            public Builder convertSpotColors(boolean v) { this.convertSpotColors = v; return this; }
+
             public Builder preserveBlack(boolean v) { this.preserveBlack = v; return this; }
 
             /** Use a CMYK ICC profile for vector conversion; images always use GCR. */

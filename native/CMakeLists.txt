@@ -614,22 +614,43 @@ if(JPDFIUM_USE_PDFIUM)
     # definitions below and reports the outcome through
     # jpdfium_color_capabilities().
     set(JPDFIUM_FPDF_EDIT_HEADER "${PDFIUM_INCLUDE_DIR}/fpdf_edit.h")
+    set(JPDFIUM_EPDF_EDIT_HEADER "${PDFIUM_INCLUDE_DIR}/epdf_edit.h")
     if(EXISTS "${JPDFIUM_FPDF_EDIT_HEADER}")
-        file(READ "${JPDFIUM_FPDF_EDIT_HEADER}" JPDFIUM_FPDF_EDIT_CONTENT)
+        file(READ "${JPDFIUM_FPDF_EDIT_HEADER}" JPDFIUM_EDIT_CONTENT)
+        # EmbedPDF keeps its additions in epdf_edit.h on newer revisions and
+        # folds them into fpdf_edit.h in older/prebuilt headers. Read both.
+        if(EXISTS "${JPDFIUM_EPDF_EDIT_HEADER}")
+            file(READ "${JPDFIUM_EPDF_EDIT_HEADER}" JPDFIUM_EPDF_CONTENT)
+            string(APPEND JPDFIUM_EDIT_CONTENT "\n${JPDFIUM_EPDF_CONTENT}")
+            unset(JPDFIUM_EPDF_CONTENT)
+        endif()
 
+        # The CMYK setters alone are not enough: without the colour-space probe
+        # the converter cannot tell DeviceCMYK from ICC/spot/pattern colours,
+        # and without FPDFFormObj_MarkDirty edits inside form XObjects are
+        # silently discarded by FPDFPage_GenerateContent().
         foreach(cmyk_symbol
                 FPDFPageObj_SetFillColorCMYK
                 FPDFPageObj_GetFillColorCMYK
                 FPDFPageObj_SetStrokeColorCMYK
-                FPDFPageObj_GetStrokeColorCMYK)
-            string(FIND "${JPDFIUM_FPDF_EDIT_CONTENT}" "${cmyk_symbol}" JPDFIUM_CMYK_VECTOR_POS)
+                FPDFPageObj_GetStrokeColorCMYK
+                FPDFPageObj_GetFillColorSpace
+                FPDFPageObj_GetStrokeColorSpace
+                FPDFFormObj_MarkDirty
+                FPDFFormObj_GetObjectNumber
+                FPDFImageObj_HasTransparency
+                FPDFPageObj_GetFillColorComponents
+                FPDFPageObj_GetStrokeColorComponents
+                FPDFPageObj_GetFillColorIccProfile
+                FPDFPageObj_GetStrokeColorIccProfile)
+            string(FIND "${JPDFIUM_EDIT_CONTENT}" "${cmyk_symbol}" JPDFIUM_CMYK_VECTOR_POS)
             if(JPDFIUM_CMYK_VECTOR_POS LESS 0)
                 set(JPDFIUM_CMYK_VECTOR_MISSING "${JPDFIUM_CMYK_VECTOR_MISSING} ${cmyk_symbol}")
             endif()
         endforeach()
 
         if(NOT JPDFIUM_CMYK_VECTOR_MISSING)
-            message(STATUS "CMYK check: all four CMYK page-object accessors found (vector CMYK enabled)")
+            message(STATUS "CMYK check: page-object accessors, colour-space probe and form dirty marker found (vector CMYK enabled)")
             target_compile_definitions(jpdfium PRIVATE JPDFIUM_HAVE_CMYK_API=1)
         else()
             message(STATUS "CMYK check: missing${JPDFIUM_CMYK_VECTOR_MISSING} (vector CMYK unavailable)")
@@ -640,7 +661,7 @@ if(JPDFIUM_USE_PDFIUM)
         # EPDFImageObj_SetJpeg (EmbedPDF fork extension) embeds a raw JPEG
         # buffer as a page-object image; it is the only public route to a
         # 4-component DeviceCMYK image XObject.
-        string(FIND "${JPDFIUM_FPDF_EDIT_CONTENT}" "EPDFImageObj_SetJpeg" JPDFIUM_CMYK_IMAGE_POS)
+        string(FIND "${JPDFIUM_EDIT_CONTENT}" "EPDFImageObj_SetJpeg" JPDFIUM_CMYK_IMAGE_POS)
         if(JPDFIUM_CMYK_IMAGE_POS GREATER -1)
             message(STATUS "CMYK check: EPDFImageObj_SetJpeg found (CMYK image conversion enabled)")
             target_compile_definitions(jpdfium PRIVATE JPDFIUM_HAVE_EPDF_JPEG=1)
@@ -648,9 +669,10 @@ if(JPDFIUM_USE_PDFIUM)
             message(STATUS "CMYK check: EPDFImageObj_SetJpeg not found (CMYK image conversion unavailable)")
         endif()
 
-        unset(JPDFIUM_FPDF_EDIT_CONTENT)
+        unset(JPDFIUM_EDIT_CONTENT)
     endif()
     unset(JPDFIUM_FPDF_EDIT_HEADER)
+    unset(JPDFIUM_EPDF_EDIT_HEADER)
 endif()
 
 if(JPDFIUM_BUILD_TESTS)

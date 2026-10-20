@@ -94,9 +94,9 @@ class PdfBinaryFreeApiTest {
 
     @Test
     void cmykTargetIsRejected() throws Exception {
-        // Without the PDFium CMYK setters the CMYK target must fail loudly.
-        assumeFalse(ColorBindings.vectorCmykAvailable(),
-                "native CMYK setters present; rejection path not applicable");
+        // Without the full CMYK native surface the target must fail loudly.
+        assumeFalse(PdfColorConverter.supportsColorSpace(ColorSpace.CMYK),
+                "native CMYK conversion available; rejection path not applicable");
         Path src = resource("/pdfs/general/minimal.pdf");
         try (PdfDocument doc = PdfDocument.open(src)) {
             ColorConvertOptions opts = ColorConvertOptions.builder()

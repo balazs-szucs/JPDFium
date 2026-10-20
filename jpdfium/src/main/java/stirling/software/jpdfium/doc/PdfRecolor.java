@@ -12,10 +12,7 @@ import stirling.software.jpdfium.panama.ColorBindings;
 import stirling.software.jpdfium.panama.NativeRuntime;
 import stirling.software.jpdfium.panama.PageEditBindings;
 
-/**
- * Vector-level recolouring: inversion, tinting and high contrast.
- * Only top-level text and path objects change; form XObject content is left as-is.
- */
+/** Vector-level recolouring of top-level text and path objects. */
 public final class PdfRecolor {
 
     /** White-ish colours are left alone by {@link Mode#INVERT} when enabled. */
@@ -163,10 +160,17 @@ public final class PdfRecolor {
                                       MemorySegment r, MemorySegment g, MemorySegment b, MemorySegment a,
                                       int[] mapped, int[] cmykProbe, boolean fill) {
         try {
-            // The CMYK getters answer true only for DeviceCMYK, so this skips space
-            // colours we cannot faithfully rewrite (ICC/Separation read back as sRGB).
-            if (fill ? ColorBindings.getFillColorCmyk(obj, cmykProbe)
-                     : ColorBindings.getStrokeColorCmyk(obj, cmykProbe)) {
+            // Only gray/RGB can be rebuilt from the RGB getter.
+            int sourceSpace = fill
+                    ? ColorBindings.fillColorSpace(obj)
+                    : ColorBindings.strokeColorSpace(obj);
+            if (sourceSpace >= 0) {
+                if (sourceSpace != ColorBindings.COLORSPACE_DEVICEGRAY
+                        && sourceSpace != ColorBindings.COLORSPACE_DEVICERGB) {
+                    return false;
+                }
+            } else if (fill ? ColorBindings.getFillColorCmyk(obj, cmykProbe)
+                    : ColorBindings.getStrokeColorCmyk(obj, cmykProbe)) {
                 return false;
             }
             int ok = fill
