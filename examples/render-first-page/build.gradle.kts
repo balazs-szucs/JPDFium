@@ -34,7 +34,7 @@ val architecture = when (osArch) {
 }
 
 dependencies {
-    implementation(platform("com.stirling:jpdfium-bom:1.2.0"))
+    implementation(platform("com.stirling:jpdfium-bom:1.2.1-forktest"))
     implementation("com.stirling:jpdfium")
     runtimeOnly("com.stirling:jpdfium-natives-$platform-$architecture")
 }
