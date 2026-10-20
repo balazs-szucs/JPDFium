@@ -40,17 +40,21 @@ val licensesDir = rootProject.layout.projectDirectory.dir("native/licenses")
 // jar (and PDFium/qpdf notices in the vips jar), which is pure duplication.
 // Keep the lists conservative: anything a bundle may load at runtime stays.
 val coreLicenses = listOf(
-    "FREETYPE.txt", "HARFBUZZ.txt", "ICU.txt", "LIBJPEG-TURBO.txt",
-    "LIBPNG.txt", "NOTICE.txt", "PDFIUM-BSD-3.txt", "QPDF-APACHE-2.0.txt",
-    "ZLIB.txt"
+    "ABSEIL-APACHE-2.0.txt", "FREETYPE.txt", "HARFBUZZ.txt", "ICU.txt",
+    "LIBJPEG-TURBO.txt", "LIBPNG.txt", "LIBUNIBREAK-ZLIB.txt", "NOTICE.txt",
+    "PCRE2-BSD-3.txt", "PDFIUM-BSD-3.txt", "PUGIXML-MIT.txt",
+    "QPDF-APACHE-2.0.txt", "ZLIB.txt"
 )
 val vipsLicenses = listOf(
+    "AOM-BSD-2.txt", "BROTLI-MIT.txt", "GETTEXT-LGPL-2.1.txt",
     "GLIB-LGPL-2.1.txt", "HIGHWAY-APACHE-2.0.txt", "KVAZAAR-BSD-3.txt",
-    "LCMS2-MIT.txt", "LIBDE265-LGPL-3.0.txt", "LIBHEIF-LGPL-3.0.txt",
+    "LCMS2-MIT.txt", "LIBDE265-LGPL-3.0.txt", "LIBEXIF-LGPL-2.1.txt",
+    "LIBEXPAT-MIT.txt", "LIBFFI-MIT.txt", "LIBHEIF-LGPL-3.0.txt",
     "LIBJPEG-TURBO.txt", "LIBJXL-BSD-3.txt", "LIBNSGIF-MIT.txt",
     "LIBPNG.txt", "LIBSPNG-BSD-2.txt", "LIBTIFF.txt", "LIBVIPS-LGPL-2.1.txt",
     "LIBVMAF-BSD-2-CLAUSE-PATENT.txt", "LIBWEBP-BSD-3.txt", "NOTICE.txt",
-    "OPENJPEG-BSD-2.txt", "ZLIB.txt", "ZSTD-BSD-3.txt"
+    "OPENJPEG-BSD-2.txt", "PCRE2-BSD-3.txt", "UTIL-LINUX-LGPL-2.1.txt",
+    "ZLIB.txt", "ZSTD-BSD-3.txt"
 )
 val bundledLicenses = if (platform.startsWith("vips-")) vipsLicenses else coreLicenses
 
