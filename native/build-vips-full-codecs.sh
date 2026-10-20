@@ -155,17 +155,24 @@ EOF
 }
 
 build_aom() {
-    # macOS only, opt-in: brew's aom links libvmaf (BSD-2-Clause-Patent, ~1 MB
-    # of video-quality code AVIF never uses). The apt build is vmaf-free
-    # already. The source build keeps pulling 503s from aomedia.googlesource,
-    # so default to brew's aom; set JPDFIUM_BUILD_AOM=1 to build it.
-    [ "$OS" = darwin ] || return 0
+    # Opt-in: brew's macOS AOM links libvmaf (BSD-2-Clause-Patent, ~0.9 MB of
+    # video-quality code AVIF never uses); Debian's AOM is vmaf-free but much
+    # larger than a MinSizeRel build with the unused inspection/high-bitdepth/
+    # WebM paths disabled. Build once on both POSIX platforms and let libheif
+    # link it. musl stays on the Alpine package (cross-build cost/risk).
+    if [ "$OS" = linux ] && (ldd --version 2>&1 | grep -qi musl); then
+        echo "==> build-vips-full-codecs.sh: musl; using Alpine AOM"
+        return 0
+    fi
     [ "${JPDFIUM_BUILD_AOM:-0}" = "1" ] || {
-        echo "==> build-vips-full-codecs.sh: using brew's aom (JPDFIUM_BUILD_AOM=1 to build)"
+        echo "==> build-vips-full-codecs.sh: using system AOM (JPDFIUM_BUILD_AOM=1 to build)"
         return 0
     }
     local tag="${AOM_TAG:-v3.15.1}"
-    local prefix="$PREFIX/opt/aom-${tag#v}"
+    # macOS keeps the keg out of brew's prefix; Linux installs into /usr/local
+    # so the source libaom is found before the apt copy at bundle time.
+    local prefix
+    if [ "$OS" = darwin ]; then prefix="$PREFIX/opt/aom-${tag#v}"; else prefix="$PREFIX"; fi
     echo "==> build-vips-full-codecs.sh: building aom ${tag} (no vmaf) -> $prefix"
     local work
     work="$(mktemp -d)"
@@ -206,11 +213,13 @@ build_aom() {
         arch_args=("-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES")
     fi
     cmake -S "$work/src" -B "$work/build" \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_INSTALL_PREFIX="$prefix" \
         -DBUILD_SHARED_LIBS=1 \
         -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 -DENABLE_DOCS=0 \
-        -DCONFIG_TUNE_VMAF=0 \
+        -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
+        -DCONFIG_WEBM_IO=0 -DCONFIG_LIBYUV=0 -DCONFIG_INSPECTION=0 \
+        -DCONFIG_ENTROPY_STATS=0 -DCONFIG_INTERNAL_STATS=0 \
         ${arch_args[@]+"${arch_args[@]}"} \
         || { echo "build-vips-full-codecs.sh: aom cmake configure failed; keeping brew's aom" >&2; return 0; }
 
@@ -221,15 +230,20 @@ build_aom() {
     cmake --install "$work/build" \
         || { echo "build-vips-full-codecs.sh: aom install failed; keeping brew's aom" >&2; return 0; }
 
-    if otool -L "$prefix/lib/libaom.3.dylib" 2>/dev/null | grep -qi vmaf; then
-        echo "build-vips-full-codecs.sh: aom still links vmaf; keeping brew's aom" >&2
-        return 0
+    if [ "$OS" = darwin ]; then
+        if otool -L "$prefix/lib/libaom.3.dylib" 2>/dev/null | grep -qi vmaf; then
+            echo "build-vips-full-codecs.sh: aom still links vmaf; keeping brew's aom" >&2
+            return 0
+        fi
+        export JPDFIUM_AOM_PREFIX="$prefix"
+    else
+        $SUDO ldconfig 2>/dev/null || true
     fi
-    # Make libheif and libvips pick this aom over brew's.
+    # Make libheif and libvips pick this aom over the system copy.
     export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     export CMAKE_PREFIX_PATH="$prefix:${CMAKE_PREFIX_PATH:-}"
-    export JPDFIUM_AOM_PREFIX="$prefix"
-    echo "==> build-vips-full-codecs.sh: aom installed (vmaf-free)"
+    export LD_LIBRARY_PATH="$prefix/lib:${LD_LIBRARY_PATH:-}"
+    echo "==> build-vips-full-codecs.sh: aom installed ($prefix)"
 }
 
 build_kvazaar() {
