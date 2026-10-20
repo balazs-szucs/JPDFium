@@ -228,6 +228,7 @@ build_aom() {
     # Make libheif and libvips pick this aom over brew's.
     export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     export CMAKE_PREFIX_PATH="$prefix:${CMAKE_PREFIX_PATH:-}"
+    export JPDFIUM_AOM_PREFIX="$prefix"
     echo "==> build-vips-full-codecs.sh: aom installed (vmaf-free)"
 }
 
@@ -381,6 +382,17 @@ build_libheif() {
         fi
     else
         cmake --install "$work/build"
+        # libheif resolves AOM through @rpath, and the bundle stage would find
+        # brew's libaom (which links libvmaf) before the source-built one.
+        # Pin the installed libheif to the vmaf-free AOM explicitly.
+        if [ -n "${JPDFIUM_AOM_PREFIX:-}" ] && [ -f "$JPDFIUM_AOM_PREFIX/lib/libaom.3.dylib" ]; then
+            for f in "$PREFIX"/lib/libheif*.dylib; do
+                [ -f "$f" ] || continue
+                for dep in $(otool -L "$f" 2>/dev/null | awk '/libaom\.3\.dylib/ {print $1}'); do
+                    install_name_tool -change "$dep" "$JPDFIUM_AOM_PREFIX/lib/libaom.3.dylib" "$f" 2>/dev/null || true
+                done
+            done
+        fi
     fi
     echo "==> build-vips-full-codecs.sh: libheif installed to $PREFIX/lib:"
     ls -la "$PREFIX"/lib/libheif.* 2>/dev/null || true
