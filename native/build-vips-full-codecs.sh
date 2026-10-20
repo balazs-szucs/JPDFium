@@ -228,8 +228,13 @@ build_aom() {
     nproc="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
     cmake --build "$work/build" --parallel "$nproc" \
         || { echo "build-vips-full-codecs.sh: aom build failed; keeping brew's aom" >&2; return 0; }
-    cmake --install "$work/build" \
-        || { echo "build-vips-full-codecs.sh: aom install failed; keeping brew's aom" >&2; return 0; }
+    if [ "$OS" = linux ]; then
+        $SUDO cmake --install "$work/build" \
+            || { echo "build-vips-full-codecs.sh: aom install failed; keeping system aom" >&2; return 0; }
+    else
+        cmake --install "$work/build" \
+            || { echo "build-vips-full-codecs.sh: aom install failed; keeping brew's aom" >&2; return 0; }
+    fi
 
     if [ "$OS" = darwin ]; then
         if otool -L "$prefix/lib/libaom.3.dylib" 2>/dev/null | grep -qi vmaf; then
