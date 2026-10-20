@@ -69,6 +69,13 @@ graalvmNative {
     }
 }
 
+val localNatives = configurations.create("localNatives") {
+    isCanBeConsumed = false
+    isCanBeResolved = false
+}
+configurations.named("runtimeClasspath") { extendsFrom(localNatives) }
+configurations.named("testRuntimeClasspath") { extendsFrom(localNatives) }
+
 dependencies {
     // No imageio-webp: jpdfium-vips registers a libvips-backed ImageCodec as
     // the default and writes WebP without an ImageIO plugin. WebP writing
@@ -106,7 +113,11 @@ dependencies {
         }
     }
     val testNatives = (findProperty("jpdfium.testNatives") ?: defaultPlatform).toString()
-    runtimeOnly(project(":jpdfium-natives:jpdfium-natives-$testNatives"))
+    // Local run/native-image/test classpaths only. This must NOT be a
+    // runtimeOnly dependency: that is published in the POM and Gradle module
+    // metadata, which forced every consumer to download the Linux x64 natives
+    // even on macOS/Windows/ARM. Consumers pick their platform artifact.
+    localNatives(project(":jpdfium-natives:jpdfium-natives-$testNatives"))
     testImplementation(libs.pdfbox)
     jmhImplementation(libs.jmh.core)
     jmhAnnotationProcessor(libs.jmh.annproc)

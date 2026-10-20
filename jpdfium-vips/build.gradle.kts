@@ -22,10 +22,12 @@ publishing {
 }
 
 // The vips natives platform for tests: -Pjpdfium.testVipsNatives=vips-<platform>,
-// defaulting to the same platform as -Pjpdfium.testNatives (used by jpdfium's
-// runtimeOnly natives dependency).
+// defaulting to the same platform as -Pjpdfium.testNatives.
 val testVipsNatives = (findProperty("jpdfium.testVipsNatives") as String?)
     ?: "vips-${findProperty("jpdfium.testNatives") ?: "linux-x64"}"
+// jpdfium no longer publishes a native dependency (that forced Linux x64 on
+// every consumer), so this module's tests must add the core natives they use.
+val testNatives = (findProperty("jpdfium.testNatives") as String?)
 
 // The vips tests read a sample PDF from the classpath. jpdfium leaves its
 // GraalVM smoke fixtures out of the published jar, so this module carries its own
@@ -38,6 +40,11 @@ dependencies {
     // the other vips tests) exercise the exact bundled libvips being shipped.
     // Resolved lazily by Gradle; a no-op when the dist dir is empty (tests then
     // fall back to a system libvips or skip).
+    testNatives?.let { platform ->
+        findProject(":jpdfium-natives:jpdfium-natives-$platform")?.let {
+            testRuntimeOnly(it)
+        }
+    }
     findProject(":jpdfium-natives:jpdfium-natives-$testVipsNatives")?.let {
         testRuntimeOnly(it)
     }
