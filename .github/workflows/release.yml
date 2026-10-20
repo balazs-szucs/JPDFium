@@ -18,6 +18,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      dryRun:
+        description: 'Build everything and publish to Maven Local instead of Central Portal'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -935,6 +940,7 @@ jobs:
           echo "Publishing version: $VERSION"
 
       - name: Publish to Central Portal
+        if: inputs.dryRun != true
         env:
           CENTRAL_PORTAL_USERNAME: ${{ secrets.CENTRAL_PORTAL_USERNAME }}
           CENTRAL_PORTAL_PASSWORD: ${{ secrets.CENTRAL_PORTAL_PASSWORD }}
@@ -946,6 +952,10 @@ jobs:
             ARGS+=(-PautoRelease=true)
           fi
           ./gradlew "${ARGS[@]}" --no-daemon --stacktrace
+
+      - name: Publish to Maven Local (dry run)
+        if: inputs.dryRun == true
+        run: ./gradlew publishToMavenLocal -Pjpdfium.version=${{ steps.v.outputs.version }} --no-daemon --stacktrace
 
       - name: Attach CLI binaries to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -984,7 +994,7 @@ jobs:
   verify-staging:
     name: Verify staged artifacts (${{ matrix.platform }})
     needs: publish
-    if: startsWith(github.ref, 'refs/tags/') || inputs.version != ''
+    if: inputs.dryRun != true && (startsWith(github.ref, 'refs/tags/') || inputs.version != '')
     strategy:
       fail-fast: false
       matrix:
@@ -1030,7 +1040,7 @@ jobs:
   verify-released:
     name: Verify Maven Central (${{ matrix.platform }})
     needs: publish
-    if: inputs.autoRelease == true || inputs.verifyReleased == true
+    if: inputs.dryRun != true && (inputs.autoRelease == true || inputs.verifyReleased == true)
     strategy:
       fail-fast: false
       matrix:
