@@ -188,7 +188,7 @@ if [ "$OS" = "darwin" ]; then
     JPEG_PREFIX="$(brew --prefix jpeg-turbo 2>/dev/null || echo /opt/homebrew/opt/jpeg-turbo)"
     JPEG_ARGS="-L$JPEG_PREFIX/lib -ljpeg"
 fi
-python3 - "$QPDF_PC" "$QPDF_STATIC" "$JPEG_ARGS" <<'PY_EOF'
+$SUDO python3 - "$QPDF_PC" "$QPDF_STATIC" "$JPEG_ARGS" <<'PY_EOF'
 import re, sys
 path, archive, jpeg = sys.argv[1:4]
 with open(path) as f:
