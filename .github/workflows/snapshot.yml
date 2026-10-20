@@ -766,9 +766,6 @@ jobs:
         # with ALL major codecs so the smoke can render PDF -> every format.
         if: steps.vips_fetch.outputs.pinned != 'true' && (startsWith(matrix.platform, 'linux-') || startsWith(matrix.platform, 'darwin-'))
         continue-on-error: true
-        env:
-          # Build AOM from source on macOS so it does not link brew's libvmaf.
-          JPDFIUM_BUILD_AOM: '1'
         run: |
           # Reproducible pins (libvips, libheif, aom, kvazaar); the Vips Drift
           # Check workflow reports when upstream has newer versions.

@@ -309,11 +309,6 @@ jobs:
 
       - name: Build full-codec libvips (Linux + macOS)
         if: matrix.libc != 'musl' && (matrix.os == 'linux' || matrix.os == 'darwin')
-        env:
-          # Build AOM from source on macOS so it does not link brew's libvmaf
-          # (~1 MB of video-quality code AVIF never uses). The script falls
-          # back to brew's AOM if the source download fails.
-          JPDFIUM_BUILD_AOM: '1'
         run: |
           set -a; . native/vips-build.env; set +a
           if [ "${{ matrix.platform }}" = "darwin-x64" ]; then
