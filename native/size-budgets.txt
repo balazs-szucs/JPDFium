@@ -9,7 +9,7 @@
 # is legitimate and reviewed, bump the value deliberately (don't widen it to
 # silence the check).
 #
-# Rough current sizes (Aug 2026): core bundles ~25 MB (darwin, Skia + qpdf +
+# Rough current sizes (Oct 2026): core bundles ~25 MB (darwin, Skia + qpdf +
 # trimmed ICU); vips bundles 18-29 MB after dropping pdfload/PDFium.
 
 linux-x64      48000000
