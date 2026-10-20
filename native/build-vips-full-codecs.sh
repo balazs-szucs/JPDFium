@@ -138,7 +138,7 @@ EOF
             libjxl-dev libaom-dev libde265-dev \
             libwebp-dev libpng-dev libjpeg-turbo8-dev libtiff-dev \
             libopenjp2-7-dev \
-            libspng-dev libhwy-dev \
+            libspng-dev libhwy-dev nasm \
             zlib1g-dev liblzma-dev libzstd-dev libdeflate-dev \
             icu-devtools
     else
