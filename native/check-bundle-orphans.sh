@@ -69,7 +69,7 @@ while IFS= read -r f; do
     lower="$(echo "$base" | tr 'A-Z' 'a-z')"
 
     if [ "$OS" = windows ]; then
-        if echo "$lower" | grep -qE 'allocator_shim|raw_ptr'; then
+        if echo "$lower" | grep -E 'allocator_shim|raw_ptr' >/dev/null; then
             echo "FAIL: $base is an unused allocator hook and must not be bundled on Windows" >&2
             failures=$((failures + 1))
         fi
@@ -79,7 +79,7 @@ while IFS= read -r f; do
         *jpdfium*|*vips*) continue ;;
     esac
 
-    if ! grep -qx "$lower" "$WORK/imported.txt"; then
+    if ! grep -x "$lower" "$WORK/imported.txt" >/dev/null; then
         echo "FAIL: $base is orphaned (nothing in the bundle imports it)" >&2
         failures=$((failures + 1))
     fi

@@ -46,7 +46,7 @@ bundle_linux() {
             [ -e "$f" ] || continue
             [ -L "$f" ] && continue
             patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
-            if readelf -lW "$f" 2>/dev/null | grep "GNU_STACK" | grep -q "RWE"; then
+            if readelf -lW "$f" 2>/dev/null | grep "GNU_STACK" | grep "RWE" >/dev/null; then
                 echo "Clearing executable stack on $f" >&2
                 patchelf --clear-execstack "$f" || {
                     echo "ERROR: $f requires an executable stack and patchelf could not clear it" >&2
@@ -120,7 +120,7 @@ bundle_freebsd() {
             [ -e "$f" ] || continue
             [ -L "$f" ] && continue
             patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true
-            if readelf -lW "$f" 2>/dev/null | grep "GNU_STACK" | grep -q "RWE"; then
+            if readelf -lW "$f" 2>/dev/null | grep "GNU_STACK" | grep "RWE" >/dev/null; then
                 echo "Clearing executable stack on $f" >&2
                 patchelf --clear-execstack "$f" || {
                     echo "ERROR: $f requires an executable stack and patchelf could not clear it" >&2

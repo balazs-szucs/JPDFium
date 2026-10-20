@@ -20,7 +20,7 @@ for f in "$DIST_DIR"/lib*.so*; do
     while IFS= read -r dep; do
         [ -z "$dep" ] && continue
         [ -e "$DIST_DIR/$dep" ] && continue
-        if echo "$dep" | grep -qE "$CORE_RE"; then
+        if echo "$dep" | grep -E "$CORE_RE" >/dev/null; then
             continue
         fi
         echo "FAIL: $f depends on '$dep' which is neither bundled nor a core system lib" >&2
