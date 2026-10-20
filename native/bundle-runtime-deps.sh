@@ -556,27 +556,11 @@ dedupe_icu() {
             echo "  Deduped PDFium ICU into $(basename "$versioned") (major ${um#_})"
             ;;
         linux-*|vips-linux-*)
-            unversioned="$DIST_DIR/libicuuc.so"
-            for f in "$DIST_DIR"/libicuuc.so.*; do
-                [ -f "$f" ] || continue
-                case "$(basename "$f")" in libicuuc.so.[0-9]*) versioned="$f";; esac
-                [ -n "$versioned" ] && break
-            done
-            [ -f "$unversioned" ] && [ -f "$versioned" ] || return 0
-            command -v patchelf >/dev/null 2>&1 || return 0
-            local um vm
-            um=$(nm -D --defined-only "$unversioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
-            vm=$(nm -D --defined-only "$versioned" 2>/dev/null | awk 'match($0, /_[0-9]+$/) { if (m == "") m = substr($0, RSTART, RLENGTH) } END { print m }')
-            if [ -z "$um" ] || [ "$um" != "$vm" ]; then
-                echo "  ICU dedupe skipped: PDFium ${um:-?} vs bundle ${vm:-?}" >&2
-                return 0
-            fi
-            for f in "$DIST_DIR"/lib*.so "$DIST_DIR"/lib*.so.*; do
-                [ -f "$f" ] || continue
-                patchelf --replace-needed libicuuc.so "$(basename "$versioned")" "$f" 2>/dev/null || true
-            done
-            rm -f "$unversioned"
-            echo "  Deduped PDFium ICU into $(basename "$versioned") (major ${um#_})"
+            # Kept separate on Linux: PDFium's ICU bundle carries the data its
+            # layout/font code expects. Ubuntu 26.04's matching major was not
+            # enough - nativeSmokeTest SIGABRTed after the swap. macOS was
+            # verified against 171 PDFs and keeps the dedupe below.
+            return 0
             ;;
     esac
 }
