@@ -28,6 +28,7 @@ case "$(uname -s)" in
     Linux*)
         OS=linux
         PREFIX=/usr/local
+        if [ "$(id -u)" = "0" ]; then SUDO=""; else SUDO=sudo; fi
         ;;
     Darwin*)
         OS=darwin
@@ -160,9 +161,9 @@ ninja -C "$WORK/harfbuzz/build" \
 # Linux uses sudo (GH runner). macOS owns brew prefix as the runner user,
 # so plain `ninja install` works there (and `sudo` would prompt).
 if [ "$OS" = "linux" ]; then
-    sudo ninja -C "$WORK/harfbuzz/build" install \
-      || { echo "build-harfbuzz-no-glib.sh: ninja install failed; skipping" >&2; exit 0; }
-    sudo ldconfig 2>/dev/null || true
+    $SUDO ninja -C "$WORK/harfbuzz/build" install \
+      || { echo "build-harfbuzz-no-glib.sh: ninja install failed" >&2; exit 1; }
+    $SUDO ldconfig 2>/dev/null || true
 else
     ninja -C "$WORK/harfbuzz/build" install \
       || { echo "build-harfbuzz-no-glib.sh: ninja install failed; skipping" >&2; exit 0; }
@@ -198,7 +199,7 @@ if [ "$OS" = "linux" ]; then
                /usr/local/lib/aarch64-linux-gnu/libharfbuzz.so* \
                /usr/local/lib/aarch64-linux-gnu/libharfbuzz-subset.so*; do
         [ -e "$old" ] || continue
-        sudo mv "$old" "${old}.disabled" 2>/dev/null || true
+        $SUDO mv "$old" "${old}.disabled" 2>/dev/null || true
     done
 elif [ "$OS" = "darwin" ]; then
     HB_PREFIX="$(brew --prefix harfbuzz 2>/dev/null || true)"

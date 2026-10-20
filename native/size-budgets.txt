@@ -9,17 +9,15 @@
 # is legitimate and reviewed, bump the value deliberately (don't widen it to
 # silence the check).
 #
-# Rough current sizes (Aug 2026): core bundles ~10-12 MB; vips bundles
-# ~13 MB (darwin) / ~37 MB (linux). Skia is the default renderer now and the
-# static release link pulls its code in, so the core budgets carry headroom
-# for it; tighten them once a Skia prebuild has been measured.
+# Rough current sizes (Aug 2026): core bundles ~25 MB (darwin, Skia + qpdf +
+# trimmed ICU); vips bundles 18-29 MB after dropping pdfload/PDFium.
 
-linux-x64      64000000
-linux-arm64    64000000
-linux-musl-x64 64000000
-linux-musl-arm64 64000000
-darwin-x64     66000000  # largest core bundle; tighten after a measured build
-darwin-arm64   64000000
+linux-x64      48000000
+linux-arm64    48000000
+linux-musl-x64 48000000
+linux-musl-arm64 48000000
+darwin-x64     48000000
+darwin-arm64   48000000
 windows-x64    64000000  # plus an explicit trimmed-icudt*.dll presence gate in check-bundle-size.sh
 windows-arm64  64000000  # ditto
 freebsd-x64    64000000

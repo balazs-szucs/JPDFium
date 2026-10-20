@@ -33,7 +33,9 @@ case "$(uname -s)" in
     Linux*)
         OS=linux
         PREFIX=/usr/local
-        SUDO=sudo
+        # Containers often run as root without sudo installed; CI runners are
+        # non-root and need it for /usr/local.
+        if [ "$(id -u)" = "0" ]; then SUDO=""; else SUDO=sudo; fi
         ;;
     Darwin*)
         OS=darwin
@@ -100,14 +102,14 @@ for pc in zlib libjpeg; do
         if [ "$pc" = "libjpeg" ] && pkg-config --exists libjpeg-turbo; then
             continue
         fi
-        echo "build-qpdf-native-crypto.sh: missing pkg-config $pc; skipping" >&2
-        exit 0
+        echo "build-qpdf-native-crypto.sh: missing pkg-config $pc" >&2
+        exit 1
     fi
 done
 
 if ! command -v cmake >/dev/null 2>&1; then
-    echo "build-qpdf-native-crypto.sh: cmake not installed; skipping" >&2
-    exit 0
+    echo "build-qpdf-native-crypto.sh: cmake not installed" >&2
+    exit 1
 fi
 
 WORK=$(mktemp -d)
@@ -115,8 +117,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "Cloning qpdf ${QPDF_TAG}..."
 if ! git clone --depth 1 -b "$QPDF_TAG" "$QPDF_REPO" "$WORK/qpdf"; then
-    echo "build-qpdf-native-crypto.sh: git clone failed; skipping" >&2
-    exit 0
+    echo "build-qpdf-native-crypto.sh: git clone failed" >&2
+    exit 1
 fi
 
 NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
@@ -150,24 +152,24 @@ cmake -S "$WORK/qpdf" -B "$WORK/qpdf/build" \
     -DBUILD_SHARED_LIBS=OFF \
     -DBUILD_STATIC_LIBS=ON \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_C_FLAGS="-ffunction-sections -fdata-sections" \
-    -DCMAKE_CXX_FLAGS="-ffunction-sections -fdata-sections" \
+    -DCMAKE_C_FLAGS="-fPIC -ffunction-sections -fdata-sections" \
+    -DCMAKE_CXX_FLAGS="-fPIC -ffunction-sections -fdata-sections" \
     -DUSE_IMPLICIT_CRYPTO=OFF \
     -DBUILD_DOC=OFF -DBUILD_DOC_HTML=OFF -DBUILD_DOC_PDF=OFF \
     -DBUILD_DOC_DIST=OFF \
     -DCI_MODE=ON \
     "${CMAKE_EXTRA_ARGS[@]}" \
-  || { echo "build-qpdf-native-crypto.sh: cmake configure failed; skipping" >&2; exit 0; }
+  || { echo "build-qpdf-native-crypto.sh: cmake configure failed" >&2; exit 1; }
 
 cmake --build "$WORK/qpdf/build" --target libqpdf -j"$NPROC" \
-  || { echo "build-qpdf-native-crypto.sh: cmake build failed; skipping" >&2; exit 0; }
+  || { echo "build-qpdf-native-crypto.sh: cmake build failed" >&2; exit 1; }
 
 # Install lib + dev components separately (cmake --install takes a single
 # --component at a time).
 $SUDO cmake --install "$WORK/qpdf/build" --component lib \
-  || { echo "build-qpdf-native-crypto.sh: install lib failed; skipping" >&2; exit 0; }
+  || { echo "build-qpdf-native-crypto.sh: install lib failed" >&2; exit 1; }
 $SUDO cmake --install "$WORK/qpdf/build" --component dev \
-  || { echo "build-qpdf-native-crypto.sh: install dev failed; skipping" >&2; exit 0; }
+  || { echo "build-qpdf-native-crypto.sh: install dev failed" >&2; exit 1; }
 if [ "$OS" = "linux" ]; then
     $SUDO ldconfig 2>/dev/null || true
 fi
