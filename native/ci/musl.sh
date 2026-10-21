@@ -66,9 +66,8 @@ for step in "$@"; do
         vips)
             echo "==> musl.sh [$PLATFORM] vips"
             export JPDFIUM_LIBC=musl
-            # Component musl PDFium for vips pdfload (from the pinned PDFium
-            # release); when absent the build proceeds without PDF loading.
-            bash native/fetch-prebuilt-pdfium.sh "$PLATFORM" || true
+            # No PDFium here: PDF rendering belongs to the core bridge, not
+            # libvips' pdfload.
             bash native/build-vips-full-codecs.sh
             # Alpine's busybox ldd output does not match the glibc bundler, so
             # stage the dependency closure with readelf instead.
@@ -102,6 +101,7 @@ for step in "$@"; do
                 strip --strip-unneeded "$f2" 2>/dev/null || true
             done
             bash native/check-no-execstack.sh "$dist"
+            bash native/check-vips-codecs.sh "$dist" "vips-$PLATFORM"
             echo "--- staged ($PLATFORM) ---"; ls -la "$dist"
             # Smoke the bundled dist with the CLI installed in this container.
             export LD_LIBRARY_PATH="$PWD/native/dist/vips-$PLATFORM:/usr/local/lib"
