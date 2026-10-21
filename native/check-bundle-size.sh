@@ -19,7 +19,7 @@ fi
 
 [ -f "$BUDGETS" ] || exit 0
 
-if find "$DIST_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -q .; then
+if find "$DIST_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep . >/dev/null; then
     echo "FAIL: subdirectories found in $DIST_DIR" >&2
     exit 1
 fi

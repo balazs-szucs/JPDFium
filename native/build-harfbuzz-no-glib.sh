@@ -28,6 +28,7 @@ case "$(uname -s)" in
     Linux*)
         OS=linux
         PREFIX=/usr/local
+        if [ "$(id -u)" = "0" ]; then SUDO=""; else SUDO=sudo; fi
         ;;
     Darwin*)
         OS=darwin
@@ -160,9 +161,9 @@ ninja -C "$WORK/harfbuzz/build" \
 # Linux uses sudo (GH runner). macOS owns brew prefix as the runner user,
 # so plain `ninja install` works there (and `sudo` would prompt).
 if [ "$OS" = "linux" ]; then
-    sudo ninja -C "$WORK/harfbuzz/build" install \
-      || { echo "build-harfbuzz-no-glib.sh: ninja install failed; skipping" >&2; exit 0; }
-    sudo ldconfig 2>/dev/null || true
+    $SUDO ninja -C "$WORK/harfbuzz/build" install \
+      || { echo "build-harfbuzz-no-glib.sh: ninja install failed" >&2; exit 1; }
+    $SUDO ldconfig 2>/dev/null || true
 else
     ninja -C "$WORK/harfbuzz/build" install \
       || { echo "build-harfbuzz-no-glib.sh: ninja install failed; skipping" >&2; exit 0; }
@@ -183,6 +184,26 @@ else
     fi
 fi
 
+# Point pkg-config at the static archives. The install step leaves brew/apt
+# .pc files pointing at shared libraries, which would relink the bridge to a
+# dylib that is about to be disabled.
+PC_DIR="$PREFIX/lib/pkgconfig"
+mkdir -p "$PC_DIR"
+for hb_mod in harfbuzz harfbuzz-subset; do
+    cat > "$PC_DIR/$hb_mod.pc" <<EOF
+prefix=$PREFIX
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include/harfbuzz
+
+Name: $hb_mod
+Description: HarfBuzz text shaping library
+Version: ${HB_TAG#v}
+Libs: -L\${libdir} -l$hb_mod
+Cflags: -I\${includedir}
+EOF
+done
+
 # Move old shared harfbuzz aside so CMake / pkg-config links the static archives.
 # Linux: apt's libs under /usr/lib/<triplet>/ and any /usr/local/lib shared copies.
 # macOS: brew's shared dylibs under $(brew --prefix)/lib/ and Cellar.
@@ -198,7 +219,7 @@ if [ "$OS" = "linux" ]; then
                /usr/local/lib/aarch64-linux-gnu/libharfbuzz.so* \
                /usr/local/lib/aarch64-linux-gnu/libharfbuzz-subset.so*; do
         [ -e "$old" ] || continue
-        sudo mv "$old" "${old}.disabled" 2>/dev/null || true
+        $SUDO mv "$old" "${old}.disabled" 2>/dev/null || true
     done
 elif [ "$OS" = "darwin" ]; then
     HB_PREFIX="$(brew --prefix harfbuzz 2>/dev/null || true)"

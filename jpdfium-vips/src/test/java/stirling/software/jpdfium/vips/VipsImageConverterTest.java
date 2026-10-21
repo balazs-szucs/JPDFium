@@ -69,6 +69,26 @@ class VipsImageConverterTest {
                 "encode allocated " + (after - before) + " bytes (budget 1MB) - Java-side churn too high");
     }
 
+    @Test
+    void multiPageTiffUsesVipsCodec() throws Exception {
+        VipsAvailability.State state = VipsAvailability.probe();
+        assumeTrue(state.available(), "libvips unavailable: " + VipsAvailability.installMessage(state));
+        assumeTrue(VipsAvailability.isFormatAvailable(VipsFormat.TIFF), "tiffsave unavailable");
+
+        java.awt.image.BufferedImage first =
+                new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.awt.image.BufferedImage second =
+                new java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        byte[] encoded = stirling.software.jpdfium.PdfImageIO.writeMultiPageTiffToBytes(
+                java.util.List.of(first, second));
+        assertTrue(encoded.length > 8 && encoded[0] == 'I' && encoded[1] == 'I',
+                "TIFF header missing");
+        var frames = stirling.software.jpdfium.PdfImageIO.readAllFrames(encoded);
+        assertEquals(2, frames.size(), "multi-page TIFF must round-trip two frames");
+        assertEquals(64, frames.get(0).getWidth());
+        assertEquals(64, frames.get(1).getHeight());
+    }
+
     /** Returns this thread's allocated bytes, or -1 if the JVM exposes no counter. */
     private static long allocatedBytes() {
         try {

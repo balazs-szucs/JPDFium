@@ -12,8 +12,10 @@ import stirling.software.jpdfium.internal.RenderedPageView;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class VipsEncoder {
@@ -29,6 +31,54 @@ public final class VipsEncoder {
             VImage image = wrapView(arena, view);
             VBlob blob = encodeToBlob(image, opts);
             result[0] = blob.getBytes();
+        });
+        return result[0];
+    }
+
+    /**
+     * Encode RGBA frames as consecutive pages of one TIFF. All frames must
+     * have the same dimensions; the TIFF page height is derived from them.
+     */
+    public static byte[] encodeFramesToBytes(List<byte[]> frames, VipsEncodeOptions opts) {
+        if (frames == null || frames.isEmpty()) {
+            throw new IllegalArgumentException("At least one frame is required");
+        }
+        if (opts.format() != VipsFormat.TIFF) {
+            throw new IllegalArgumentException("Multi-page encoding requires TIFF");
+        }
+        int width = readLeInt32(frames.get(0), 0);
+        int pageHeight = readLeInt32(frames.get(0), 4);
+        if (width <= 0 || pageHeight <= 0) {
+            throw new IllegalArgumentException("Invalid frame dimensions " + width + "x" + pageHeight);
+        }
+        long pagePixels = (long) width * pageHeight;
+        long totalPixels = pagePixels * frames.size();
+        if (pagePixels * 4L > Integer.MAX_VALUE || totalPixels * 4L > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("Multi-page TIFF is too large: " + width + "x" + pageHeight
+                    + " x " + frames.size() + " pages");
+        }
+        int pageBytes = (int) (pagePixels * 4L);
+        byte[] stacked = new byte[(int) (totalPixels * 4L)];
+        for (int i = 0; i < frames.size(); i++) {
+            byte[] frame = frames.get(i);
+            if (frame == null || frame.length < 8L + pageBytes) {
+                throw new IllegalArgumentException("Frame " + i + " has an invalid payload");
+            }
+            if (readLeInt32(frame, 0) != width || readLeInt32(frame, 4) != pageHeight) {
+                throw new IllegalArgumentException(
+                        "All TIFF pages must have the same dimensions; frame " + i + " differs");
+            }
+            System.arraycopy(frame, 8, stacked, i * pageBytes, pageBytes);
+        }
+        byte[][] result = new byte[1][];
+        Vips.run(arena -> {
+            MemorySegment pixels = arena.allocate(stacked.length);
+            pixels.copyFrom(MemorySegment.ofArray(stacked));
+            VImage image = VImage.newFromMemory(
+                    arena, pixels, width, pageHeight * frames.size(), 4, 0);
+            image = image.copy(
+                    VipsOption.Enum("interpretation", VipsInterpretation.INTERPRETATION_sRGB));
+            result[0] = encodeMultiPageToBlob(image, opts, pageHeight).getBytes();
         });
         return result[0];
     }
@@ -68,6 +118,19 @@ public final class VipsEncoder {
             case TIFF -> image.tiffsaveBuffer(options);
             case JPEG2000 -> image.jp2ksaveBuffer(options);
         };
+    }
+
+    private static VBlob encodeMultiPageToBlob(
+            VImage image, VipsEncodeOptions opts, int pageHeight) {
+        VipsOption[] base = buildOptions(opts);
+        VipsOption[] options = Arrays.copyOf(base, base.length + 1);
+        options[base.length] = VipsOption.Int("page-height", pageHeight);
+        return image.tiffsaveBuffer(options);
+    }
+
+    private static int readLeInt32(byte[] buf, int off) {
+        return (buf[off] & 0xFF) | ((buf[off + 1] & 0xFF) << 8)
+                | ((buf[off + 2] & 0xFF) << 16) | ((buf[off + 3] & 0xFF) << 24);
     }
 
     private static void writeToFile(VImage image, String path, VipsEncodeOptions opts) {

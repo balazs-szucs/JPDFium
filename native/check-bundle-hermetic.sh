@@ -8,7 +8,7 @@ if ! command -v readelf >/dev/null 2>&1; then
     exit 0
 fi
 
-CORE_RE='^(libc|libc\.musl[^.]*|libm|libdl|libpthread|libthr|libc\+\+|libcxxrt|libz|libelf|libexecinfo|libgcc_s|libstdc\+\+|librt|libresolv|libutil|linux-vdso)\.so|^ld-linux|^ld-musl|^ld-elf'
+CORE_RE='^(libc|libc\.musl[^.]*|libm|libdl|libpthread|libthr|libc\+\+|libcxxrt|libz|libelf|libexecinfo|libgcc_s|libstdc\+\+|librt|libresolv|libutil|libmd|libcrypt|libssp|linux-vdso)\.so|^ld-linux|^ld-musl|^ld-elf'
 
 failures=0
 lib_count=0
@@ -20,7 +20,7 @@ for f in "$DIST_DIR"/lib*.so*; do
     while IFS= read -r dep; do
         [ -z "$dep" ] && continue
         [ -e "$DIST_DIR/$dep" ] && continue
-        if echo "$dep" | grep -qE "$CORE_RE"; then
+        if echo "$dep" | grep -E "$CORE_RE" >/dev/null; then
             continue
         fi
         echo "FAIL: $f depends on '$dep' which is neither bundled nor a core system lib" >&2
