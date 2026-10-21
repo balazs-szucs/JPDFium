@@ -63,7 +63,7 @@ Forms can be read, filled, and flattened. Form field creation is not exposed.
 
 ## Images
 
-Without `jpdfium-vips`, formats are whatever `javax.imageio` provides, which depends on your JDK and any ImageIO plugins on the classpath. A stock JDK 25 provides PNG, JPEG, and BMP.
+Without `jpdfium-vips`, formats are whatever `javax.imageio` provides. A stock JDK handles baseline TIFF, including multi-page output; add a TIFF ImageIO plugin for BigTIFF/CMYK variants. Other formats depend on your JDK and any ImageIO plugins on the classpath. A stock JDK 25 provides PNG, JPEG, BMP, and baseline TIFF.
 
 With `jpdfium-vips`, the libvips codec reads and writes WebP, HEIC, AVIF, JXL, and JPEG 2000 in addition to PNG, JPEG, and TIFF. Reading and writing are probed independently, so a libvips build without a given encoder still decodes that format. See [images.md](images.md) for the per-format table.
 

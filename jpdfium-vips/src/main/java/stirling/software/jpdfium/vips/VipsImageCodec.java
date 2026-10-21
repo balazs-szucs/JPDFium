@@ -1,9 +1,12 @@
 package stirling.software.jpdfium.vips;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import stirling.software.jpdfium.internal.ImageCodecs;
 import stirling.software.jpdfium.internal.PixelFormat;
@@ -74,6 +77,36 @@ public final class VipsImageCodec implements ImageCodec {
         VipsEncodeOptions options =
                 VipsEncodeOptions.builder(vipsFormat).quality(quality).build();
         VipsEncoder.encodeToFile(view, output, options);
+    }
+
+    @Override
+    public boolean canEncodeMultiPageTiff() {
+        return canEncode(ImageFormat.TIFF);
+    }
+
+    @Override
+    public void encodeMultiPageTiff(List<BufferedImage> images, OutputStream output, float quality)
+            throws IOException {
+        if (images == null || images.isEmpty()) {
+            throw new IllegalArgumentException("At least one image is required for multi-page TIFF");
+        }
+        int width = images.get(0).getWidth();
+        int height = images.get(0).getHeight();
+        for (BufferedImage image : images) {
+            if (image.getWidth() != width || image.getHeight() != height) {
+                throw new UnsupportedOperationException(
+                        "libvips multi-page TIFF requires equal page dimensions");
+            }
+        }
+        List<byte[]> frames = new ArrayList<>(images.size());
+        for (BufferedImage image : images) {
+            frames.add(ImageCodecs.frameFromImage(image));
+        }
+        float clamped = Math.max(0.0f, Math.min(1.0f, quality));
+        VipsEncodeOptions options = VipsEncodeOptions.builder(VipsFormat.TIFF)
+                .quality(Math.round(clamped * 100.0f))
+                .build();
+        output.write(VipsEncoder.encodeFramesToBytes(frames, options));
     }
 
     @Override

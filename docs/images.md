@@ -26,7 +26,7 @@ Format names are case-insensitive and match the `ImageFormat` enum.
 
 ## Formats without `jpdfium-vips`
 
-By default JPDFium delegates to `javax.imageio`, so the available formats are the ones your JDK supports. A stock JDK 25 typically provides PNG, JPEG, BMP, and TIFF. Additional formats require ImageIO plugins on the classpath.
+By default JPDFium delegates to `javax.imageio`, so the available formats are the ones your JDK supports. A stock JDK 25 provides PNG, JPEG, BMP, and baseline TIFF, including multi-page output. JPDFium no longer bundles a TwelveMonkeys TIFF plugin: add one if you need BigTIFF, CMYK TIFF, or compression variants the JDK reader/writer does not handle. The optional libvips module covers those TIFF variants natively.
 
 ## Formats with `jpdfium-vips`
 
@@ -56,7 +56,9 @@ Verified against a stock Temurin 25 runtime:
 
 Two things the table does not show:
 
-A third-party ImageIO plugin on your classpath can add formats JPDFium does not bundle. WebP is the common case, and `PdfImageIO` names it in the `IOException` it throws when no writer is found.
+`writeMultiPageTiff` uses the libvips codec when it is present and otherwise falls back to the JDK TIFF writer. No extra ImageIO plugin is required for baseline multi-page TIFF.
+
+A third-party ImageIO plugin on your classpath can add formats JPDFium does not bundle. WebP and advanced TIFF are the common cases, and `PdfImageIO` names the format in the `IOException` it throws when no writer is found.
 
 GIF is readable and writable through ImageIO on a stock JDK, but `ImageFormat` has no `GIF` constant, so `PdfImageIO` and `renderTo` cannot be asked for it by name.
 

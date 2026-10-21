@@ -82,12 +82,12 @@ configurations.findByName("nativeImageCliClasspath")?.extendsFrom(localNatives)
 configurations.findByName("nativeImageTestClasspath")?.extendsFrom(localNatives)
 
 dependencies {
-    // No imageio-webp: jpdfium-vips registers a libvips-backed ImageCodec as
-    // the default and writes WebP without an ImageIO plugin. WebP writing
-    // without the vips module is intentionally unsupported
-    // (canWrite(WEBP) == false). TwelveMonkeys TIFF stays for the ImageIO
-    // fallback (BigTIFF/CMYK + compression the JDK writer lacks).
-    implementation(libs.imageio.tiff)
+    // No imageio-webp or imageio-tiff runtime dependency: jpdfium-vips
+    // registers a libvips-backed ImageCodec and handles TIFF, including
+    // multi-page output. Core-only users can add a TIFF ImageIO plugin;
+    // tests keep TwelveMonkeys to exercise that fallback path.
+    compileOnly(libs.imageio.tiff)
+    testImplementation(libs.imageio.tiff)
     // Which platform's native jar lands on the classpath. Auto-detects host OS
     // and arch by default; CI overrides per matrix job with
     // -Pjpdfium.testNatives=<platform> so the smoke loads the native it built.
