@@ -219,6 +219,7 @@ jobs:
           tar xzf aom.tar.gz
           cmake -S "libaom-${AOM_VERSION#v}" -B aom-build -A "$ARCH" \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DAOM_TARGET_CPU=generic \
             -DCMAKE_INSTALL_PREFIX="$AOM_PREFIX" \
             -DBUILD_SHARED_LIBS=ON \
             -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 \
@@ -291,7 +292,6 @@ jobs:
         with:
           release: '14.3'
           usesh: true
-          sync: true
           prepare: |
             pkg bootstrap -y || true
             pkg install -y bash git python3
