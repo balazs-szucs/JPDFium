@@ -1,9 +1,11 @@
 package stirling.software.jpdfium.panama;
 
 import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.StructLayout;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -17,6 +19,10 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * flatten, and bitmap utilities ({@code fpdf_edit.h}, {@code fpdf_flatten.h}).
  */
 public final class PageEditBindings {
+
+    private static final ValueLayout C_ULONG =
+            (ValueLayout) Linker.nativeLinker().canonicalLayouts().get("long");
+    private static final boolean C_ULONG_IS_64_BIT = C_ULONG.byteSize() == JAVA_LONG.byteSize();
 
     private PageEditBindings() {}
 
@@ -65,7 +71,7 @@ public final class PageEditBindings {
 
     /** Get a child object of a form XObject at {@code index}. */
     public static final MethodHandle FPDFFormObj_GetObject = downcallOptional(
-            "FPDFFormObj_GetObject", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));
+            "FPDFFormObj_GetObject", FunctionDescriptor.of(ADDRESS, ADDRESS, C_ULONG));
 
     /**
      * Mark a form's content stream dirty after editing a child. JPDFium PDFium
@@ -77,7 +83,7 @@ public final class PageEditBindings {
 
     /** Stable form identity (stream object number), 0 for inline forms. */
     public static final MethodHandle FPDFFormObj_GetObjectNumber = downcallOptional(
-            "FPDFFormObj_GetObjectNumber", FunctionDescriptor.of(JAVA_LONG, ADDRESS));
+            "FPDFFormObj_GetObjectNumber", FunctionDescriptor.of(C_ULONG, ADDRESS));
 
     /** True when form objects can be traversed and written back. */
     public static boolean formConversionAvailable() {
@@ -87,21 +93,32 @@ public final class PageEditBindings {
     }
 
     /**
-     * Identity used to avoid converting the same shared form more than once.
-     * Falls back to the native object address when the patched object-number
-     * probe is unavailable (stock PDFium).
+     * Shared-form identity from the PDFium patch, or 0 for inline forms and
+     * builds without the object-number probe. Addresses must not cross pages.
      */
-    public static long formIdentity(MemorySegment form) {
-        if (form == null) return 0;
-        if (FPDFFormObj_GetObjectNumber != null) {
-            try {
-                long objNum = (long) FPDFFormObj_GetObjectNumber.invokeExact(form);
-                if (objNum > 0) return objNum;
-            } catch (Throwable t) {
-                NativeRuntime.rethrowFatal(t);
-            }
+    public static long formObjectNumber(MemorySegment form) {
+        if (form == null || FPDFFormObj_GetObjectNumber == null) return 0;
+        try {
+            return C_ULONG_IS_64_BIT
+                    ? (long) FPDFFormObj_GetObjectNumber.invokeExact(form)
+                    : Integer.toUnsignedLong((int) FPDFFormObj_GetObjectNumber.invokeExact(form));
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return 0;
         }
-        return form.address();
+    }
+
+    /** Get a child of a form XObject using the native C {@code unsigned long} index. */
+    public static MemorySegment formObject(MemorySegment form, int index) {
+        if (form == null || FPDFFormObj_GetObject == null) return MemorySegment.NULL;
+        try {
+            return C_ULONG_IS_64_BIT
+                    ? (MemorySegment) FPDFFormObj_GetObject.invokeExact(form, (long) index)
+                    : (MemorySegment) FPDFFormObj_GetObject.invokeExact(form, index);
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            return MemorySegment.NULL;
+        }
     }
 
     public static final MethodHandle FPDFPageObj_Transform = downcall("FPDFPageObj_Transform",

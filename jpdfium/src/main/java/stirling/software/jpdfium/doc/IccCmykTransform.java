@@ -14,6 +14,9 @@ final class IccCmykTransform {
     private static final int CACHE_SIZE = 1 << CACHE_BITS;
     private static final int CACHE_SHIFT = 32 - CACHE_BITS;
 
+    private static final ThreadLocal<SourceCache> SOURCE_CACHE =
+            ThreadLocal.withInitial(SourceCache::new);
+
     private final ColorSpace srgb = ColorSpace.getInstance(ColorSpace.CS_sRGB);
     private final ICC_ColorSpace cmyk;
     private final float[] rgb = new float[3];
@@ -117,6 +120,10 @@ final class IccCmykTransform {
     }
 
     private static ICC_ColorSpace staticSourceSpace(byte[] sourceIcc, int expectedComponents) {
+        SourceCache cache = SOURCE_CACHE.get();
+        if (cache.space != null && Arrays.equals(cache.icc, sourceIcc)) {
+            return cache.space;
+        }
         ICC_Profile profile;
         try {
             profile = ICC_Profile.getInstance(sourceIcc);
@@ -127,7 +134,15 @@ final class IccCmykTransform {
             throw new JPDFiumException("Source ICC component count mismatch: profile="
                     + profile.getNumComponents() + " components=" + expectedComponents);
         }
-        return new ICC_ColorSpace(profile);
+        ICC_ColorSpace space = new ICC_ColorSpace(profile);
+        cache.icc = sourceIcc.clone();
+        cache.space = space;
+        return space;
+    }
+
+    private static final class SourceCache {
+        private byte[] icc;
+        private ICC_ColorSpace space;
     }
 
     private static float clampUnit(int v) {

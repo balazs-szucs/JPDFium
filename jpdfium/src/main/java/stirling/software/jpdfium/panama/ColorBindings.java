@@ -2,7 +2,9 @@ package stirling.software.jpdfium.panama;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -41,6 +43,9 @@ public final class ColorBindings {
     public static final int COLORSPACE_PATTERN = 11;
 
     private static final int JPDFIUM_OK = 0;
+    private static final ValueLayout C_ULONG =
+            (ValueLayout) Linker.nativeLinker().canonicalLayouts().get("long");
+    private static final boolean C_ULONG_IS_64_BIT = C_ULONG.byteSize() == JAVA_LONG.byteSize();
 
     private static MethodHandle downcallOptional(String name, FunctionDescriptor desc) {
         return Symbols.downcallOptional(name, desc);
@@ -125,10 +130,10 @@ public final class ColorBindings {
             FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
     private static final MethodHandle GET_FILL_ICC = downcallOptional(
             "FPDFPageObj_GetFillColorIccProfile",
-            FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
+            FunctionDescriptor.of(C_ULONG, ADDRESS, ADDRESS, C_ULONG));
     private static final MethodHandle GET_STROKE_ICC = downcallOptional(
             "FPDFPageObj_GetStrokeColorIccProfile",
-            FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_LONG));
+            FunctionDescriptor.of(C_ULONG, ADDRESS, ADDRESS, C_ULONG));
 
     private static volatile int capabilities = -1;
 
@@ -253,10 +258,15 @@ public final class ColorBindings {
     private static byte[] iccProfile(MethodHandle handle, MemorySegment obj) {
         if (handle == null || obj == null) return null;
         try (Arena arena = Arena.ofConfined()) {
-            long needed = (long) handle.invokeExact(obj, MemorySegment.NULL, 0L);
+            long needed = C_ULONG_IS_64_BIT
+                    ? (long) handle.invokeExact(obj, MemorySegment.NULL, 0L)
+                    : Integer.toUnsignedLong(
+                            (int) handle.invokeExact(obj, MemorySegment.NULL, 0));
             if (needed <= 0 || needed > Integer.MAX_VALUE) return null;
             MemorySegment buf = arena.allocate(JAVA_BYTE, needed);
-            long got = (long) handle.invokeExact(obj, buf, needed);
+            long got = C_ULONG_IS_64_BIT
+                    ? (long) handle.invokeExact(obj, buf, needed)
+                    : Integer.toUnsignedLong((int) handle.invokeExact(obj, buf, (int) needed));
             if (got != needed) return null;
             return buf.toArray(JAVA_BYTE);
         } catch (Throwable t) {

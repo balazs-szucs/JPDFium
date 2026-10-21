@@ -875,8 +875,8 @@ new = """  RetainPtr<const CPDF_Dictionary> old_dict = pImgObj->GetImage()->GetD
       RetainPtr<CPDF_Dictionary> new_dict =
           const_cast<CPDF_Stream*>(new_stream.Get())->GetMutableDict();
       if (new_dict) {
-        for (const char* key : {"/OC", "/Intent", "/Interpolate", "/Name",
-                                "/Metadata", "/Alternate", "/Matte"}) {
+        for (const char* key : {"OC", "Intent", "Interpolate", "Name",
+                                "Metadata", "Alternates"}) {
           if (old_dict->KeyExist(key) && !new_dict->KeyExist(key)) {
             new_dict->SetFor(key, old_dict->GetObjectFor(key)->Clone());
           }

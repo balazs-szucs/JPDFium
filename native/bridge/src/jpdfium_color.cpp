@@ -30,7 +30,11 @@
 #include "jpdfium_rust.h"
 
 #ifdef JPDFIUM_HAVE_EPDF_JPEG
+#if __has_include(<epdf_edit.h>)
 #include <epdf_edit.h>
+#else
+#include <fpdf_edit.h>
+#endif
 #endif
 
 #ifdef JPDFIUM_HAS_QPDF
@@ -569,29 +573,29 @@ std::string BuildPdfxXmp(const std::string& version, const std::string& conforma
 }
 
 bool AddPdfxAttributes(std::string* xml, const std::string& version, const std::string& conformance,
-                       bool add_version, bool add_conformance) {
+                       bool add_pdfxid_version, bool add_pdfx_version, bool add_conformance) {
     // Add missing properties to the first rdf:Description.
     std::regex description("(<rdf:Description\\b[^>]*?)(\\s*/?>)");
     std::smatch match;
     if (!std::regex_search(*xml, match, description)) return false;
 
+    const bool has_pdfxid_ns = xml->find("xmlns:pdfxid=") != std::string::npos;
     bool has_pdfx_ns = xml->find("xmlns:pdfx=") != std::string::npos;
     std::string attrs;
-    if (add_version) {
-        if (xml->find("xmlns:pdfxid") == std::string::npos) {
-            attrs += " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\"";
-        }
-        if (!has_pdfx_ns) {
-            attrs += " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\"";
-            has_pdfx_ns = true;
-        }
+    if (add_pdfxid_version && !has_pdfxid_ns) {
+        attrs += " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\"";
+    }
+    if ((add_pdfxid_version || add_pdfx_version || add_conformance) && !has_pdfx_ns) {
+        attrs += " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\"";
+        has_pdfx_ns = true;
+    }
+    if (add_pdfxid_version) {
         attrs += " pdfxid:GTS_PDFXVersion=\"" + XmlEscape(version) + "\"";
+    }
+    if (add_pdfx_version) {
         attrs += " pdfx:GTS_PDFXVersion=\"" + XmlEscape(version) + "\"";
     }
     if (add_conformance) {
-        if (!has_pdfx_ns) {
-            attrs += " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\"";
-        }
         attrs += " pdfx:GTS_PDFXConformance=\"" + XmlEscape(conformance) + "\"";
     }
     const size_t pos = static_cast<size_t>(match.position(1) + match.length(1));
@@ -618,18 +622,32 @@ void UpdateOrCreatePdfxMetadata(QPDF* qpdf, const char* version, const char* con
     }
 
     if (!xml.empty()) {
-        std::regex version_tag("(<(?:pdfxid|pdfx):GTS_PDFXVersion>)([^<]*)(</)");
-        const bool has_version = std::regex_search(xml, version_tag);
+        const std::regex version_element(
+            R"((<(?:pdfxid|pdfx):GTS_PDFXVersion>)([^<]*)(</(?:pdfxid|pdfx):GTS_PDFXVersion>))");
+        const std::regex version_attr(R"(((?:pdfxid|pdfx):GTS_PDFXVersion\s*=\s*")[^"]*("))");
+        const std::regex conformance_element(
+            R"((<(?:pdfxid|pdfx):GTS_PDFXConformance>)([^<]*)(</(?:pdfxid|pdfx):GTS_PDFXConformance>))");
+        const std::regex conformance_attr(
+            R"(((?:pdfxid|pdfx):GTS_PDFXConformance\s*=\s*")[^"]*("))");
+
+        const std::regex pdfxid_version(R"(pdfxid:GTS_PDFXVersion\s*(=|>))");
+        const std::regex pdfx_version(R"(pdfx:GTS_PDFXVersion\s*(=|>))");
+        const bool has_pdfxid_version = std::regex_search(xml, pdfxid_version);
+        const bool has_pdfx_version = std::regex_search(xml, pdfx_version);
+        const bool has_version = has_pdfxid_version || has_pdfx_version;
+        const bool has_conformance =
+            std::regex_search(xml, conformance_element) || std::regex_search(xml, conformance_attr);
         if (has_version) {
-            xml = std::regex_replace(xml, version_tag, "$1" + XmlEscape(ver) + "$3");
+            xml = std::regex_replace(xml, version_element, "$1" + XmlEscape(ver) + "$3");
+            xml = std::regex_replace(xml, version_attr, "$1" + XmlEscape(ver) + "$2");
         }
-        std::regex conformance_tag("(<(?:pdfxid|pdfx):GTS_PDFXConformance>)([^<]*)(</)");
-        const bool has_conformance = std::regex_search(xml, conformance_tag);
         if (has_conformance) {
-            xml = std::regex_replace(xml, conformance_tag, "$1" + XmlEscape(conf) + "$3");
+            xml = std::regex_replace(xml, conformance_element, "$1" + XmlEscape(conf) + "$3");
+            xml = std::regex_replace(xml, conformance_attr, "$1" + XmlEscape(conf) + "$2");
         }
-        if ((!has_version || !has_conformance) &&
-            !AddPdfxAttributes(&xml, ver, conf, !has_version, !has_conformance)) {
+        if ((!has_pdfxid_version || !has_pdfx_version || !has_conformance) &&
+            !AddPdfxAttributes(&xml, ver, conf, !has_pdfxid_version, !has_pdfx_version,
+                               !has_conformance)) {
             xml = BuildPdfxXmp(ver, conf);
         }
     } else {

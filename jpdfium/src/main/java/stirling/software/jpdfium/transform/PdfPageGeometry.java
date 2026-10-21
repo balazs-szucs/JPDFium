@@ -222,6 +222,8 @@ public final class PdfPageGeometry {
                 || FormFillBindings.EPDFForm_GetFieldObjNum == null
                 || (FormFillBindings.EPDFForm_ResetField == null
                         && FormFillBindings.EPDFForm_SetFieldValue == null)
+                || (FormFillBindings.EPDFForm_SetFieldValue != null
+                        && FormFillBindings.EPDFForm_RedrawFieldWidgets == null)
                 || rawDoc == null || rawDoc.equals(MemorySegment.NULL)) {
             throw new JPDFiumException("form cleanup is unverifiable: required binding is unavailable");
         }
@@ -297,23 +299,35 @@ public final class PdfPageGeometry {
         for (int objNum : unplaced) {
             try {
                 if (FormFillBindings.EPDFForm_SetFieldValue != null) {
+                    if (FormFillBindings.EPDFForm_RedrawFieldWidgets == null) {
+                        throw new JPDFiumException(
+                                "form appearance regeneration is unavailable; cannot crop safely");
+                    }
                     int ok = (int) FormFillBindings.EPDFForm_SetFieldValue.invokeExact(
                             rawDoc, objNum, FormFillBindings.EPDF_FORM_VALUE_NONE,
                             MemorySegment.NULL, 0L);
                     // Signature/push-button fields do not carry a writable value; the
                     // legacy ResetField path also ignored this case. Their widgets were
                     // already removed, so there is nothing left to clear.
-                    if (ok != 0 && FormFillBindings.EPDFForm_RedrawFieldWidgets != null) {
+                    if (ok != 0) {
                         // SetFieldValue intentionally does not draw. Regenerate text and
                         // choice appearances so the old value is not left in /AP.
-                        int ignored = (int) FormFillBindings.EPDFForm_RedrawFieldWidgets.invokeExact(
+                        int redrawn = (int) FormFillBindings.EPDFForm_RedrawFieldWidgets.invokeExact(
                                 rawDoc, objNum, MemorySegment.NULL, 0L, MemorySegment.NULL);
+                        if (redrawn == 0) {
+                            throw new JPDFiumException(
+                                    "EPDFForm_RedrawFieldWidgets failed for field " + objNum);
+                        }
                     }
                 } else {
                     // Legacy EmbedPDF API. invokeExact requires the int return type
                     // to be captured exactly.
-                    int ignored = (int) FormFillBindings.EPDFForm_ResetField.invokeExact(rawDoc, objNum,
+                    int reset = (int) FormFillBindings.EPDFForm_ResetField.invokeExact(rawDoc, objNum,
                             MemorySegment.NULL, 0L, MemorySegment.NULL);
+                    if (reset == 0) {
+                        throw new JPDFiumException(
+                                "EPDFForm_ResetField failed for field " + objNum);
+                    }
                 }
             } catch (Throwable t) {
                 throw new JPDFiumException(t);
