@@ -215,7 +215,7 @@ echo "pkg-config libs: $(pkg-config --libs libqpdf 2>/dev/null || true)"
 if [ "$OS" = "linux" ]; then
     for old in /usr/lib/x86_64-linux-gnu/libqpdf.so* /usr/lib/aarch64-linux-gnu/libqpdf.so*                /usr/local/lib/libqpdf.so*; do
         [ -e "$old" ] || continue
-        sudo mv "$old" "${old}.disabled" 2>/dev/null || true
+        $SUDO mv "$old" "${old}.disabled" 2>/dev/null || true
     done
 else
     for old in "$PREFIX"/lib/libqpdf*.dylib; do

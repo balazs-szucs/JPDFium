@@ -20,7 +20,11 @@ Core natives (PDFium + JPDFium bridge)
 10. libjpeg-turbo - IJG / BSD-style / zlib (LIBJPEG-TURBO.txt)
 11. libpng - libpng License (LIBPNG.txt)
 12. zlib - zlib License (ZLIB.txt)
-13. Rust bridge dependencies (lopdf, oxipng, zopfli, flate2,
+13. Brotli - MIT (BROTLI-MIT.txt)
+14. Expat - MIT (LIBEXPAT-MIT.txt)
+15. fontconfig - fontconfig License (FONTCONFIG.txt)
+16. bzip2 - bzip2 License (BZIP2.txt)
+17. Rust bridge dependencies (lopdf, oxipng, zopfli, flate2,
     fast_image_resize, resvg/usvg/tiny-skia/fontdb/harfrust and support
     crates) - Apache-2.0 OR MIT, with BSD-3-Clause for tiny-skia. The
     Apache-2.0 text is in ABSEIL-APACHE-2.0.txt, MIT in HARFBUZZ.txt, and
@@ -54,6 +58,8 @@ Optional vips natives (libvips + codecs)
 23. Brotli - MIT (BROTLI-MIT.txt)
 24. PCRE2 - BSD 3-Clause (PCRE2-BSD-3.txt)
 25. zlib - zlib License (ZLIB.txt)
-26. libvmaf - BSD-2-Clause Plus Patent
-    (LIBVMAF-BSD-2-CLAUSE-PATENT.txt), only when macOS AOM falls back to
-    Homebrew's AOM build.
+26. libiconv - LGPL-2.1-or-later (LIBICONV-LGPL-2.1.txt)
+27. liblzma / XZ Utils - 0BSD (LIBLZMA-0BSD.txt)
+28. libdeflate - MIT (LIBDEFLATE-MIT.txt)
+29. libselinux - Public Domain (LIBSELINUX-PUBLIC-DOMAIN.txt)
+30. libinotify - MIT (LIBINOTIFY-MIT.txt)

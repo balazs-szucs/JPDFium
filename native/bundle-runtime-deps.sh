@@ -254,6 +254,29 @@ bundle_macos() {
             install_name_tool -change "$orig_dep" "@loader_path/$base" "$target" 2>/dev/null || true
         done <<<"$deps"
     done
+
+    local failed=0
+    for f in "$DIST_DIR"/*.dylib; do
+        [ -e "$f" ] || continue
+        while IFS= read -r dep; do
+            case "$dep" in
+                /System/*|/usr/lib/*|@loader_path/*|@executable_path/*) ;;
+                @rpath/*)
+                    local base
+                    base=$(basename "$dep")
+                    if [ ! -e "$DIST_DIR/$base" ] && [ "$base" != "libjpdfium.dylib" ]; then
+                        echo "FAIL: $(basename "$f") references missing $dep" >&2
+                        failed=1
+                    fi
+                    ;;
+                *)
+                    echo "FAIL: $(basename "$f") has non-relocatable dependency $dep" >&2
+                    failed=1
+                    ;;
+            esac
+        done <<<"$(otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}')"
+    done
+    [ "$failed" -eq 0 ] || { echo "ERROR: macOS bundle is not hermetic" >&2; exit 1; }
 }
 
 sign_macos() {
@@ -452,7 +475,7 @@ assert_bundle_arch() {
                 esac
             done
             ;;
-        linux-*|vips-linux-*|freebsd-*|openbsd-*)
+        linux-*|vips-linux-*|freebsd-*|vips-freebsd-*|openbsd-*)
             for f in "$DIST_DIR"/lib*.so "$DIST_DIR"/lib*.so.*; do
                 [ -e "$f" ] || continue
                 machine=$(readelf -h "$f" 2>/dev/null | awk -F: '/Machine:/{print $2}' | xargs)

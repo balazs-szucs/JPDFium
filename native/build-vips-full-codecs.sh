@@ -123,7 +123,7 @@ EOF
         pkg install -y meson ninja pkgconf cmake autoconf automake libtool nasm \
             glib expat orc libexif lcms2 jpeg-turbo png webp tiff openjpeg \
             libjxl aom libde265 kvazaar libspng highway zstd brotli \
-            libdeflate binutils patchelf python3
+            binutils patchelf python3 perl5
     elif [ "$OS" = linux ]; then
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
@@ -211,7 +211,7 @@ build_aom() {
         -DCMAKE_EXE_LINKER_FLAGS="-lm" \
         -DBUILD_SHARED_LIBS=1 \
         -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 -DENABLE_APPS=0 -DENABLE_DOCS=0 \
-        -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
+        -DCONFIG_TUNE_VMAF=0 \
         -DCONFIG_WEBM_IO=0 -DCONFIG_LIBYUV=0 -DCONFIG_INSPECTION=0 \
         -DCONFIG_ENTROPY_STATS=0 -DCONFIG_INTERNAL_STATS=0 \
         ${arch_args[@]+"${arch_args[@]}"} \
@@ -302,6 +302,7 @@ build_libtiff() {
         -DCMAKE_DISABLE_FIND_PACKAGE_JBIG=TRUE \
         -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF \
         -Dlerc=OFF -DCMAKE_DISABLE_FIND_PACKAGE_LERC=TRUE \
+        -Dlibdeflate=OFF -DCMAKE_DISABLE_FIND_PACKAGE_LibDeflate=TRUE \
         || { echo "build-vips-full-codecs.sh: libtiff cmake configure failed" >&2; exit 1; }
 
     local nproc

@@ -184,6 +184,26 @@ else
     fi
 fi
 
+# Point pkg-config at the static archives. The install step leaves brew/apt
+# .pc files pointing at shared libraries, which would relink the bridge to a
+# dylib that is about to be disabled.
+PC_DIR="$PREFIX/lib/pkgconfig"
+mkdir -p "$PC_DIR"
+for hb_mod in harfbuzz harfbuzz-subset; do
+    cat > "$PC_DIR/$hb_mod.pc" <<EOF
+prefix=$PREFIX
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include/harfbuzz
+
+Name: $hb_mod
+Description: HarfBuzz text shaping library
+Version: ${HB_TAG#v}
+Libs: -L\${libdir} -l$hb_mod
+Cflags: -I\${includedir}
+EOF
+done
+
 # Move old shared harfbuzz aside so CMake / pkg-config links the static archives.
 # Linux: apt's libs under /usr/lib/<triplet>/ and any /usr/local/lib shared copies.
 # macOS: brew's shared dylibs under $(brew --prefix)/lib/ and Cellar.
