@@ -291,7 +291,7 @@ jobs:
 
       - name: Build vips on FreeBSD
         if: matrix.os == 'freebsd'
-        uses: vmactions/freebsd-vm@v1
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1
         with:
           release: '14.3'
           usesh: true
