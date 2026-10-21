@@ -232,6 +232,10 @@ jobs:
             cmake --build aom-build --config MinSizeRel --parallel
             cmake --install aom-build --config MinSizeRel
             AOM_FLAGS=(-DAOM_INCLUDE_DIR="$AOM_PREFIX/include" -DAOM_LIBRARY="$AOM_PREFIX/lib/aom.lib")
+            AOM_CONFIG_DIR="$(cygpath -m "$AOM_PREFIX/lib/cmake/AOM")"
+            if [ -f "$AOM_CONFIG_DIR/aom-config.cmake" ]; then
+              AOM_FLAGS+=(-DAOM_DIR="$AOM_CONFIG_DIR")
+            fi
           fi
 
           curl -fsSL --retry 3 --retry-delay 3 \

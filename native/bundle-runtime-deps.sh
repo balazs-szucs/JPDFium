@@ -483,11 +483,13 @@ assert_bundle_arch() {
             for f in "$DIST_DIR"/lib*.so "$DIST_DIR"/lib*.so.*; do
                 [ -e "$f" ] || continue
                 machine=$(readelf -h "$f" 2>/dev/null | awk -F: '/Machine:/{print $2}' | xargs)
-                case "$unix_arch:$machine" in
-                    x86_64:*X86-64*) ;;
-                    aarch64:*AArch64*) ;;
-                    *) echo "FAIL: $(basename "$f") is [$machine], expected $unix_arch" >&2; failed=1 ;;
-                esac
+                if { [ "$unix_arch" = x86_64 ] && printf '%s' "$machine" | grep -qi 'x86-64'; } ||
+                   { [ "$unix_arch" = aarch64 ] && printf '%s' "$machine" | grep -qi 'aarch64'; }; then
+                    :
+                else
+                    echo "FAIL: $(basename "$f") is [$machine], expected $unix_arch" >&2
+                    failed=1
+                fi
             done
             ;;
         windows-*|vips-windows-*)
