@@ -106,12 +106,13 @@ jobs:
             echo '::warning::PDF.js corpus download failed; skipping it.'
             exit 1
           fi
-          if curl -fsSL --connect-timeout 20 --max-time 300 --retry 2 \
-            'https://skia.googlesource.com/skcms/+archive/f0bbebbebb50851813e4f11d3d4b9edd2878a056.tar.gz' \
-            -o /tmp/skcms.tar.gz; then
-            echo '4b828fba0abc2702dc208d31dfc57eceff30ec6cab4925d594a610eccd902f9c  /tmp/skcms.tar.gz' | sha256sum -c -
-            tar -xzf /tmp/skcms.tar.gz -C /tmp/skcms
-            test -d /tmp/skcms/profiles
+          rm -rf /tmp/skcms-src
+          if git init -q /tmp/skcms-src \
+            && git -C /tmp/skcms-src remote add origin https://skia.googlesource.com/skcms \
+            && git -C /tmp/skcms-src fetch -q --depth=1 origin f0bbebbebb50851813e4f11d3d4b9edd2878a056 \
+            && git -C /tmp/skcms-src checkout -q FETCH_HEAD; then
+            test "$(git -C /tmp/skcms-src rev-parse HEAD)" = "f0bbebbebb50851813e4f11d3d4b9edd2878a056"
+            test -d /tmp/skcms-src/profiles
           else
             echo '::warning::skcms ICC corpus download failed; skipping it.'
             exit 1
@@ -172,7 +173,7 @@ jobs:
         if: steps.corpus-download.outcome == 'success'
         env:
           PDFJS_DIR: /tmp/pdfjs/pdf.js-c53f395e4057b501f478a7e98ed03d47c7c62a04/test/pdfs
-          ICC_PROFILE_DIR: /tmp/skcms/profiles
+          ICC_PROFILE_DIR: /tmp/skcms-src/profiles
           VERAPDF_DIR: /tmp/verapdf/veraPDF-corpus-bb75f4f0073d9350dfd058c0162a367e6fadf25e
         run: |
           ./gradlew :jpdfium:integrationTest \
