@@ -32,6 +32,7 @@ val hostPlatform = run {
     val isArm = arch == "aarch64" || arch == "arm64"
     when {
         os.contains("mac") || os.contains("darwin") -> if (isArm) "darwin-arm64" else "darwin-x64"
+        os.contains("freebsd") -> if (isArm) "freebsd-arm64" else "freebsd-x64"
         os.contains("win") -> if (isArm) "windows-arm64" else "windows-x64"
         else -> {
             val musl = Files.exists(Path.of("/lib/ld-musl-${if (isArm) "aarch64" else "x86_64"}.so.1"))

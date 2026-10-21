@@ -64,7 +64,7 @@ Reading and writing are probed independently, so a libvips build without a given
 
 ### Platform availability
 
-`jpdfium-natives-vips-<platform>` is published for Linux x64 and arm64, macOS x64 and arm64, and Windows x64 and arm64. There is no musl build, so Alpine and other musl runtimes rely on ImageIO formats.
+`jpdfium-natives-vips-<platform>` is published for Linux x64 and arm64, Linux musl x64 and arm64, macOS x64 and arm64, Windows x64 and arm64, and FreeBSD x64.
 
 ## Codec precedence
 

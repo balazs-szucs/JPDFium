@@ -121,7 +121,7 @@ The `jpdfium` artifact does **not** publish a platform native dependency. Declar
 
 Verify that your runtime classpath, application distribution, or container includes the required modules. Missing native modules cause `NativeNotFoundException` unless runtime downloading is enabled.
 
-Optional: `com.stirling:jpdfium-vips` with a matching `jpdfium-natives-vips-<platform>` adds WebP, HEIC, AVIF, JXL, and JPEG 2000.
+Optional: `com.stirling:jpdfium-vips` with a matching `jpdfium-natives-vips-<platform>` adds WebP, HEIC, AVIF, JXL, and JPEG 2000. Bundled vips natives are published for Linux (glibc and musl), macOS, Windows, and FreeBSD x64.
 
 ## Editing and thread safety
 

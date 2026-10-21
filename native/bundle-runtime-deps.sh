@@ -66,9 +66,12 @@ bundle_freebsd() {
     local bridge="${BUNDLE_ROOT:-$DIST_DIR/libjpdfium.so}"
     [ -f "$bridge" ] || { echo "no libjpdfium.so found to bundle"; return 0; }
 
-    local sysroot="${FREEBSD_SYSROOT:-native/freebsd-sysroot}"
-    local sys_lib="$sysroot/usr/lib"
-    local skip_regex='^(libc|libm|libthr|libc\+\+|libcxxrt|libz|libelf|libexecinfo|libgcc_s|librt|libutil)\.so'
+    local sysroot="${FREEBSD_SYSROOT:-}"
+    local sys_lib="/usr/lib"
+    if [ -n "$sysroot" ] && [ -d "$sysroot/usr/lib" ]; then
+        sys_lib="$sysroot/usr/lib"
+    fi
+    local skip_regex='^(libc|libm|libthr|libc\+\+|libcxxrt|libz|libelf|libexecinfo|libgcc_s|librt|libutil|libmd|libcrypt|libssp)\.so'
 
     declare -A visited=()
     local queue=("$bridge")
@@ -97,7 +100,7 @@ bundle_freebsd() {
             local dest="$DIST_DIR/$dep"
             if [ ! -e "$dest" ]; then
                 local found=""
-                for dir in "$sys_lib" "$sysroot/lib" "$DIST_DIR"; do
+                for dir in "$sys_lib" "/usr/local/lib" "/usr/lib" "$DIST_DIR"; do
                     if [ -e "$dir/$dep" ]; then
                         found="$dir/$dep"
                         break

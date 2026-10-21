@@ -92,6 +92,8 @@ jobs:
           - { platform: darwin-arm64,  runner: macos-14,          os: darwin }
           - { platform: windows-x64,   runner: windows-2022,      os: windows, triplet: x64-windows }
           - { platform: windows-arm64, runner: windows-11-arm,    os: windows, triplet: arm64-windows }
+          # FreeBSD has no GitHub-hosted runner; build natively inside a VM.
+          - { platform: freebsd-x64,   runner: ubuntu-latest,     os: freebsd }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -173,6 +175,7 @@ jobs:
           path: |
             kvazaar-prefix
             heif-prefix
+            aom-prefix
           key: kvazaar-heif-${{ matrix.platform }}-${{ hashFiles('native/vips-build.env') }}
 
       - name: Build kvazaar + libheif (BSD HEVC encoder for HEIC)
@@ -195,15 +198,36 @@ jobs:
           VCPKG_ROOT="${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}"
           KVAZAAR_PREFIX="$(cygpath -m "$PWD/kvazaar-prefix")"
           HEIF_PREFIX="$(cygpath -m "$PWD/heif-prefix")"
+          AOM_PREFIX="$(cygpath -m "$PWD/aom-prefix")"
           VIPS_PREFIX="$(cygpath -m "$PWD/vips-prefix")"
-          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ]; then
-            echo "kvazaar and libheif restored from cache; skipping build."
+          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ] && [ -f "$AOM_PREFIX/bin/aom.dll" ]; then
+            echo "kvazaar, libheif and minimal AOM restored from cache; skipping build."
             mkdir -p "$VIPS_PREFIX/bin"
             cp "$HEIF_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
             cp "$KVAZAAR_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
+            cp "$AOM_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
             echo "PKG_CONFIG_PATH=$KVAZAAR_PREFIX/lib/pkgconfig;$HEIF_PREFIX/lib/pkgconfig;$VCPKG_ROOT/installed/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
             exit 0
           fi
+
+          # vcpkg's AOM is built with tools/high-bitdepth/inspection and is
+          # ~10 MB on Windows. Build the same MinSizeRel feature set as the
+          # POSIX script so libheif links a ~3-4 MB AOM instead.
+          curl -fsSL --retry 3 --retry-delay 3 \
+            "https://storage.googleapis.com/aom-releases/libaom-${AOM_VERSION#v}.tar.gz" \
+            -o aom.tar.gz
+          tar xzf aom.tar.gz
+          cmake -S "libaom-${AOM_VERSION#v}" -B aom-build -A "$ARCH" \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_INSTALL_PREFIX="$AOM_PREFIX" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 \
+            -DENABLE_APPS=0 -DENABLE_DOCS=0 \
+            -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
+            -DCONFIG_WEBM_IO=0 -DCONFIG_LIBYUV=0 -DCONFIG_INSPECTION=0 \
+            -DCONFIG_ENTROPY_STATS=0 -DCONFIG_INTERNAL_STATS=0
+          cmake --build aom-build --config MinSizeRel --parallel
+          cmake --install aom-build --config MinSizeRel
 
           curl -fsSL --retry 3 --retry-delay 3 \
             "https://github.com/ultravideo/kvazaar/archive/refs/tags/${KVAZAAR_VERSION}.tar.gz" \
@@ -241,6 +265,8 @@ jobs:
             -DWITH_X265=OFF -DWITH_KVAZAAR=ON \
             -DWITH_LIBDE265=ON \
             -DWITH_AOM_ENCODER=ON -DWITH_AOM_DECODER=ON \
+            -DAOM_INCLUDE_DIR="$AOM_PREFIX/include" \
+            -DAOM_LIBRARY="$AOM_PREFIX/lib/aom.lib" \
             -DWITH_JPEG_ENCODER=ON -DWITH_JPEG_DECODER=ON \
             -DWITH_OpenJPEG_ENCODER=ON -DWITH_OpenJPEG_DECODER=ON \
             -DWITH_HEADER_COMPRESSION=ON -DWITH_UNCOMPRESSED_CODEC=OFF \
@@ -254,9 +280,38 @@ jobs:
           mkdir -p "$VIPS_PREFIX/bin"
           cp "$HEIF_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
           cp "$KVAZAAR_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
+          cp "$AOM_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
           # Prepend our libheif (and the kvazaar .pc it requires) so the vips
           # meson build picks them over vcpkg's.
           echo "PKG_CONFIG_PATH=$KVAZAAR_PREFIX/lib/pkgconfig;$HEIF_PREFIX/lib/pkgconfig;$VCPKG_ROOT/installed/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Build vips on FreeBSD
+        if: matrix.os == 'freebsd'
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: '14.3'
+          usesh: true
+          sync: true
+          prepare: |
+            pkg bootstrap -y || true
+            pkg install -y bash git python3
+          run: |
+            set -euo pipefail
+            export JPDFIUM_REQUIRE_SOURCE_VIPS=1
+            bash native/build-vips-full-codecs.sh
+            bash native/build-vips.sh freebsd-x64
+            DIST="$PWD/native/dist/vips-freebsd-x64"
+            export LD_LIBRARY_PATH="$DIST"
+            vips --version
+            vips black out.png 64 64
+            vips jpegsave out.png out.jpg
+            vips webpsave out.png out.webp
+            vips heifsave out.png out.heic
+            vips heifsave out.png out.avif
+            vips jxlsave out.png out.jxl
+            vips jp2ksave out.png out.jp2
+            vips tiffsave out.png out.tif
+            vipsheader out.png out.jpg out.webp out.heic out.avif out.jxl out.jp2 out.tif
 
       # musl / Alpine: the whole build runs inside a matching-arch Alpine
       # container via native/ci/musl.sh (apk deps + component musl PDFium +
@@ -491,7 +546,7 @@ jobs:
       - name: Verify all platform assets are present
         run: |
           set -euo pipefail
-          for p in linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64 windows-arm64; do
+          for p in linux-x64 linux-arm64 darwin-x64 darwin-arm64 windows-x64 windows-arm64 freebsd-x64; do
             test -f "dist/vips-$p.tar.gz" || { echo "MISSING: vips-$p.tar.gz" >&2; exit 1; }
           done
           # musl is experimental: warn, never block.

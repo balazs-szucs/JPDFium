@@ -71,7 +71,7 @@ With `jpdfium-vips`, the libvips codec reads and writes WebP, HEIC, AVIF, JXL, a
 
 Native modules are published for eight platform targets. All eight run in the release CI matrix, defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which builds each target and runs the test suite against it.
 
-The vips modules cover six targets: Linux x64 and arm64, macOS x64 and arm64, and Windows x64 and arm64. There is no musl vips build, so Alpine and other musl runtimes are limited to ImageIO formats.
+The vips modules cover Linux x64 and arm64 (glibc and musl), macOS x64 and arm64, Windows x64 and arm64, and FreeBSD x64.
 
 A published artifact means the module exists for that target. It is not a promise that the artifact carries native libraries: the musl modules are experimental and can be published without a payload while their build is stabilised. Run [`.github/scripts/check-natives-jars.sh`](../.github/scripts/check-natives-jars.sh) against a downloaded release to see which platforms shipped libraries.
 

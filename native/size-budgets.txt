@@ -35,3 +35,4 @@ vips-darwin-x64  56000000
 vips-darwin-arm64 56000000
 vips-windows-x64 100000000
 vips-windows-arm64 100000000
+vips-freebsd-x64 64000000

@@ -507,7 +507,7 @@ jobs:
         # builds. musl + windows-arm64 + the darwin-x64 Intel leg use the
         # committed FFM bindings instead (generateBindings is skipped when
         # jextract is absent).
-        if: matrix.platform != 'darwin-x64' && matrix.platform != 'windows-arm64' && !startsWith(matrix.platform, 'freebsd-') && matrix.libc != 'musl'
+        if: matrix.platform != 'darwin-x64' && matrix.platform != 'freebsd-x64' && matrix.platform != 'windows-arm64' && !startsWith(matrix.platform, 'freebsd-') && matrix.libc != 'musl'
         shell: bash
         run: |
           case "$RUNNER_OS" in
@@ -678,6 +678,8 @@ jobs:
           # (core bridge renders PDFs); VipsSmokeTest guards both.
           - { platform: windows-x64,   runner: windows-latest  }
           - { platform: windows-arm64, runner: windows-11-arm  }
+          # FreeBSD vips is consumed from the pinned prebuild; no hosted runner.
+          - { platform: freebsd-x64,   runner: ubuntu-latest    }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -841,7 +843,7 @@ jobs:
         run: ./gradlew :jpdfium-natives:jpdfium-natives-vips-${{ matrix.platform }}:jar --no-daemon
 
       - name: Vips smoke test (render PDF -> all major formats)
-        if: matrix.platform != 'darwin-x64'
+        if: matrix.platform != 'darwin-x64' && matrix.platform != 'freebsd-x64'
         run: ./gradlew :jpdfium-vips:vipsSmokeTest -Pjpdfium.testNatives=${{ matrix.platform }} -Pjpdfium.testVipsNatives=vips-${{ matrix.platform }} --no-daemon --stacktrace
         timeout-minutes: 60
 

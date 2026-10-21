@@ -52,11 +52,17 @@ val vipsLicenses = listOf(
     "LIBEXPAT-MIT.txt", "LIBFFI-MIT.txt", "LIBHEIF-LGPL-3.0.txt",
     "LIBJPEG-TURBO.txt", "LIBJXL-BSD-3.txt", "LIBNSGIF-MIT.txt",
     "LIBPNG.txt", "LIBSPNG-BSD-2.txt", "LIBTIFF.txt", "LIBVIPS-LGPL-2.1.txt",
-    "LIBVMAF-BSD-2-CLAUSE-PATENT.txt", "LIBWEBP-BSD-3.txt", "NOTICE.txt",
+    "LIBWEBP-BSD-3.txt", "NOTICE.txt",
     "OPENJPEG-BSD-2.txt", "PCRE2-BSD-3.txt", "UTIL-LINUX-LGPL-2.1.txt",
     "ZLIB.txt", "ZSTD-BSD-3.txt"
 )
-val bundledLicenses = if (platform.startsWith("vips-")) vipsLicenses else coreLicenses
+// util-linux (libmount) is a Linux-only dependency of GIO.
+val freebsdVipsLicenses = vipsLicenses - "UTIL-LINUX-LGPL-2.1.txt"
+val bundledLicenses = when {
+    platform == "vips-freebsd-x64" -> freebsdVipsLicenses
+    platform.startsWith("vips-") -> vipsLicenses
+    else -> coreLicenses
+}
 
 val stageNatives = tasks.register<Copy>("stageNatives") {
     description = "Copy pre-built native libraries and license notices into the jar resource tree"

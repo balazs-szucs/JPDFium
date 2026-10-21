@@ -32,6 +32,11 @@ case "$(uname -s)" in
         PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
         SUDO=""
         ;;
+    FreeBSD*)
+        OS=freebsd
+        PREFIX=/usr/local
+        SUDO=""
+        ;;
     *)
         echo "build-vips-full-codecs.sh: unsupported OS $(uname -s)" >&2
         exit 1
@@ -126,6 +131,11 @@ EOF
             fi
         done
         export JPDFIUM_VIPS_DISABLE_CODECS="$disable"
+    elif [ "$OS" = freebsd ]; then
+        pkg install -y meson ninja pkgconf cmake autoconf automake libtool nasm \
+            glib expat orc libexif lcms2 jpeg-turbo png webp tiff openjpeg \
+            libjxl aom libde265 kvazaar libspng highway zlib zstd brotli \
+            libdeflate binutils patchelf python3
     elif [ "$OS" = linux ]; then
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
@@ -258,7 +268,7 @@ build_kvazaar() {
     # BSD-licensed HEVC encoder (the GPL x265 must not be bundled).
     # macOS takes the bottled kvazaar from the brew list above; Linux has
     # no kvazaar package on the runner distro, so build the pinned source.
-    [ "$OS" = linux ] || return 0
+    case "$OS" in linux|freebsd) ;; *) return 0 ;; esac
     # Alpine/musl: install_deps already built kvazaar from source and left a
     # pkg-config file, so reuse it instead of rebuilding via autotools.
     if pkg-config --exists kvazaar 2>/dev/null; then
@@ -291,7 +301,7 @@ build_libtiff() {
     # build our own without JBIG support. JBIG-compressed TIFFs then fail
     # with a clean error instead of shipping GPL code. Other platforms do
     # not bundle jbig (brew mxe builds omit it), so this is Linux-only.
-    [ "$OS" = linux ] || return 0
+    case "$OS" in linux|freebsd) ;; *) return 0 ;; esac
     local tag="${TIFF_TAG:-v4.7.2}"
     echo "==> build-vips-full-codecs.sh: building libtiff ${tag} (no jbig)"
     local work
@@ -347,8 +357,10 @@ build_libheif() {
         if [ "${CMAKE_OSX_ARCHITECTURES:-}" = "x86_64" ]; then
             export PKG_CONFIG="$bp/bin/pkg-config"
         fi
-    else
+    elif [ "$OS" = linux ]; then
         $SUDO apt-get remove -y libheif* 2>/dev/null || true
+        export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    else
         export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     fi
 
@@ -402,6 +414,8 @@ build_libheif() {
             echo "$PREFIX/lib" | $SUDO tee /etc/ld.so.conf.d/00-local.conf >/dev/null
             $SUDO ldconfig 2>/dev/null || true
         fi
+    elif [ "$OS" = freebsd ]; then
+        cmake --install "$work/build"
     else
         cmake --install "$work/build"
         # libheif resolves AOM through @rpath, and the bundle stage would find
@@ -498,7 +512,7 @@ build_vips() {
     nproc="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
     ninja -C "$work/build" -j"$nproc" \
         || { echo "build-vips-full-codecs.sh: ninja build failed" >&2; exit 1; }
-    if [ "$OS" = darwin ]; then
+    if [ "$OS" = darwin ] || [ "$OS" = freebsd ]; then
         ninja -C "$work/build" install
     else
         $SUDO ninja -C "$work/build" install
