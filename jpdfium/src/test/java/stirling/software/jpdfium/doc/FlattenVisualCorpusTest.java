@@ -37,7 +37,7 @@ class FlattenVisualCorpusTest {
     private static final float DPI = 100.0f;
     private static final double ANNOTATION_MAE = 1.0d;
     private static final double FORM_MAE = 2.0d;
-    private static final double RASTER_MAE = 2.0d;
+    private static final double RASTER_MAE = 1.0d;
     private static final List<String> ANNOTATION_FIXTURES = List.of(
             "pdfjs_annotation-highlight.pdf",
             "pdfjs_annotation-ink-without-appearance.pdf",
@@ -47,7 +47,8 @@ class FlattenVisualCorpusTest {
             "pdfjs_annotation-freetext.pdf",
             "pdfjs_annotation-line.pdf",
             "pdfjs_annotation-caret-ink.pdf",
-            "pdfjs_annotation-fileattachment.pdf");
+            "pdfjs_annotation-fileattachment.pdf",
+            "pdfjs_annotation-border-styles.pdf");
     private static final List<String> FULL_RASTER_FIXTURES = List.of(
             "pdfjs_annotation-highlight.pdf",
             "pdfjs_annotation-stamp.pdf",
