@@ -12,4 +12,6 @@ dependencies {
     implementation("com.diffplug.spotless:spotless-plugin-gradle:8.10.4")
     implementation("com.github.spotbugs.snom:spotbugs-gradle-plugin:6.0.27")
     implementation("de.thetaphi:forbiddenapis:3.11")
+    implementation("org.tukaani:xz:1.10")
+    implementation("com.guardsquare:proguard-gradle:7.10.0")
 }

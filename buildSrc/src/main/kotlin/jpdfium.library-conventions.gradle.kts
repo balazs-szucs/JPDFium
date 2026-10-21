@@ -3,6 +3,7 @@ import com.github.spotbugs.snom.Confidence
 import com.github.spotbugs.snom.Effort
 import com.github.spotbugs.snom.SpotBugsTask
 import org.gradle.jvm.toolchain.JavaLanguageVersion
+import proguard.gradle.ProGuardTask
 
 plugins {
     `java-library`
@@ -96,6 +97,32 @@ tasks.withType<Javadoc> {
         addBooleanOption("Werror", true)
         encoding = "UTF-8"
         charSet = "UTF-8"
+    }
+}
+
+// Experiment: ProGuard shrink-only variant of the library jar. This is not
+// wired into publication: safe public-API preservation yields only a few
+// percent, while obfuscation would break reflection/native-image metadata.
+// CI reports the size so the trade-off stays measured instead of guessed.
+tasks.register<ProGuardTask>("proguardJar") {
+    group = "build"
+    description = "Build a shrink-only ProGuard variant of the jar for size comparison"
+    dependsOn(tasks.named("jar"))
+    val jarTask = tasks.named<Jar>("jar")
+    val output = layout.buildDirectory.file("proguard/${project.name}-${project.version}-proguard.jar")
+    injars(jarTask.flatMap { it.archiveFile })
+    outjars(output)
+    val jdkHome = (project.findProperty("jpdfium.proguard.jdk") ?: System.getProperty("java.home")).toString()
+    val jmods = file("$jdkHome/jmods")
+    if (jmods.isDirectory) {
+        libraryjars(fileTree(jmods) { include("*.jmod") })
+    }
+    configuration(rootProject.file("config/proguard-library.pro"))
+    onlyIf("full JDK jmods are available") { jmods.isDirectory }
+    doLast {
+        val original = jarTask.get().archiveFile.get().asFile.length()
+        val minimized = output.get().asFile.length()
+        logger.lifecycle("ProGuard shrunk ${project.name}: $original -> $minimized bytes")
     }
 }
 
