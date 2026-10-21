@@ -725,7 +725,8 @@ jobs:
             fi
           fi
           gh release download "$PIN" --repo "$RELEASE_REPO" \
-            --pattern "$ASSET" --dir /tmp/vips-pinned
+            --pattern "$ASSET" --pattern "$ASSET.sha256" --dir /tmp/vips-pinned
+          (cd /tmp/vips-pinned && { sha256sum -c "$ASSET.sha256" 2>/dev/null || shasum -a 256 -c "$ASSET.sha256"; })
           DIST="native/dist/vips-${{ matrix.platform }}"
           rm -rf "$DIST" && mkdir -p "$DIST"
           tar -xf "/tmp/vips-pinned/$ASSET" -C "$DIST"

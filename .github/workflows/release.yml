@@ -25,7 +25,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -729,7 +729,8 @@ jobs:
             fi
           fi
           gh release download "$PIN" --repo "$RELEASE_REPO" \
-            --pattern "$ASSET" --dir /tmp/vips-pinned
+            --pattern "$ASSET" --pattern "$ASSET.sha256" --dir /tmp/vips-pinned
+          (cd /tmp/vips-pinned && { sha256sum -c "$ASSET.sha256" 2>/dev/null || shasum -a 256 -c "$ASSET.sha256"; })
           DIST="native/dist/vips-${{ matrix.platform }}"
           rm -rf "$DIST" && mkdir -p "$DIST"
           tar -xf "/tmp/vips-pinned/$ASSET" -C "$DIST"
@@ -881,6 +882,8 @@ jobs:
   publish:
     needs: [build-natives, build-vips-natives, cli-binaries]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
 
