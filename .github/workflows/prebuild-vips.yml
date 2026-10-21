@@ -200,33 +200,39 @@ jobs:
           HEIF_PREFIX="$(cygpath -m "$PWD/heif-prefix")"
           AOM_PREFIX="$(cygpath -m "$PWD/aom-prefix")"
           VIPS_PREFIX="$(cygpath -m "$PWD/vips-prefix")"
-          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ] && [ -f "$AOM_PREFIX/bin/aom.dll" ]; then
+          NEED_AOM=0
+          [ "$ARCH" = x64 ] && NEED_AOM=1
+          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ] && { [ "$NEED_AOM" = 0 ] || [ -f "$AOM_PREFIX/bin/aom.dll" ]; }; then
             echo "kvazaar, libheif and minimal AOM restored from cache; skipping build."
             mkdir -p "$VIPS_PREFIX/bin"
             cp "$HEIF_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
             cp "$KVAZAAR_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
-            cp "$AOM_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
+            [ "$NEED_AOM" = 1 ] && cp "$AOM_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
             echo "PKG_CONFIG_PATH=$KVAZAAR_PREFIX/lib/pkgconfig;$HEIF_PREFIX/lib/pkgconfig;$VCPKG_ROOT/installed/$TRIPLET/lib/pkgconfig" >> "$GITHUB_ENV"
             exit 0
           fi
 
-          # Minimal AOM build; vcpkg's build is ~10 MB.
-          curl -fsSL --retry 3 --retry-delay 3 \
-            "https://storage.googleapis.com/aom-releases/libaom-${AOM_VERSION#v}.tar.gz" \
-            -o aom.tar.gz
-          tar xzf aom.tar.gz
-          cmake -S "libaom-${AOM_VERSION#v}" -B aom-build -A "$ARCH" \
-            -DCMAKE_BUILD_TYPE=MinSizeRel \
-            -DAOM_TARGET_CPU=generic \
-            -DCMAKE_INSTALL_PREFIX="$AOM_PREFIX" \
-            -DBUILD_SHARED_LIBS=ON \
-            -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 \
-            -DENABLE_APPS=0 -DENABLE_DOCS=0 \
-            -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
-            -DCONFIG_WEBM_IO=0 -DCONFIG_LIBYUV=0 -DCONFIG_INSPECTION=0 \
-            -DCONFIG_ENTROPY_STATS=0 -DCONFIG_INTERNAL_STATS=0
-          cmake --build aom-build --config MinSizeRel --parallel
-          cmake --install aom-build --config MinSizeRel
+          AOM_FLAGS=()
+          if [ "$NEED_AOM" = 1 ]; then
+            # vcpkg's x64 AOM is ~10 MB; its arm64 build is already minimal.
+            curl -fsSL --retry 3 --retry-delay 3 \
+              "https://storage.googleapis.com/aom-releases/libaom-${AOM_VERSION#v}.tar.gz" \
+              -o aom.tar.gz
+            tar xzf aom.tar.gz
+            cmake -S "libaom-${AOM_VERSION#v}" -B aom-build -A "$ARCH" \
+              -DCMAKE_BUILD_TYPE=MinSizeRel \
+              -DAOM_TARGET_CPU=generic \
+              -DCMAKE_INSTALL_PREFIX="$AOM_PREFIX" \
+              -DBUILD_SHARED_LIBS=ON \
+              -DENABLE_TESTS=0 -DENABLE_EXAMPLES=0 -DENABLE_TOOLS=0 \
+              -DENABLE_APPS=0 -DENABLE_DOCS=0 \
+              -DCONFIG_TUNE_VMAF=0 -DCONFIG_AV1_HIGHBITDEPTH=0 \
+              -DCONFIG_WEBM_IO=0 -DCONFIG_LIBYUV=0 -DCONFIG_INSPECTION=0 \
+              -DCONFIG_ENTROPY_STATS=0 -DCONFIG_INTERNAL_STATS=0
+            cmake --build aom-build --config MinSizeRel --parallel
+            cmake --install aom-build --config MinSizeRel
+            AOM_FLAGS=(-DAOM_INCLUDE_DIR="$AOM_PREFIX/include" -DAOM_LIBRARY="$AOM_PREFIX/lib/aom.lib")
+          fi
 
           curl -fsSL --retry 3 --retry-delay 3 \
             "https://github.com/ultravideo/kvazaar/archive/refs/tags/${KVAZAAR_VERSION}.tar.gz" \
@@ -264,8 +270,7 @@ jobs:
             -DWITH_X265=OFF -DWITH_KVAZAAR=ON \
             -DWITH_LIBDE265=ON \
             -DWITH_AOM_ENCODER=ON -DWITH_AOM_DECODER=ON \
-            -DAOM_INCLUDE_DIR="$AOM_PREFIX/include" \
-            -DAOM_LIBRARY="$AOM_PREFIX/lib/aom.lib" \
+            "${AOM_FLAGS[@]}" \
             -DWITH_JPEG_ENCODER=ON -DWITH_JPEG_DECODER=ON \
             -DWITH_OpenJPEG_ENCODER=ON -DWITH_OpenJPEG_DECODER=ON \
             -DWITH_HEADER_COMPRESSION=ON -DWITH_UNCOMPRESSED_CODEC=OFF \
