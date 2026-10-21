@@ -1,16 +1,5 @@
-# Per-platform max total size (bytes) of the staged natives bundle at
-# native/dist/<platform>/ - the source of the published jpdfium-natives-* jars.
-#
-# Enforced by native/check-bundle-size.sh (warns at 75%, fails when exceeded)
-# as part of bundle-runtime-deps.sh on every native build. These are ~2.5x the
-# expected shipped size, so they catch gross bloat - debug symbols, bundling
-# the full 30 MB libicudata instead of the trimmed one, an accidental huge
-# dependency - without flaking on normal build-to-build variance. If a growth
-# is legitimate and reviewed, bump the value deliberately (don't widen it to
-# silence the check).
-#
-# Rough current sizes (Oct 2026): core bundles ~25 MB (darwin, Skia + qpdf +
-# trimmed ICU); vips bundles 18-29 MB after dropping pdfload/PDFium.
+# Maximum staged bundle size in bytes for native/dist/<platform>.
+# Enforced by native/check-bundle-size.sh (warns at 75%).
 
 linux-x64      48000000
 linux-arm64    48000000
@@ -18,15 +7,10 @@ linux-musl-x64 48000000
 linux-musl-arm64 48000000
 darwin-x64     48000000
 darwin-arm64   48000000
-windows-x64    64000000  # plus an explicit trimmed-icudt*.dll presence gate in check-bundle-size.sh
-windows-arm64  64000000  # ditto
+windows-x64    64000000
+windows-arm64  64000000
 freebsd-x64    64000000
 
-# vips no longer links PDFium/pdfload: PDF rendering stays in the core bridge,
-# which removes libpdfium + Skia + the PDFium ICU/HarfBuzz closure from every
-# vips jar. Budgets are ~2.5x the measured bundles (Aug 2026: linux 25-29 MB,
-# darwin 18-21 MB) so they catch a re-introduced PDFium or codec chain without
-# flaking on normal variance.
 vips-linux-x64   64000000
 vips-linux-arm64 64000000
 vips-linux-musl-x64 64000000

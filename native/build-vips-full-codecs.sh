@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# Build libvips (+ libheif with static codecs) from source against whatever
-# codec libraries (libjxl, libaom, libde265, kvazaar, libwebp, libpng, libjpeg,
-# libtiff) the package manager provides. x265 is intentionally excluded (GPL).
-#
-# PDFium is deliberately not linked: JPDFium renders PDFs through the core
-# bridge and only uses libvips for image codecs, so pdfload would duplicate
-# the whole PDFium renderer (plus its ICU/HarfBuzz chain) in every vips jar.
-# The permissive loaders (libspng, highway) are enabled to match the upstream
-# Windows "all" bundle;
-# OpenEXR and libraw are disabled to reduce bundle size. cfitsio is skipped: the distro build drags in the
-# whole curl/gnutls/krb5/ldap closure. ImageMagick stays off: apt's IM6 links
-# GPL-3 liblqr and brew's IM7 loads its coders from module files that are not
-# relocatable into the bundle without MAGICK_CODER_MODULE_PATH; a from-source
-# IM7 built --without-modules is the follow-up. librsvg is dropped: its cairo/
-# gdk-pixbuf chain hard-links X11 (4-5 MB on a headless server).
+# Build libvips and libheif from source against system codecs.
+# Excluded: x265 (GPL), PDFium, ImageMagick, librsvg, OpenEXR, libraw,
+# cfitsio, fftw. libspng and highway are enabled.
 set -euo pipefail
 
 echo "build-vips-full-codecs.sh: start  ($(uname -s) $(uname -m))"
@@ -156,8 +144,6 @@ EOF
             webp libpng jpeg-turbo libtiff
             openjpeg
             libspng highway nasm)
-        # Homebrew occasionally trips over a stale Cellar symlink on the Intel
-        # runners; one retry clears it.
         brew install "${pkgs[@]}" || brew install "${pkgs[@]}"
     fi
 }
@@ -165,11 +151,8 @@ EOF
 build_aom() {
     # Windows uses the vcpkg AOM package; this source build is POSIX-only.
     case "$OS" in linux|darwin|freebsd) ;; *) return 0 ;; esac
-    # Opt-in: brew's macOS AOM links libvmaf (BSD-2-Clause-Patent, ~0.9 MB of
-    # video-quality code AVIF never uses); Debian's AOM is vmaf-free but much
-    # larger than a MinSizeRel build with the unused inspection/high-bitdepth/
-    # WebM paths disabled. Build once on both POSIX platforms and let libheif
-    # link it. musl stays on the Alpine package (cross-build cost/risk).
+    # MinSizeRel AOM without vmaf, inspection, high-bitdepth, or WebM I/O.
+    # musl uses the Alpine package.
     if [ "$OS" = linux ] && (ldd --version 2>&1 | grep -qi musl); then
         echo "==> build-vips-full-codecs.sh: musl; using Alpine AOM"
         return 0
