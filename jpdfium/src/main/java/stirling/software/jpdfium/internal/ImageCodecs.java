@@ -197,12 +197,21 @@ public final class ImageCodecs {
         if (images == null || images.isEmpty()) {
             throw new IllegalArgumentException("At least one image is required for multi-page TIFF");
         }
+        ImageCodec codec = Holder.CODEC;
+        if (codec != null && codec.canEncodeMultiPageTiff()) {
+            try {
+                codec.encodeMultiPageTiff(images, output, quality);
+                return;
+            } catch (RuntimeException ignored) {
+                // Codec declined or failed before writing: fall through to ImageIO.
+            }
+        }
         Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("tiff");
         if (!writers.hasNext()) {
             writers = ImageIO.getImageWritersByFormatName("TIFF");
         }
         if (!writers.hasNext()) {
-            throw new IOException("No TIFF ImageWriter found. A TIFF ImageIO plugin is required.");
+            throw new IOException("No TIFF encoder available. Add com.stirling:jpdfium-vips or a TIFF ImageIO plugin.");
         }
         ImageWriter writer = writers.next();
         try (ImageOutputStream ios = ImageIO.createImageOutputStream(output)) {
