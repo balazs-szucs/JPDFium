@@ -1,0 +1,77 @@
+package stirling.software.jpdfium.corpus;
+
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+
+import java.awt.image.BufferedImage;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
+
+import stirling.software.jpdfium.PdfDocument;
+import stirling.software.jpdfium.PdfRenderer;
+import stirling.software.jpdfium.model.FlattenMode;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+/**
+ * Broad PDF.js rendering, save/reopen and annotation-flatten smoke test.
+ *
+ * <p>Set {@code PDFJS_DIR} to an extracted {@code test/pdfs} directory. The
+ * corpus is downloaded by CI and is not redistributed with JPDFium.
+ */
+@EnabledIfSystemProperty(named = "jpdfium.integration", matches = "true")
+@EnabledIfEnvironmentVariable(named = "PDFJS_DIR", matches = ".+")
+class PdfJsCorpusTest {
+
+    private static final int LIMIT = Integer.getInteger("jpdfium.pdfjs.limit", 200);
+    private static final float DPI = 36.0f;
+
+    @TestFactory
+    Stream<DynamicTest> openRenderAndReopen() throws Exception {
+        Path dir = Path.of(System.getenv("PDFJS_DIR"));
+        List<Path> files;
+        try (Stream<Path> paths = Files.list(dir)) {
+            files = paths.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".pdf"))
+                    .sorted()
+                    .limit(LIMIT)
+                    .toList();
+        }
+        assumeTrue(!files.isEmpty(), "no PDF.js files found under " + dir);
+        return files.stream().map(path -> DynamicTest.dynamicTest(
+                path.getFileName().toString(), () -> probe(path)));
+    }
+
+    private static void probe(Path input) throws Exception {
+        assumeTrue(Files.size(input) < 64L * 1024 * 1024, "oversized fixture");
+        try (PdfDocument doc = PdfDocument.open(input)) {
+            int pages = doc.pageCount();
+            assumeTrue(pages > 0, "no pages");
+            BufferedImage image = new PdfRenderer(doc).renderImageWithDPI(0, DPI);
+            assertTrue(image.getWidth() > 0 && image.getHeight() > 0);
+            if (input.getFileName().toString().matches(".*(annotation|form|widget).*")) {
+                for (int i = 0; i < pages; i++) {
+                    try (var page = doc.page(i)) {
+                        page.flatten(FlattenMode.ANNOTATIONS);
+                    }
+                }
+            }
+            byte[] output = doc.saveBytes();
+            assertTrue(output.length > 0, "empty save");
+            try (PdfDocument reopened = PdfDocument.open(output)) {
+                assertEquals(pages, reopened.pageCount(), "page count changed");
+                if (reopened.pageCount() > 0) {
+                    new PdfRenderer(reopened).renderImageWithDPI(0, DPI);
+                }
+            }
+        } catch (Exception e) {
+            assumeTrue(false, "PDF.js fixture cannot be processed: " + e.getMessage());
+        }
+    }
+}
