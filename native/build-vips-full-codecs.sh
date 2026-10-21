@@ -164,9 +164,7 @@ EOF
 
 build_aom() {
     # Windows uses the vcpkg AOM package; this source build is POSIX-only.
-    if [ "$OS" != linux ] && [ "$OS" != darwin ]; then
-        return 0
-    fi
+    case "$OS" in linux|darwin|freebsd) ;; *) return 0 ;; esac
     # Opt-in: brew's macOS AOM links libvmaf (BSD-2-Clause-Patent, ~0.9 MB of
     # video-quality code AVIF never uses); Debian's AOM is vmaf-free but much
     # larger than a MinSizeRel build with the unused inspection/high-bitdepth/
@@ -253,10 +251,9 @@ build_aom() {
             echo "build-vips-full-codecs.sh: aom still links vmaf; keeping brew's aom" >&2
             return 0
         fi
-        export JPDFIUM_AOM_PREFIX="$prefix"
-    else
-        $SUDO ldconfig 2>/dev/null || true
     fi
+    export JPDFIUM_AOM_PREFIX="$prefix"
+    $SUDO ldconfig 2>/dev/null || true
     # Make libheif and libvips pick this aom over the system copy.
     export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     export CMAKE_PREFIX_PATH="$prefix:${CMAKE_PREFIX_PATH:-}"
