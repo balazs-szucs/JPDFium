@@ -50,19 +50,26 @@ class PdfJsCorpusTest {
 
     private static void probe(Path input) throws Exception {
         assumeTrue(Files.size(input) < 64L * 1024 * 1024, "oversized fixture");
-        try (PdfDocument doc = PdfDocument.open(input)) {
-            int pages = doc.pageCount();
+        PdfDocument doc;
+        try {
+            doc = PdfDocument.open(input);
+        } catch (Exception e) {
+            assumeTrue(false, "PDF.js fixture cannot be opened: " + e.getMessage());
+            return;
+        }
+        try (PdfDocument source = doc) {
+            int pages = source.pageCount();
             assumeTrue(pages > 0, "no pages");
-            BufferedImage image = new PdfRenderer(doc).renderImageWithDPI(0, DPI);
+            BufferedImage image = new PdfRenderer(source).renderImageWithDPI(0, DPI);
             assertTrue(image.getWidth() > 0 && image.getHeight() > 0);
             if (input.getFileName().toString().matches(".*(annotation|form|widget).*")) {
                 for (int i = 0; i < pages; i++) {
-                    try (var page = doc.page(i)) {
+                    try (var page = source.page(i)) {
                         page.flatten(FlattenMode.ANNOTATIONS);
                     }
                 }
             }
-            byte[] output = doc.saveBytes();
+            byte[] output = source.saveBytes();
             assertTrue(output.length > 0, "empty save");
             try (PdfDocument reopened = PdfDocument.open(output)) {
                 assertEquals(pages, reopened.pageCount(), "page count changed");
@@ -70,8 +77,6 @@ class PdfJsCorpusTest {
                     new PdfRenderer(reopened).renderImageWithDPI(0, DPI);
                 }
             }
-        } catch (Exception e) {
-            assumeTrue(false, "PDF.js fixture cannot be processed: " + e.getMessage());
         }
     }
 }
