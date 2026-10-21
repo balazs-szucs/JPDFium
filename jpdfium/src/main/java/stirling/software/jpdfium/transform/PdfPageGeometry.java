@@ -425,14 +425,15 @@ public final class PdfPageGeometry {
     }
 
     /**
-     * Rotate all pages by the given angle.
+     * Rotate all pages relative to their current rotation.
      *
      * @param doc     open PDF document
-     * @param degrees rotation in degrees (0, 90, 180, 270)
+     * @param degrees rotation in degrees; normalized to 0, 90, 180 or 270
      */
     public static void rotateAll(PdfDocument doc, int degrees) {
+        int delta = ((degrees % 360) + 360) % 360;
         for (int i = 0; i < doc.pageCount(); i++) {
-            setRotation(doc, i, degrees);
+            setRotation(doc, i, (getRotation(doc, i) + delta) % 360);
         }
     }
 }
