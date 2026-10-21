@@ -73,6 +73,7 @@ Every artifact is published for `x64` and `arm64`.
 | Linux musl, such as Alpine | `jpdfium-natives-linux-musl-x64`, `jpdfium-natives-linux-musl-arm64` |
 | macOS | `jpdfium-natives-darwin-x64`, `jpdfium-natives-darwin-arm64` |
 | Windows | `jpdfium-natives-windows-x64`, `jpdfium-natives-windows-arm64` |
+| FreeBSD | `jpdfium-natives-freebsd-x64` |
 
 Every coordinate uses the `com.stirling` group. The optional libvips modules insert `vips`, for example `com.stirling:jpdfium-natives-vips-linux-x64`.
 

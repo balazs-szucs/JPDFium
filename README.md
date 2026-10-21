@@ -112,6 +112,7 @@ Declare one native module per platform your application runs on. All are publish
 | Linux musl, such as Alpine | `jpdfium-natives-linux-musl-x64`, `jpdfium-natives-linux-musl-arm64` |
 | macOS | `jpdfium-natives-darwin-x64`, `jpdfium-natives-darwin-arm64` |
 | Windows | `jpdfium-natives-windows-x64`, `jpdfium-natives-windows-arm64` |
+| FreeBSD | `jpdfium-natives-freebsd-x64` |
 
 All modules use the `com.stirling` group. Package a native module for each target operating system and architecture.
 
