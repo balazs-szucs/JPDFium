@@ -297,6 +297,7 @@ jobs:
             pkg install -y bash git python3
           run: |
             set -euo pipefail
+            set -a; . native/vips-build.env; set +a
             export JPDFIUM_REQUIRE_SOURCE_VIPS=1
             bash native/build-vips-full-codecs.sh
             bash native/build-vips.sh freebsd-x64

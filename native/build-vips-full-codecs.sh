@@ -134,7 +134,7 @@ EOF
     elif [ "$OS" = freebsd ]; then
         pkg install -y meson ninja pkgconf cmake autoconf automake libtool nasm \
             glib expat orc libexif lcms2 jpeg-turbo png webp tiff openjpeg \
-            libjxl aom libde265 kvazaar libspng highway zlib zstd brotli \
+            libjxl aom libde265 kvazaar libspng highway zstd brotli \
             libdeflate binutils patchelf python3
     elif [ "$OS" = linux ]; then
         sudo apt-get update
