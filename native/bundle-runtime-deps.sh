@@ -264,12 +264,16 @@ bundle_macos() {
                 @rpath/*)
                     local base
                     base=$(basename "$dep")
+                    if [ "$base" = "$(basename "$f")" ]; then
+                        continue
+                    fi
                     if [ ! -e "$DIST_DIR/$base" ] && [ "$base" != "libjpdfium.dylib" ]; then
                         echo "FAIL: $(basename "$f") references missing $dep" >&2
                         failed=1
                     fi
                     ;;
                 *)
+                    [ "$(basename "$dep")" = "$(basename "$f")" ] && continue
                     echo "FAIL: $(basename "$f") has non-relocatable dependency $dep" >&2
                     failed=1
                     ;;
@@ -480,8 +484,8 @@ assert_bundle_arch() {
                 [ -e "$f" ] || continue
                 machine=$(readelf -h "$f" 2>/dev/null | awk -F: '/Machine:/{print $2}' | xargs)
                 case "$unix_arch:$machine" in
-                    x86_64:"Advanced Micro Devices X86-64") ;;
-                    aarch64:"AArch64") ;;
+                    x86_64:*X86-64*) ;;
+                    aarch64:*AArch64*) ;;
                     *) echo "FAIL: $(basename "$f") is [$machine], expected $unix_arch" >&2; failed=1 ;;
                 esac
             done
