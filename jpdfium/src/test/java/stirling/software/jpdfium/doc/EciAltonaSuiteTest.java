@@ -16,7 +16,6 @@ import stirling.software.jpdfium.PdfRenderer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * ECI Altona Test Suite 1.2 and 2.0 technical-page visual regression for the CMYK conversion path.
@@ -33,7 +32,7 @@ class EciAltonaSuiteTest {
 
     @TestFactory
     Stream<DynamicTest> everyAltonaPagePreservesRendering() throws Exception {
-        assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
+        assertTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
                 "ECI gate requires vector CMYK support");
         Path dir = Path.of(System.getenv("ECI_DIR"));
         List<Path> fixtures;

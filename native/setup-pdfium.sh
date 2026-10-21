@@ -480,9 +480,9 @@ FPDFFormObj_MarkDirty(FPDF_PAGEOBJECT form_object);
 FPDF_EXPORT unsigned long FPDF_CALLCONV
 FPDFFormObj_GetObjectNumber(FPDF_PAGEOBJECT form_object);
 
-// JPDFium extension: true when an image carries a mask, soft mask, matte or is
-// itself an image mask. Cheap dictionary probe used instead of rendering the
-// image just to inspect its alpha channel.
+// JPDFium extension: true when an image carries a mask, soft mask, codestream
+// alpha (/SMaskInData) or is itself an image mask. Cheap dictionary probe used
+// instead of rendering the image just to inspect its alpha channel.
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FPDFImageObj_HasTransparency(FPDF_PAGEOBJECT image_object);
 
@@ -548,6 +548,9 @@ bool JpdfiumGetCmyk(const CPDF_ColorState& color_state,
   if (!color_state.HasRef() || !color || !color->IsColorSpaceCMYK()) {
     return false;
   }
+  if (color->IsPattern()) {
+    return false;
+  }
   const pdfium::span<const float> comps = color->GetRawNonPatternComps();
   if (comps.size() != 4u) {
     return false;
@@ -579,6 +582,9 @@ int JpdfiumGetComponents(const CPDF_ColorState& color_state,
                          int capacity) {
   if (!color_state.HasRef() || !color || color->IsNull() || capacity < 0) {
     return -1;
+  }
+  if (color->IsPattern()) {
+    return 0;
   }
   const pdfium::span<const float> comps = color->GetRawNonPatternComps();
   const int count = static_cast<int>(comps.size());
@@ -856,6 +862,11 @@ fi
 # fresh DCTDecode dictionary. Keep the non-encoding keys a CMYK JPEG has no
 # reason to drop (optional content, rendering intent, interpolation, metadata).
 EDITIMG="fpdfsdk/fpdf_editimg.cpp"
+if [ -f "${EDITIMG}" ] && grep -q 'JPDFium: preserve image metadata' "${EDITIMG}" \
+    && grep -q 'for (const char\* key : {"/OC"' "${EDITIMG}"; then
+    echo "  ERROR: stale slash-key image metadata patch; run this script with --clean" >&2
+    exit 1
+fi
 if [ -f "${EDITIMG}" ] && ! grep -q 'JPDFium: preserve image metadata' "${EDITIMG}"; then
     python3 - "${EDITIMG}" <<'PY_EOF'
 import sys
@@ -894,6 +905,11 @@ print("  Patched EPDFImageObj_SetJpeg to preserve image metadata.")
 PY_EOF
 fi
 
+if [ -f "${EDITIMG}" ] && grep -q 'FPDFImageObj_HasTransparency' "${EDITIMG}" \
+    && grep -q 'dict->KeyExist("Matte")' "${EDITIMG}"; then
+    echo "  ERROR: stale Matte transparency probe; run this script with --clean" >&2
+    exit 1
+fi
 if [ -f "${EDITIMG}" ] && ! grep -q 'FPDFImageObj_HasTransparency' "${EDITIMG}"; then
     python3 - "${EDITIMG}" <<'PY_EOF'
 import sys
@@ -913,7 +929,7 @@ FPDFImageObj_HasTransparency(FPDF_PAGEOBJECT image_object) {
     return true;
   }
   return pImgObj->GetImage()->IsMask() || dict->KeyExist("SMask") ||
-         dict->KeyExist("Mask") || dict->KeyExist("Matte");
+         dict->KeyExist("Mask") || dict->GetIntegerFor("SMaskInData") != 0;
 }
 
 """ + anchor

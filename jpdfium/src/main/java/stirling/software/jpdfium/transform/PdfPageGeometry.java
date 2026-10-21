@@ -431,6 +431,9 @@ public final class PdfPageGeometry {
      * @param degrees rotation in degrees; normalized to 0, 90, 180 or 270
      */
     public static void rotateAll(PdfDocument doc, int degrees) {
+        if (degrees % 90 != 0) {
+            throw new IllegalArgumentException("rotation must be a multiple of 90 degrees: " + degrees);
+        }
         int delta = ((degrees % 360) + 360) % 360;
         for (int i = 0; i < doc.pageCount(); i++) {
             setRotation(doc, i, (getRotation(doc, i) + delta) % 360);

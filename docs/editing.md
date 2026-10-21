@@ -191,9 +191,12 @@ if (PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK)) {
 
 - Existing DeviceCMYK, DeviceGray, ICC, Separation, DeviceN, Indexed and pattern
   colours are preserved by default.
-- `ColorConvertOptions` can opt into ICC/spot conversion and form recursion.
-- DeviceRGB images are re-encoded as CMYK JPEGs; images with masks or visible
-  transparency are skipped. Builds without `EPDFImageObj_SetJpeg` convert no images
+- `ColorConvertOptions` can opt into ICC/spot conversion. Form XObjects are
+  traversed by default when the patched PDFium supports write-back
+  (`convertForms(false)` disables it).
+- DeviceRGB images are re-encoded as CMYK JPEGs; images with visible
+  transparency are skipped, and a fully opaque mask is dropped. Builds without
+  `EPDFImageObj_SetJpeg` convert no images
   (`PdfColorConverter.supportsImageConversion()` returns false).
 - Output intents are written with QPDF, which rewrites the full file. Recheck
   rendering after changing the print condition.

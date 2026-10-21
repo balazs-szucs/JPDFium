@@ -38,6 +38,7 @@ class FlattenVisualCorpusTest {
     private static final double ANNOTATION_MAE = 1.0d;
     private static final double FORM_MAE = 2.0d;
     private static final double RASTER_MAE = 1.0d;
+    private static final double ANNOTATION_TILE_MAE = 80.0d;
     private static final List<String> ANNOTATION_FIXTURES = List.of(
             "pdfjs_annotation-highlight.pdf",
             "pdfjs_annotation-ink-without-appearance.pdf",
@@ -81,7 +82,7 @@ class FlattenVisualCorpusTest {
             int annotations;
             try (PdfDocument doc = PdfDocument.open(input)) {
                 annotations = annotationCount(doc);
-                assumeTrue(annotations > 0, label + " has no annotations or widgets");
+                assertTrue(annotations > 0, label + " has no annotations or widgets");
                 doc.flatten(FlattenMode.ANNOTATIONS);
                 doc.save(output);
             }
@@ -94,7 +95,8 @@ class FlattenVisualCorpusTest {
                 assertTrue(form == null || form.getFields().isEmpty(),
                         label + " still exposes populated AcroForm fields after flatten");
             }
-            assertRenderPreserved(input, output, threshold, label);
+            assertRenderPreserved(input, output, threshold, label,
+                    threshold == ANNOTATION_MAE);
         } finally {
             Files.deleteIfExists(output);
         }
@@ -124,7 +126,7 @@ class FlattenVisualCorpusTest {
                             "full raster flatten must mark the document modified");
                     doc.save(output);
                 }
-                assertRenderPreserved(input, output, RASTER_MAE, name);
+                assertRenderPreserved(input, output, RASTER_MAE, name, false);
             } finally {
                 Files.deleteIfExists(output);
             }
@@ -134,14 +136,7 @@ class FlattenVisualCorpusTest {
     @TestFactory
     @EnabledIfEnvironmentVariable(named = "GHENT_DIR", matches = ".+")
     Stream<DynamicTest> fullRasterFlattenPreservesGhentPages() {
-        Path dir = Path.of(System.getenv("GHENT_DIR"));
-        if (!Files.isDirectory(dir)) return Stream.empty();
-        if (Files.isRegularFile(dir.resolve("Ghent_PDF-Output-Test-V50_ALL_X4.pdf"))) {
-            // already the fixture directory
-        } else {
-            Path nested = dir.resolve("Ghent_PDF_Output_Suite_V50_Testpages");
-            if (Files.isDirectory(nested)) dir = nested;
-        }
+        Path dir = fixtureDir();
         List<Path> fixtures;
         try (Stream<Path> paths = Files.list(dir)) {
             fixtures = paths.filter(Files::isRegularFile)
@@ -163,7 +158,7 @@ class FlattenVisualCorpusTest {
                             doc.save(output);
                         }
                         assertRenderPreserved(input, output, RASTER_MAE,
-                                finalDir.relativize(input).toString());
+                                finalDir.relativize(input).toString(), false);
                     } finally {
                         Files.deleteIfExists(output);
                     }
@@ -181,7 +176,7 @@ class FlattenVisualCorpusTest {
     }
 
     private static void assertRenderPreserved(Path input, Path output, double threshold,
-                                              String label) throws Exception {
+                                              String label, boolean checkLocalized) throws Exception {
         try (PdfDocument before = PdfDocument.open(input);
                 PdfDocument after = PdfDocument.open(output)) {
             assertEquals(before.pageCount(), after.pageCount(), label + " page count changed");
@@ -197,12 +192,51 @@ class FlattenVisualCorpusTest {
                         label, page + 1, mae <= threshold ? "PASS" : "FAIL", mae, threshold);
                 assertTrue(mae <= threshold,
                         label + " page " + (page + 1) + " changed: MAE " + mae);
+                if (checkLocalized) {
+                    double tileMae = maxTileMae(expected, actual, 16);
+                    assertTrue(tileMae <= ANNOTATION_TILE_MAE,
+                            label + " page " + (page + 1)
+                                    + " lost a localized annotation region: tile MAE " + tileMae);
+                }
             }
         }
     }
 
+    private static Path fixtureDir() {
+        Path dir = Path.of(System.getenv("GHENT_DIR"));
+        if (Files.isRegularFile(dir.resolve("Ghent_PDF-Output-Test-V50_ALL_X4.pdf"))) {
+            return dir;
+        }
+        Path nested = dir.resolve("Ghent_PDF_Output_Suite_V50_Testpages");
+        if (Files.isDirectory(nested)) return nested;
+        if (!Files.isDirectory(dir)) {
+            throw new IllegalArgumentException("GHENT_DIR is not a directory: " + dir);
+        }
+        return dir;
+    }
+
     private static Path resource(String path) throws Exception {
         return Path.of(FlattenVisualCorpusTest.class.getResource(path).toURI());
+    }
+
+    private static double maxTileMae(BufferedImage a, BufferedImage b, int tile) {
+        double max = 0;
+        for (int y = 0; y + tile <= a.getHeight(); y += tile) {
+            for (int x = 0; x + tile <= a.getWidth(); x += tile) {
+                long sum = 0;
+                for (int yy = y; yy < y + tile; yy++) {
+                    for (int xx = x; xx < x + tile; xx++) {
+                        int pa = a.getRGB(xx, yy);
+                        int pb = b.getRGB(xx, yy);
+                        sum += Math.abs(((pa >> 16) & 0xFF) - ((pb >> 16) & 0xFF));
+                        sum += Math.abs(((pa >> 8) & 0xFF) - ((pb >> 8) & 0xFF));
+                        sum += Math.abs((pa & 0xFF) - (pb & 0xFF));
+                    }
+                }
+                max = Math.max(max, (double) sum / (tile * tile * 3));
+            }
+        }
+        return max;
     }
 
     private static double meanAbsoluteError(BufferedImage a, BufferedImage b) {

@@ -16,7 +16,6 @@ import stirling.software.jpdfium.PdfRenderer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Ghent PDF Output Suite 5.0 visual regression.
@@ -53,9 +52,9 @@ class GhentOutputSuiteTest {
 
     @TestFactory
     Stream<DynamicTest> everyGhentFixturePreservesEveryPage() throws Exception {
-        assumeTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
+        assertTrue(PdfColorConverter.supportsColorSpace(PdfColorConverter.ColorSpace.CMYK),
                 "Ghent gate requires a PDFium build with vector CMYK and the colour-space probe");
-        assumeTrue(PdfColorConverter.supportsFormConversion(),
+        assertTrue(PdfColorConverter.supportsFormConversion(),
                 "Ghent gate requires form XObject write-back support");
 
         Path dir = fixtureDir();

@@ -579,8 +579,10 @@ bool AddPdfxAttributes(std::string* xml, const std::string& version, const std::
     std::smatch match;
     if (!std::regex_search(*xml, match, description)) return false;
 
-    const bool has_pdfxid_ns = xml->find("xmlns:pdfxid=") != std::string::npos;
-    bool has_pdfx_ns = xml->find("xmlns:pdfx=") != std::string::npos;
+    // Prefixes must be bound on the element that receives the attributes.
+    const std::string open_tag = match[1].str();
+    const bool has_pdfxid_ns = open_tag.find("xmlns:pdfxid=") != std::string::npos;
+    bool has_pdfx_ns = open_tag.find("xmlns:pdfx=") != std::string::npos;
     std::string attrs;
     if (add_pdfxid_version && !has_pdfxid_ns) {
         attrs += " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\"";

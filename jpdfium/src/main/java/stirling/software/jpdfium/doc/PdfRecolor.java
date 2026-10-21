@@ -66,10 +66,23 @@ public final class PdfRecolor {
                 .build());
     }
 
+    /** True when this native build can distinguish process colours from CMYK and spot colours. */
+    public static boolean isSupported() {
+        return ColorBindings.colorSpaceAvailable();
+    }
+
+    private static void requireSupported() {
+        if (!isSupported()) {
+            throw new JPDFiumException("PdfRecolor requires the JPDFium colour-space probe;"
+                    + " this PDFium build cannot distinguish DeviceRGB from CMYK/spot colours");
+        }
+    }
+
     /** Apply the given recolour options to every page. */
     public static int apply(PdfDocument doc, RecolorOptions options) {
         Objects.requireNonNull(doc, "doc");
         Objects.requireNonNull(options, "options");
+        requireSupported();
         int total = 0;
         int pages = doc.pageCount();
         for (int i = 0; i < pages; i++) {
@@ -85,6 +98,7 @@ public final class PdfRecolor {
         Objects.requireNonNull(doc, "doc");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(pageIndices, "pageIndices");
+        requireSupported();
         int total = 0;
         int pages = doc.pageCount();
         for (int i : pageIndices) {

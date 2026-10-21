@@ -1700,6 +1700,18 @@ int32_t jpdfium_color_output_intent_file(const char*, const char*, const uint8_t
     return JPDFIUM_ERR_NOT_FOUND;
 }
 
+int32_t jpdfium_color_pdfx_bytes(const uint8_t*, int64_t, const uint8_t*, int64_t, const char*,
+                                 const char*, const char*, const char*, uint8_t** output,
+                                 int64_t* output_len) {
+    (void)fail_native_bytes(output, output_len);
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+
+int32_t jpdfium_color_pdfx_file(const char*, const char*, const uint8_t*, int64_t, const char*,
+                                const char*, const char*, const char*) {
+    return JPDFIUM_ERR_NOT_FOUND;
+}
+
 int32_t jpdfium_import_n_pages_to_one(void*, float, float, int32_t, int32_t, uint8_t** output,
                                       int64_t* outputLen) {
     constexpr std::string_view stub = "%PDF-1.4 stub n-up";

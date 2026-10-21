@@ -596,6 +596,7 @@ class PdfColorPipelineTest {
 
     @Test
     void recolorModesRewriteVectorColors() throws Exception {
+        assumeTrue(PdfRecolor.isSupported(), "colour-space probe unavailable");
         Path src = resource("/pdfs/general/minimal.pdf");
         int expectedPages;
         try (PdfDocument source = PdfDocument.open(src)) {

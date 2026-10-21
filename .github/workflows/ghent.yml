@@ -156,6 +156,7 @@ jobs:
           done
 
       - name: Run Ghent and ECI conversion gate
+        id: conversion-gate
         if: steps.ghent-download.outcome == 'success' && steps.eci-download.outcome == 'success'
         env:
           GHENT_DIR: /tmp/ghent/Ghent_PDF_Output_Suite_V50_Testpages
@@ -183,13 +184,13 @@ jobs:
             --no-daemon --stacktrace
 
       - name: Verify Ghent process ink coverage
-        if: steps.ghent-download.outcome == 'success'
+        if: steps.conversion-gate.outcome == 'success'
         env:
           GHENT_DIR: /tmp/ghent/Ghent_PDF_Output_Suite_V50_Testpages
         run: bash .github/scripts/verify-ghent-inkcov.sh "$GHENT_DIR" /tmp
 
       - name: Upload Ghent output
-        if: always() && steps.ghent-download.outcome == 'success'
+        if: always() && steps.conversion-gate.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ghent-cmyk-output

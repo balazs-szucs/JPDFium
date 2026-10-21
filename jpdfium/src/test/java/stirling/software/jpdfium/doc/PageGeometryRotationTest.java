@@ -9,6 +9,7 @@ import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.transform.PdfPageGeometry;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** Rotation semantics for {@link PdfPageGeometry#rotateAll}. */
 @EnabledIfSystemProperty(named = "jpdfium.integration", matches = "true")
@@ -23,6 +24,14 @@ class PageGeometryRotationTest {
             PdfPageGeometry.rotateAll(doc, 270);
             assertEquals(0, PdfPageGeometry.getRotation(doc, 0),
                     "90 + 270 degrees must return the page to its original rotation");
+        }
+    }
+
+    @Test
+    void rotateAllRejectsNonRightAngles() throws Exception {
+        Path input = Path.of(getClass().getResource("/pdfs/general/minimal.pdf").toURI());
+        try (PdfDocument doc = PdfDocument.open(input)) {
+            assertThrows(IllegalArgumentException.class, () -> PdfPageGeometry.rotateAll(doc, 45));
         }
     }
 
