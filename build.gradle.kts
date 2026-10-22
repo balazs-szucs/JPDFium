@@ -1,6 +1,6 @@
 allprojects {
     group = "com.stirling"
-    version = findProperty("jpdfium.version")?.toString() ?: "1.0.0-SNAPSHOT"
+    version = findProperty("jpdfium.version")?.toString() ?: "0.0.0-SNAPSHOT"
 
     repositories {
         mavenCentral()
@@ -93,10 +93,22 @@ tasks.register<JavaExec>("runSample") {
         "10" to "S10_Pipeline"
     )
 
-    val sampleClass = "stirling.software.jpdfium.samples." +
-        (sampleClasses[sampleNum] ?: "S01_Document")
+    // The map is hand-maintained, so an unknown number fails here with the list
+    // of known samples and a drifted name fails with the missing file path,
+    // instead of surfacing later as a ClassNotFoundException.
+    val sampleName = sampleClasses[sampleNum]
+        ?: throw GradleException(
+            "Unknown sample '$sampleNum'. Known numbers are ${sampleClasses.keys.joinToString(", ")}"
+        )
+    val sampleSource = project(":jpdfium")
+        .file("src/test/java/stirling/software/jpdfium/samples/$sampleName.java")
+    if (!sampleSource.isFile) {
+        throw GradleException(
+            "Sample '$sampleName' maps to ${rootProject.relativePath(sampleSource)}, which does not exist"
+        )
+    }
 
-    mainClass.set(sampleClass)
+    mainClass.set("stirling.software.jpdfium.samples.$sampleName")
     val jpdfiumCompileJava = tasks.getByPath(":jpdfium:compileJava") as JavaCompile
     val jpdfiumCompileTest = tasks.getByPath(":jpdfium:compileTestJava") as JavaCompile
     classpath = project(":jpdfium").configurations.getByName("testRuntimeClasspath") +
@@ -106,7 +118,7 @@ tasks.register<JavaExec>("runSample") {
     workingDir = rootProject.projectDir
 
     doFirst {
-        println("Running sample: $sampleClass")
+        println("Running sample: $sampleName")
     }
 }
 

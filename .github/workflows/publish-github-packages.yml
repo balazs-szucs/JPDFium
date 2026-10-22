@@ -241,7 +241,10 @@ jobs:
           elif [ -f "C:/Strawberry/c/bin/pkg-config.exe" ]; then
             echo "C:/Strawberry/c/bin" >> "$GITHUB_PATH"
           else
-            choco install -y pkgconf || choco install -y pkgconfiglite || true
+            # Best effort on purpose: vcpkg installs pkgconf into the triplet
+            # tree and this step adds it to PATH below, so a throttled
+            # Chocolatey feed must not fail the job. The helper still retries.
+            bash native/ci/windows-build-deps.sh --optional pkgconf
           fi
           echo "VCPKG_BINARY_SOURCES=files,${{ runner.temp }}/vcpkg-binary-cache,readwrite" >> "$GITHUB_ENV"
           # vcpkg ships preinstalled on windows-latest / windows-11-arm; pick up
@@ -301,6 +304,21 @@ jobs:
                 echo "freebsd prebuild missing for $TARGET_PLATFORM; skipping freebsd natives"
               fi
               exit 0
+            fi
+            # freebsd base.txz carries no third-party headers or pkg-config files.
+            # HarfBuzz/ICU/qpdf/pugixml and freetype2's own Requires.private are
+            # absent, so the cross build cannot configure; skip the leg like a
+            # missing prebuild instead of failing the publish.
+            if [ "$TARGET_PLATFORM" = "freebsd-x64" ]; then
+              SYSROOT="${FREEBSD_SYSROOT:-$PWD/native/freebsd-sysroot}"
+              if ! PKG_CONFIG_DIR='' \
+                   PKG_CONFIG_LIBDIR="$SYSROOT/usr/libdata/pkgconfig:$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/local/libdata/pkgconfig" \
+                   pkg-config --exists \
+                     libpcre2-8 libpcre2-32 harfbuzz harfbuzz-subset icu-uc libqpdf pugixml 2>/dev/null; then
+                echo "freebsd_missing=true" >> "$GITHUB_OUTPUT"
+                echo "freebsd cross dependencies are missing from $SYSROOT; skipping freebsd natives"
+                exit 0
+              fi
             fi
           fi
           bash native/fetch-prebuilt-pdfium.sh "$TARGET_PLATFORM"
@@ -554,7 +572,7 @@ jobs:
           # Download the OpenJDK 25 jextract early-access build for linux-x64.
           JEXTRACT_URL="https://download.java.net/java/early_access/jextract/25/2/openjdk-25-jextract+2-4_linux-x64_bin.tar.gz"
           mkdir -p "$HOME/jextract-install"
-          curl -fsSL --max-time 120 "$JEXTRACT_URL" -o /tmp/jextract.tar.gz
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 120 "$JEXTRACT_URL" -o /tmp/jextract.tar.gz
           tar -xzf /tmp/jextract.tar.gz -C "$HOME/jextract-install" --strip-components=1
           ls "$HOME/jextract-install/bin/"
           echo "JEXTRACT_HOME=$HOME/jextract-install" >> "$GITHUB_ENV"

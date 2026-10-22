@@ -183,7 +183,11 @@ if(JPDFIUM_USE_PDFIUM)
         find_library(PDFIUM_LIB
             NAMES pdfium embedpdf
             PATHS "${PDFIUM_LIB_DIR}"
-            NO_DEFAULT_PATH)
+            NO_DEFAULT_PATH
+            # FreeBSD cross builds set CMAKE_FIND_ROOT_PATH to the target
+            # sysroot; without this the prebuilt PDFium directory is searched
+            # as <sysroot>/<host path> and never found.
+            NO_CMAKE_FIND_ROOT_PATH)
         if(NOT PDFIUM_LIB)
             message(FATAL_ERROR "Could not find libpdfium in ${PDFIUM_LIB_DIR}")
         endif()
@@ -404,8 +408,14 @@ if(JPDFIUM_USE_PDFIUM)
     target_link_libraries(jpdfium PRIVATE PkgConfig::HARFBUZZ)
     target_compile_definitions(jpdfium PRIVATE JPDFIUM_HAS_HARFBUZZ)
 
-    # ICU4C - Unicode normalization, BiDi, sentence segmentation
-    pkg_check_modules(ICU REQUIRED IMPORTED_TARGET icu-uc icu-i18n)
+    # ICU4C - Unicode normalization, BiDi, sentence segmentation. All of those
+    # live in libicuuc: the bridge references u_init, u_setDataDirectory and the
+    # ubidi_* entry points and nothing from libicui18n. Requesting the i18n
+    # library only added a NEEDED entry, which macOS kept (ld64 keeps unused
+    # dylibs) and the bundler then copied - about 2.6 MB per darwin bundle for
+    # no symbols. Linux and Windows already dropped it; with lld and MSVC the
+    # unused library never reaches the load commands.
+    pkg_check_modules(ICU REQUIRED IMPORTED_TARGET icu-uc)
     target_link_libraries(jpdfium PRIVATE PkgConfig::ICU)
     target_compile_definitions(jpdfium PRIVATE JPDFIUM_HAS_ICU)
 
