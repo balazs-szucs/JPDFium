@@ -34,6 +34,10 @@ publishing workflows, not library releases, so they are not listed here.
 
 ### Changed
 
+- The in-repository sample suite is now ten programs focused on the core API
+  and core features (documents, rendering, text, images, redaction, forms,
+  merge and split, compression, security, and an end-to-end pipeline). The
+  previous feature-specific samples and their debug helpers were removed.
 - The published `jpdfium` jar no longer carries the GraalVM smoke-test PDFs.
   Those fixtures stay on the native-image build classpath, so the smoke test
   still reads them.

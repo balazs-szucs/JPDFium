@@ -154,12 +154,27 @@ A hard native ceiling of 268,435,456 pixels per page applies regardless of `jpdf
 - Creating form fields. Forms can be read, filled, and flattened.
 - GPU rendering.
 
+## Samples
+
+Ten runnable programs under
+[`jpdfium/src/test/java/stirling/software/jpdfium/samples`](jpdfium/src/test/java/stirling/software/jpdfium/samples)
+cover the core API and core features: documents, rendering, text, images,
+redaction, forms, merge and split, compression, security, and an end-to-end
+pipeline.
+
+```bash
+./gradlew runAllSamples
+./gradlew runSample -Psample=05
+```
+
+Output is written to `samples-output/`. See the [samples guide](docs/samples.md)
+for the full list.
+
 ## Resources
 
 - [Documentation](docs/README.md)
 - [Changelog](CHANGELOG.md)
 - [Example project](examples/render-first-page)
-- [Feature samples](jpdfium/src/test/java/stirling/software/jpdfium/samples)
 - [Installation guide](docs/installation.md)
 - [API reference on javadoc.io](https://javadoc.io/doc/com.stirling/jpdfium)
 - [Releases](https://github.com/Stirling-Tools/JPDFium/releases)
