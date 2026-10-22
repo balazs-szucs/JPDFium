@@ -18,11 +18,11 @@ Guides for installing, deploying, configuring, and using JPDFium.
 | [Concurrency](concurrency.md) | Thread rules, serialization, structural invalidation, cancellation |
 | [Compatibility](compatibility.md) | Support matrix, artifact availability, limitations |
 | [Troubleshooting](troubleshooting.md) | Symptoms, causes, and corrective actions |
-| [Samples](samples.md) | Core API and feature programs, runner, fixtures, output |
 
 ## Resources
 
 - [README](../README.md)
+- [Sample programs](../jpdfium/src/test/java/stirling/software/jpdfium/samples)
 - [API reference on javadoc.io](https://javadoc.io/doc/com.stirling/jpdfium)
 - [Releases](https://github.com/Stirling-Tools/JPDFium/releases)
 
