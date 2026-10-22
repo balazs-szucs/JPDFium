@@ -18,6 +18,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      dryRun:
+        description: 'Build everything and publish to Maven Local instead of Central Portal'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
