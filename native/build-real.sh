@@ -46,6 +46,7 @@ if [ "$OS_NAME" != "darwin" ] && [ "$OS_NAME" != "linux" ] && [ -f "${PDFIUM_DIR
             echo "ERROR: dumpbin/lib.exe not found; cannot create PDFium ICU import library" >&2
             exit 1
         fi
+        mkdir -p "${BUILD_DIR}"
         DEF="${BUILD_DIR}/pdfium-icu.def"
         "$DUMPBIN" /nologo /exports "$ICU_DLL" | \
             awk 'NF >= 4 && $1 ~ /^[0-9]+$/ {print $4}' > "${DEF}.names"
