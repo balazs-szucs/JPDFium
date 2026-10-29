@@ -495,7 +495,7 @@ jobs:
           # activates the Visual Studio env itself.
           meson setup build "libvips-${VIPS_TAG#v}" \
             --vsenv \
-            --prefix="$PREFIX" --libdir=lib --buildtype=release \
+            --prefix="$PREFIX" --libdir=lib --buildtype=minsize \
             -Dauto_features=disabled -Ddeprecated=false -Dexamples=false \
             -Dmodules=disabled -Dintrospection=disabled -Dvapi=false \
             -Dcplusplus=false \
