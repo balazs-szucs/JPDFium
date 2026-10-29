@@ -1663,7 +1663,7 @@ JPDFIUM_BUILD_MODE="${JPDFIUM_BUILD_MODE:-component}"
 GN_EXPERIMENT=''
 case "$(uname -s)" in
     Darwin*) ;; # EmbedPDF CPDF_ImageObject header needs an upstream fix first
-    *) GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0' ;;
+    *) GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0 is_incremental_linking=false' ;;
 esac
 case "$JPDFIUM_BUILD_MODE" in
     component)
