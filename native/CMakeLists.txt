@@ -416,8 +416,20 @@ if(JPDFIUM_USE_PDFIUM)
     # dylibs) and the bundler then copied - about 2.6 MB per darwin bundle for
     # no symbols. Linux and Windows already dropped it; with lld and MSVC the
     # unused library never reaches the load commands.
-    pkg_check_modules(ICU REQUIRED IMPORTED_TARGET icu-uc)
-    target_link_libraries(jpdfium PRIVATE PkgConfig::ICU)
+    pkg_check_modules(ICU REQUIRED icu-uc)
+    if(JPDFIUM_USE_PDFIUM_ICU AND WIN32)
+        # Reuse PDFium's own ICU 78 build. This avoids shipping a second ICU
+        # runtime plus its data DLL in the Windows core bundle. The import
+        # library is generated from the pinned PDFium DLL by build-real.sh.
+        add_library(pdfium_icu SHARED IMPORTED)
+        set_target_properties(pdfium_icu PROPERTIES
+            IMPORTED_IMPLIB "${JPDFIUM_PDFIUM_ICU_LIB}"
+            IMPORTED_LOCATION "${JPDFIUM_PDFIUM_ICU_DLL}")
+        target_include_directories(jpdfium PRIVATE ${ICU_INCLUDE_DIRS})
+        target_link_libraries(jpdfium PRIVATE pdfium_icu)
+    else()
+        target_link_libraries(jpdfium PRIVATE PkgConfig::ICU)
+    endif()
     target_compile_definitions(jpdfium PRIVATE JPDFIUM_HAS_ICU)
 
     # qpdf - PDF structure manipulation, stream replacement

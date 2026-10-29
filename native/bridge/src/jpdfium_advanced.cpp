@@ -1055,7 +1055,7 @@ int32_t jpdfium_icu_normalize_nfc(const char* text, char** result) {
 
         UErrorCode status = U_ZERO_ERROR;
         icu::UnicodeString src = icu::UnicodeString::fromUTF8(text);
-        icu::UnicodeString dst;
+        icu::UnicodeString dst(0, 0, 0);
         icu::Normalizer::normalize(src, UNORM_NFC, 0, dst, status);
 
         if (U_FAILURE(status)) {
@@ -1098,7 +1098,7 @@ int32_t jpdfium_icu_break_sentences(const char* text, char** json_result) {
             if (!first) json += ",";
             first = false;
 
-            icu::UnicodeString segment;
+            icu::UnicodeString segment(0, 0, 0);
             utext.extractBetween(start, end, segment);
             std::string segUtf8;
             segment.toUTF8String(segUtf8);
@@ -1176,11 +1176,11 @@ int32_t jpdfium_icu_bidi_reorder(const char* text, char** result) {
             UBiDiDirection dir = ubidi_getVisualRun(bidi, i, &logStart, &runLen);
             if (dir == UBIDI_RTL) {
                 for (int32_t j = logStart + runLen - 1; j >= logStart; --j) {
-                    visual.setCharAt(visPos++, utext.charAt(j));
+                    visual.setCharAt(visPos++, utext.getBuffer()[j]);
                 }
             } else {
                 for (int32_t j = logStart; j < logStart + runLen; ++j) {
-                    visual.setCharAt(visPos++, utext.charAt(j));
+                    visual.setCharAt(visPos++, utext.getBuffer()[j]);
                 }
             }
         }

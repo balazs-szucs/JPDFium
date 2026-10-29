@@ -25,13 +25,43 @@ CMAKE_ARGS=(
     -DCMAKE_BUILD_TYPE=Release
 )
 
+OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
 if [ -n "${CMAKE_GENERATOR_PLATFORM:-}" ]; then
     CMAKE_ARGS+=(-A "${CMAKE_GENERATOR_PLATFORM}")
 elif [ "${TRIPLET:-}" = "arm64-windows" ] || [ "${PROCESSOR_ARCHITECTURE:-}" = "ARM64" ]; then
-    OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
     if [ "$OS_NAME" != "darwin" ] && [ "$OS_NAME" != "linux" ]; then
         CMAKE_ARGS+=(-A "ARM64")
     fi
+fi
+
+# Reuse PDFium's ICU runtime instead of bundling a second ICU + data DLL.
+# PDFium ships icuuc.dll but no import library; generate one from its exports.
+if [ "$OS_NAME" != "darwin" ] && [ "$OS_NAME" != "linux" ] && [ -f "${PDFIUM_DIR}/lib/icuuc.dll" ]; then
+    ICU_DLL="${PDFIUM_DIR}/lib/icuuc.dll"
+    ICU_LIB="${PDFIUM_DIR}/lib/icuuc.lib"
+    if [ ! -f "$ICU_LIB" ]; then
+        DUMPBIN="${DUMPBIN:-$(find "/c/Program Files/Microsoft Visual Studio" -name dumpbin.exe 2>/dev/null | head -1 || true)}"
+        LIB_EXE="${LIB_EXE:-$(find "/c/Program Files/Microsoft Visual Studio" -path '*/bin/Hostx64/x64/lib.exe' 2>/dev/null | head -1 || true)}"
+        if [ -z "$DUMPBIN" ] || [ -z "$LIB_EXE" ]; then
+            echo "ERROR: dumpbin/lib.exe not found; cannot create PDFium ICU import library" >&2
+            exit 1
+        fi
+        DEF="${BUILD_DIR}/pdfium-icu.def"
+        "$DUMPBIN" /nologo /exports "$ICU_DLL" | \
+            awk 'NF >= 4 && $1 ~ /^[0-9]+$/ {print $4}' > "${DEF}.names"
+        {
+            echo "LIBRARY icuuc.dll"
+            echo "EXPORTS"
+            sed 's/^/  /' "${DEF}.names"
+        } > "$DEF"
+        "$LIB_EXE" /nologo /machine:"${CMAKE_GENERATOR_PLATFORM:-x64}" /def:"$DEF" /out:"$ICU_LIB"
+    fi
+    CMAKE_ARGS+=(
+        -DJPDFIUM_USE_PDFIUM_ICU=ON
+        -DJPDFIUM_PDFIUM_ICU_LIB="$ICU_LIB"
+        -DJPDFIUM_PDFIUM_ICU_DLL="$ICU_DLL"
+    )
+    echo "Using PDFium ICU: $ICU_DLL"
 fi
 
 if [ -n "${CMAKE_OSX_ARCHITECTURES:-}" ]; then

@@ -221,7 +221,7 @@ void buildNormalizedText(FPDF_TEXTPAGE textPage, int count, std::vector<int>& no
             std::u32string in(1, static_cast<char32_t>(uni));
             icu::UnicodeString us =
                 icu::UnicodeString::fromUTF32(reinterpret_cast<const UChar32*>(in.data()), 1);
-            icu::UnicodeString out;
+            icu::UnicodeString out(0, 0, 0);
             UErrorCode err = U_ZERO_ERROR;
             nfkc->normalize(us, out, err);
             std::u32string mapped;
