@@ -1657,13 +1657,12 @@ OUT_DIR="out/Release"
 #   visibility("default") - in static mode we instead pass these via
 #   compile flags below.
 JPDFIUM_BUILD_MODE="${JPDFIUM_BUILD_MODE:-component}"
-# Official ThinLTO currently builds cleanly on arm64 Linux (glibc and musl)
-# and FreeBSD. The x64/darwin/windows paths still need upstream/source fixes
-# (missing CFI ignores, chrome/VERSION, and an EmbedPDF header incompatibility),
-# so keep those on the existing non-official build.
+# Official ThinLTO is enabled only on targets whose PDFium source tree builds
+# with the standalone official configuration. Darwin is excluded until the
+# EmbedPDF CPDF_ImageObject header incompatibility is resolved.
 GN_EXPERIMENT=''
 case "${TARGET_OS:-}-${TARGET_CPU:-}" in
-    linux-arm64|freebsd-x64)
+    linux-x64|linux-arm64|freebsd-x64|windows-x64|windows-arm64)
         GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
         ;;
 esac
@@ -1770,6 +1769,13 @@ case "$(uname -s)" in
 esac
 
 if [ -n "$GN_EXPERIMENT" ]; then
+    # PDFium standalone omits two files that Chromium's official build
+    # expects. They are inert inputs, not generated code.
+    mkdir -p tools/cfi chrome
+    [ -f tools/cfi/ignores.txt ] || : > tools/cfi/ignores.txt
+    if [ ! -f chrome/VERSION ]; then
+        printf 'MAJOR=1\nMINOR=0\nBUILD=0\nPATCH=0\n' > chrome/VERSION
+    fi
     GN_ARGS="$GN_ARGS $GN_EXPERIMENT"
 fi
 gn gen "${OUT_DIR}" --args="${GN_ARGS}"
