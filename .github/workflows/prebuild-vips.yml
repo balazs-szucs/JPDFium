@@ -203,9 +203,11 @@ jobs:
           HEIF_PREFIX="$(cygpath -m "$PWD/heif-prefix")"
           AOM_PREFIX="$(cygpath -m "$PWD/aom-prefix")"
           VIPS_PREFIX="$(cygpath -m "$PWD/vips-prefix")"
-          NEED_AOM=0
-          [ "$ARCH" = x64 ] && NEED_AOM=1
-          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ] && { [ "$NEED_AOM" = 0 ] || [ -f "$AOM_PREFIX/bin/aom.dll" ]; }; then
+          # Build AOM from source for both architectures so arm64 gets the
+          # same encoder-only/high-bit-depth-off configuration as x64. vcpkg's
+          # arm64 AOM is generic anyway, so this does not lose SIMD support.
+          NEED_AOM=1
+          if [ -f "$KVAZAAR_PREFIX/bin/kvazaar.dll" ] && [ -f "$HEIF_PREFIX/bin/heif.dll" ] && [ -f "$AOM_PREFIX/bin/aom.dll" ]; then
             echo "kvazaar, libheif and minimal AOM restored from cache; skipping build."
             mkdir -p "$VIPS_PREFIX/bin"
             cp "$HEIF_PREFIX"/bin/*.dll "$VIPS_PREFIX/bin/" 2>/dev/null || true
@@ -235,7 +237,7 @@ jobs:
             fi
             case "$ARCH" in
               x64)   AOM_CPU=x86_64 ;;
-              arm64) AOM_CPU=arm64 ;;
+              arm64) AOM_CPU=generic ;; # vcpkg's arm64 AOM is generic; keep that baseline
               *) echo "ERROR: unsupported AOM arch $ARCH" >&2; exit 1 ;;
             esac
             # High-bit-depth AVIF encoding is intentionally disabled for size.
