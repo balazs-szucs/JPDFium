@@ -1661,10 +1661,9 @@ JPDFIUM_BUILD_MODE="${JPDFIUM_BUILD_MODE:-component}"
 # with the standalone official configuration. Darwin is excluded until the
 # EmbedPDF CPDF_ImageObject header incompatibility is resolved.
 GN_EXPERIMENT=''
-case "${TARGET_OS:-}-${TARGET_CPU:-}" in
-    linux-x64|linux-arm64|freebsd-x64|windows-x64|windows-arm64)
-        GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
-        ;;
+case "$(uname -s)" in
+    Darwin*) ;; # EmbedPDF CPDF_ImageObject header needs an upstream fix first
+    *) GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0' ;;
 esac
 case "$JPDFIUM_BUILD_MODE" in
     component)
