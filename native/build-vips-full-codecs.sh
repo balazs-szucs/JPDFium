@@ -567,7 +567,7 @@ build_vips() {
     fi
     meson setup "$work/build" "$src" \
         --prefix="$PREFIX" --libdir=lib \
-        --buildtype=release -Db_lto=true \
+        --buildtype=minsize -Db_lto=true \
         -Dauto_features=disabled \
         -Dc_args="-ffunction-sections -fdata-sections" \
         -Ddeprecated=false -Dexamples=false \
