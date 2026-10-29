@@ -1657,18 +1657,22 @@ OUT_DIR="out/Release"
 #   visibility("default") - in static mode we instead pass these via
 #   compile flags below.
 JPDFIUM_BUILD_MODE="${JPDFIUM_BUILD_MODE:-component}"
+# Experiment: ask PDFium for its shipping configuration. ThinLTO is only
+# enabled for official builds; disable the Chromium PGO profile fetch because
+# this standalone build has no Chromium profile checkout.
+GN_EXPERIMENT='is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
 case "$JPDFIUM_BUILD_MODE" in
     component)
-        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=false pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false'
+        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=false pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
         ;;
     v8)
-        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=true pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false v8_enable_sandbox=false'
+        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=true pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false v8_enable_sandbox=false is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
         ;;
     xfa)
-        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=true pdf_enable_xfa=true pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false v8_enable_sandbox=false'
+        GN_ARGS='is_debug=false is_component_build=true pdf_is_standalone=true pdf_enable_v8=true pdf_enable_xfa=true pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false v8_enable_sandbox=false is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
         ;;
     static)
-        GN_ARGS='is_debug=false is_component_build=false pdf_is_complete_lib=true pdf_is_standalone=true pdf_enable_v8=false pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false'
+        GN_ARGS='is_debug=false is_component_build=false pdf_is_complete_lib=true pdf_is_standalone=true pdf_enable_v8=false pdf_enable_xfa=false pdf_use_skia=true pdf_use_agg=true pdf_use_partition_alloc=true use_remoteexec=false clang_use_chrome_plugins=false treat_warnings_as_errors=false symbol_level=0 use_sysroot=false use_custom_libcxx=false use_allocator_shim=false is_official_build=true use_thin_lto=true chrome_pgo_phase=0'
         ;;
     *)
         echo "ERROR: unknown JPDFIUM_BUILD_MODE=$JPDFIUM_BUILD_MODE (expected: component, static, v8, xfa)" >&2
