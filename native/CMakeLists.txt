@@ -416,7 +416,7 @@ if(JPDFIUM_USE_PDFIUM)
     # dylibs) and the bundler then copied - about 2.6 MB per darwin bundle for
     # no symbols. Linux and Windows already dropped it; with lld and MSVC the
     # unused library never reaches the load commands.
-    pkg_check_modules(ICU REQUIRED icu-uc)
+    pkg_check_modules(ICU REQUIRED IMPORTED_TARGET icu-uc)
     if(JPDFIUM_USE_PDFIUM_ICU AND WIN32)
         # Reuse PDFium's own ICU 78 build. This avoids shipping a second ICU
         # runtime plus its data DLL in the Windows core bundle. The import
