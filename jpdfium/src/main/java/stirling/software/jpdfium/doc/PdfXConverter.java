@@ -87,6 +87,9 @@ public final class PdfXConverter {
                     standard.gtsVersion(), standard.gtsConformance())) {
                 throw new JPDFiumException("PDF/X metadata application failed");
             }
+            if (!options.fontData().isEmpty()) {
+                applyFontData(metadata, options);
+            }
             try (PdfDocument document = PdfDocument.open(metadata)) {
                 applyPageBoxes(document);
                 applyDocumentInfo(document, options);
@@ -100,6 +103,11 @@ public final class PdfXConverter {
             deleteQuietly(staging);
             deleteQuietly(metadata);
         }
+    }
+
+    private static void applyFontData(Path pdf, PdfXOptions options) throws IOException {
+        byte[] withFonts = PdfFontEmbedder.embed(Files.readAllBytes(pdf), options.fontData());
+        Files.write(pdf, withFonts);
     }
 
     private static void deleteQuietly(Path path) {
