@@ -17,6 +17,8 @@ publishing workflows, not library releases, so they are not listed here.
 
 ## [Unreleased]
 
+## [Unreleased]
+
 ### Fixed
 
 - Word and pattern redaction now removes text drawn with glyphs the embedded
@@ -30,6 +32,30 @@ publishing workflows, not library releases, so they are not listed here.
 - Redacting a word on rotated, mirrored or skewed text no longer removes
   glyphs of the neighbouring words or paints over them: the redaction marks
   and covers the word's own quad instead of the box around it.
+
+## [1.3.1] - 2026-11-05
+
+### Added
+
+- PDF/X-1a, PDF/X-3, PDF/X-4, and PDF/X-6 metadata bootstrap. `PdfXConverter`
+  now sets the standard base version, writes a missing `/TrimBox`, and
+  optionally fails on non-embedded fonts. `PdfXOptions` gains
+  `requireEmbeddedFonts(...)`; `checkMetadata(Path)` adds a file-backed
+  metadata check.
+- `PdfPageGeometry.cropAndRemoveContentStrict(...)`, which removes a word that
+  crosses the crop edge instead of leaving its outside glyphs clipped and
+  extractable.
+- Native qpdf font-stream replacement. `PdfFontEmbedder.embed(...)` replaces
+  `/FontFile`, `/FontFile2` or `/FontFile3` streams by `/BaseFont`, ignoring
+  subset prefixes and updating `/Length1`; `PdfXOptions.fontData(...)` applies
+  the same replacement before PDF/X validation. No PoDoFo dependency is
+  required.
+
+### Fixed
+
+- `PdfVersionConverter` now writes a PDF 2.0 header for `PdfVersion.V2_0`.
+  PDFium's `FPDF_SaveWithVersion` currently falls back to a PDF 1.4 header for
+  version 20 even though the saved object graph is valid.
 
 ## [1.3.0] - 2026-11-05
 
@@ -367,7 +393,8 @@ PDFium-backed document, page, text, image, and redaction APIs. Per-version notes
 were not maintained; see the [Releases](https://github.com/Stirling-Tools/JPDFium/releases)
 page and the `v1.0.x` tags.
 
-[Unreleased]: https://github.com/Stirling-Tools/JPDFium/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Stirling-Tools/JPDFium/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/Stirling-Tools/JPDFium/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Stirling-Tools/JPDFium/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Stirling-Tools/JPDFium/releases/tag/v1.2.0
 [1.1.5]: https://github.com/Stirling-Tools/JPDFium/releases/tag/v1.1.5
