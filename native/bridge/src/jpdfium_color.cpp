@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <memory>
 #include <random>
@@ -33,6 +34,7 @@
 #include "jpdfium.h"
 #include "jpdfium_internal.h"
 #include "jpdfium_rust.h"
+#include "jpdfium_staging.h"
 
 #ifdef JPDFIUM_HAVE_EPDF_JPEG
 #if __has_include(<epdf_edit.h>)
@@ -510,73 +512,8 @@ std::string NormaliseString(const char* value, const char* fallback) {
     return std::string(fallback);
 }
 
-// Creates a unique sibling of out_path with an exclusive, owner-only create, so a
-// planted or aliased path cannot truncate anything while qpdf streams the input.
-std::string CreateUniqueSibling(const std::string& out_path) {
-    const std::filesystem::path target(out_path);
-    const std::filesystem::path dir =
-        target.has_parent_path() ? target.parent_path() : std::filesystem::path(".");
-    const std::string stem = target.filename().string();
-    std::random_device rd;
-    std::mt19937_64 rng(rd());
-    for (int attempt = 0; attempt < 64; ++attempt) {
-        const std::string candidate =
-            (dir / (stem + "." + std::to_string(rng()) + ".jpdfium-tmp")).string();
-#if defined(_WIN32)
-        int fd = -1;
-        if (::_sopen_s(&fd, candidate.c_str(), _O_WRONLY | _O_CREAT | _O_EXCL | _O_NOINHERIT,
-                       _SH_DENYRW, _S_IREAD | _S_IWRITE) != 0) {
-            continue;
-        }
-        ::_close(fd);
-#else
-        const int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
-        if (fd < 0) continue;
-        ::close(fd);
-#endif
-        return candidate;
-    }
-    throw std::runtime_error("cannot create a temporary output file");
-}
-
-// Preserves an existing destination's mode; a brand-new file keeps the mode
-// created by the normal umask-aware 0666 staging file.
-void ApplyPublishMode(const std::string& staging, const char* destination) {
-#ifndef _WIN32
-    struct stat st;
-    std::memset(&st, 0, sizeof(st));
-    if (::stat(destination, &st) == 0) {
-        ::chmod(staging.c_str(), st.st_mode & 07777);
-    } else {
-        const mode_t mask = ::umask(0);
-        ::umask(mask);
-        ::chmod(staging.c_str(), static_cast<mode_t>(0666 & ~mask));
-    }
-#else
-    (void)staging;
-    (void)destination;
-#endif
-}
-
-// Publishes the staging file over the destination. The staging file survives a
-// failed publish so a written document is never lost.
-bool PublishStaged(const std::string& staging, const char* destination) {
-#if defined(_WIN32)
-    // MoveFileEx replaces an existing destination atomically. std::rename
-    // cannot replace on Windows, so a fallback would only hide the failure.
-    if (::MoveFileExA(staging.c_str(), destination,
-                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        return true;
-    }
-#else
-    if (std::rename(staging.c_str(), destination) == 0) return true;
-#endif
-    // Keep the staging file so a fully written document is never lost, and
-    // make the retained path visible to the caller's logs.
-    std::fprintf(stderr, "jpdfium: failed to publish %s over %s; staging file retained\n",
-                 staging.c_str(), destination);
-    return false;
-}
+using jpdfium_staging::StagedFile;
+using jpdfium_staging::WriteAndPublish;
 
 // Preserve the input stream representation. Letting QPDFWriter recompress
 // unfiltered metadata streams produced zlib data without a /Filter entry on
@@ -700,27 +637,84 @@ std::string XmlEscape(const std::string& value) {
     return out;
 }
 
-std::string BuildPdfxXmp(const std::string& version, const std::string& conformance) {
+struct XmpField {
+    const char* ns = nullptr;
+    const char* prefix = nullptr;
+    const char* local = nullptr;
+    std::string value;
+    bool keep_existing = false;
+};
+
+uint64_t RandomWord(std::random_device& device) {
+    return (static_cast<uint64_t>(device()) << 32) | device();
+}
+
+std::string NewUuid() {
+    std::random_device device;
+    const uint64_t hi = RandomWord(device);
+    const uint64_t lo = RandomWord(device);
+    char buf[48];
+    std::snprintf(buf, sizeof(buf), "uuid:%08x-%04x-4%03x-%04x-%012llx",
+                  static_cast<unsigned>(hi >> 32), static_cast<unsigned>((hi >> 16) & 0xffff),
+                  static_cast<unsigned>(hi & 0x0fff),
+                  static_cast<unsigned>(((lo >> 48) & 0x3fff) | 0x8000),
+                  static_cast<unsigned long long>(lo & 0xffffffffffffULL));
+    return buf;
+}
+
+std::string BuildPdfxXmp(const std::string& version, const std::string& conformance,
+                         const std::string& title = "", const std::string& trapped = "",
+                         const std::string& mod_date = "",
+                         const std::vector<XmpField>& extra = {}) {
     const std::string v = XmlEscape(version);
     const std::string c = XmlEscape(conformance);
-    return "<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n"
-           "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n"
-           " <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
-           "  <rdf:Description rdf:about=\"\""
-           " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\""
-           " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\""
-           " pdfxid:GTS_PDFXVersion=\"" +
-           v +
-           "\""
-           " pdfx:GTS_PDFXVersion=\"" +
-           v +
-           "\""
-           " pdfx:GTS_PDFXConformance=\"" +
-           c +
-           "\"/>\n"
-           " </rdf:RDF>\n"
-           "</x:xmpmeta>\n"
-           "<?xpacket end=\"w\"?>";
+    std::string s =
+        "<?xpacket begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n"
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n"
+        " <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
+        "  <rdf:Description rdf:about=\"\""
+        " xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\""
+        " xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\""
+        " xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\""
+        " xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""
+        " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+        " xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\""
+        " pdfxid:GTS_PDFXVersion=\"" +
+        v +
+        "\""
+        " pdfx:GTS_PDFXVersion=\"" +
+        v + "\"";
+    if (!c.empty()) {
+        s += " pdfx:GTS_PDFXConformance=\"" + c + "\"";
+    }
+    if (!trapped.empty()) {
+        s += " pdf:Trapped=\"" + XmlEscape(trapped) + "\"";
+    }
+    if (!mod_date.empty()) {
+        s += " xmp:ModifyDate=\"" + XmlEscape(mod_date) + "\"";
+    }
+    for (const XmpField& field : extra) {
+        if (field.value.empty()) continue;
+        s += std::string(" ") + field.prefix + ":" + field.local + "=\"" + XmlEscape(field.value) +
+             "\"";
+    }
+    if (!title.empty()) {
+        s += ">\n"
+             "   <dc:title>\n"
+             "    <rdf:Alt>\n"
+             "     <rdf:li xml:lang=\"x-default\">" +
+             XmlEscape(title) +
+             "</rdf:li>\n"
+             "    </rdf:Alt>\n"
+             "   </dc:title>\n"
+             "  </rdf:Description>\n";
+    } else {
+        s += "/>\n";
+    }
+    s += " </rdf:RDF>\n"
+         "</x:xmpmeta>\n"
+         "<?xpacket end=\"w\"?>";
+    return s;
 }
 
 // XMP packets are edited as XML, never with libstdc++'s backtracking regex
@@ -731,6 +725,10 @@ constexpr int kMaxXmpDepth = 64;
 constexpr const char* kRdfNs = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 constexpr const char* kPdfxNs = "http://ns.adobe.com/pdfx/1.3/";
 constexpr const char* kPdfxIdNs = "http://www.npes.org/pdfx/ns/id/";
+constexpr const char* kPdfNs = "http://ns.adobe.com/pdf/1.3/";
+constexpr const char* kDcNs = "http://purl.org/dc/elements/1.1/";
+constexpr const char* kXmpNs = "http://ns.adobe.com/xap/1.0/";
+constexpr const char* kXmpMmNs = "http://ns.adobe.com/xap/1.0/mm/";
 
 #ifdef JPDFIUM_HAS_PUGIXML
 std::string XmlLocalName(const char* name) {
@@ -832,8 +830,71 @@ bool XmlUpdateProperty(const pugi::xml_node& description, const std::string& loc
     return attr || element;
 }
 
+void XmlCollectMatchingElements(const pugi::xml_node& node, const std::string& local,
+                                const std::string& uri1, const std::string& uri2, int depth,
+                                std::vector<pugi::xml_node>* out) {
+    if (depth > kMaxXmpDepth) return;
+    for (pugi::xml_node child : node.children()) {
+        if (child.type() != pugi::node_element) continue;
+        if (XmlLocalName(child.name()) == local) {
+            const std::string ns = XmlNamespaceUri(child, XmlPrefix(child.name()));
+            if (ns == uri1 || (!uri2.empty() && ns == uri2)) out->push_back(child);
+        }
+        XmlCollectMatchingElements(child, local, uri1, uri2, depth + 1, out);
+    }
+}
+
+bool XmlRemoveProperty(pugi::xml_node description, const std::string& local,
+                       const std::string& uri1, const std::string& uri2) {
+    std::vector<pugi::xml_attribute> attributes;
+    for (pugi::xml_attribute attr : description.attributes()) {
+        if (XmlLocalName(attr.name()) != local) continue;
+        const std::string ns = XmlNamespaceUri(description, XmlPrefix(attr.name()));
+        if (ns == uri1 || (!uri2.empty() && ns == uri2)) attributes.push_back(attr);
+    }
+    for (pugi::xml_attribute attr : attributes) description.remove_attribute(attr);
+
+    std::vector<pugi::xml_node> elements;
+    XmlCollectMatchingElements(description, local, uri1, uri2, 0, &elements);
+    for (pugi::xml_node element : elements) element.parent().remove_child(element);
+    return !attributes.empty() || !elements.empty();
+}
+
+pugi::xml_node FindTitleDefaultLi(const pugi::xml_node& node, int depth) {
+    if (depth > kMaxXmpDepth) return {};
+    for (pugi::xml_node child : node.children()) {
+        if (child.type() != pugi::node_element) continue;
+        if (XmlLocalName(child.name()) == "li") {
+            const std::string ns = XmlNamespaceUri(child, XmlPrefix(child.name()));
+            if (ns == kRdfNs) {
+                pugi::xml_attribute lang = child.attribute("xml:lang");
+                if (!lang || std::string(lang.value()) == "x-default") return child;
+            }
+        }
+        pugi::xml_node found = FindTitleDefaultLi(child, depth + 1);
+        if (found) return found;
+    }
+    return {};
+}
+
+bool XmlHasProperty(const std::vector<pugi::xml_node>& descriptions, const std::string& local,
+                    const std::string& uri) {
+    for (const pugi::xml_node& description : descriptions) {
+        for (pugi::xml_attribute attr : description.attributes()) {
+            if (XmlLocalName(attr.name()) != local) continue;
+            if (XmlNamespaceUri(description, XmlPrefix(attr.name())) == uri) return true;
+        }
+        std::vector<pugi::xml_node> elements;
+        XmlCollectMatchingElements(description, local, uri, {}, 0, &elements);
+        if (!elements.empty()) return true;
+    }
+    return false;
+}
+
 bool EditPdfxXml(pugi::xml_document* document, const std::string& version,
-                 const std::string& conformance) {
+                 const std::string& conformance, const std::string& title = "",
+                 const std::string& trapped = "", const std::string& mod_date = "",
+                 const std::vector<XmpField>& extra = {}) {
     std::vector<pugi::xml_node> descriptions;
     XmlCollectDescriptions(*document, 0, &descriptions);
     if (descriptions.empty()) return false;
@@ -843,12 +904,24 @@ bool EditPdfxXml(pugi::xml_document* document, const std::string& version,
     bool has_pdfxid_version = false;
     bool has_pdfx_version = false;
     bool has_conformance = false;
+    bool has_trapped = false;
+    bool has_modify_date = false;
     for (const pugi::xml_node& description : descriptions) {
         has_pdfxid_version |=
             XmlUpdateProperty(description, "GTS_PDFXVersion", kPdfxIdNs, {}, version);
         has_pdfx_version |= XmlUpdateProperty(description, "GTS_PDFXVersion", kPdfxNs, {}, version);
-        has_conformance |=
-            XmlUpdateProperty(description, "GTS_PDFXConformance", kPdfxNs, kPdfxIdNs, conformance);
+        if (!conformance.empty()) {
+            has_conformance |= XmlUpdateProperty(description, "GTS_PDFXConformance", kPdfxNs,
+                                                 kPdfxIdNs, conformance);
+        } else {
+            XmlRemoveProperty(description, "GTS_PDFXConformance", kPdfxNs, kPdfxIdNs);
+        }
+        if (!trapped.empty()) {
+            has_trapped |= XmlUpdateProperty(description, "Trapped", kPdfNs, {}, trapped);
+        }
+        if (!mod_date.empty()) {
+            has_modify_date |= XmlUpdateProperty(description, "ModifyDate", kXmpNs, {}, mod_date);
+        }
     }
 
     pugi::xml_node first = descriptions.front();
@@ -860,19 +933,175 @@ bool EditPdfxXml(pugi::xml_document* document, const std::string& version,
         const std::string prefix = XmlEnsurePrefix(first, kPdfxNs, "pdfx");
         first.append_attribute((prefix + ":GTS_PDFXVersion").c_str()).set_value(version.c_str());
     }
-    if (!has_conformance) {
+    if (!conformance.empty() && !has_conformance) {
         const std::string prefix = XmlEnsurePrefix(first, kPdfxNs, "pdfx");
         first.append_attribute((prefix + ":GTS_PDFXConformance").c_str())
             .set_value(conformance.c_str());
+    }
+    if (!trapped.empty() && !has_trapped) {
+        const std::string prefix = XmlEnsurePrefix(first, kPdfNs, "pdf");
+        first.append_attribute((prefix + ":Trapped").c_str()).set_value(trapped.c_str());
+    }
+    if (!mod_date.empty() && !has_modify_date) {
+        const std::string prefix = XmlEnsurePrefix(first, kXmpNs, "xmp");
+        first.append_attribute((prefix + ":ModifyDate").c_str()).set_value(mod_date.c_str());
+    }
+    for (const XmpField& field : extra) {
+        if (field.value.empty()) continue;
+        const bool present = XmlHasProperty(descriptions, field.local, field.ns);
+        if (present && field.keep_existing) continue;
+        bool updated = false;
+        if (present) {
+            for (const pugi::xml_node& description : descriptions) {
+                updated |= XmlUpdateProperty(description, field.local, field.ns, {}, field.value);
+            }
+        }
+        if (!updated) {
+            const std::string prefix = XmlEnsurePrefix(first, field.ns, field.prefix);
+            first.append_attribute((prefix + ":" + field.local).c_str())
+                .set_value(field.value.c_str());
+        }
+    }
+    if (!title.empty()) {
+        const std::string dc_prefix = XmlEnsurePrefix(first, kDcNs, "dc");
+        pugi::xml_node title_node = first.child((dc_prefix + ":title").c_str());
+        if (!title_node) title_node = first.append_child((dc_prefix + ":title").c_str());
+        pugi::xml_node li = FindTitleDefaultLi(title_node, 0);
+        if (!li) {
+            const std::string rdf_prefix = XmlEnsurePrefix(title_node, kRdfNs, "rdf");
+            pugi::xml_node alt = title_node.child((rdf_prefix + ":Alt").c_str());
+            if (!alt) alt = title_node.append_child((rdf_prefix + ":Alt").c_str());
+            li = alt.append_child((rdf_prefix + ":li").c_str());
+            li.append_attribute("xml:lang").set_value("x-default");
+        }
+        li.text().set(title.c_str());
     }
     return true;
 }
 #endif
 
+// Convert a PDF date (D:YYYYMMDDHHmmSS[Z|+HH'mm'|-HH'mm']) to the ISO 8601
+// form XMP requires. Returns an empty string when the value cannot be parsed.
+std::string PdfDateToXmp(const std::string& pdf) {
+    size_t pos = 0;
+    if (pdf.size() >= 2 && pdf[0] == 'D' && pdf[1] == ':') pos = 2;
+    if (pdf.size() - pos < 14) return {};
+
+    auto digit = [&](size_t at) { return at < pdf.size() && pdf[at] >= '0' && pdf[at] <= '9'; };
+    for (size_t i = pos; i < pos + 14; ++i) {
+        if (!digit(i)) return {};
+    }
+    auto number = [&](size_t off, size_t len) {
+        int value = 0;
+        for (size_t i = 0; i < len; ++i) value = value * 10 + (pdf[pos + off + i] - '0');
+        return value;
+    };
+
+    const int year = number(0, 4);
+    const int month = number(4, 2);
+    const int day = number(6, 2);
+    const int hour = number(8, 2);
+    const int minute = number(10, 2);
+    const int second = number(12, 2);
+    const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    int monthDays = 31;
+    if (month == 2) {
+        monthDays = leap ? 29 : 28;
+    } else if (month == 4 || month == 6 || month == 9 || month == 11) {
+        monthDays = 30;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > monthDays || hour > 23 || minute > 59 ||
+        second > 59) {
+        return {};
+    }
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d", year, month, day, hour, minute,
+                  second);
+    std::string out(buf);
+
+    size_t tz = pos + 14;
+    if (tz == pdf.size()) return out;
+    if (pdf[tz] == 'Z' && tz + 1 == pdf.size()) {
+        out.push_back('Z');
+        return out;
+    }
+    if ((pdf[tz] != '+' && pdf[tz] != '-') || tz + 1 >= pdf.size()) return {};
+
+    const char sign = pdf[tz];
+    size_t cur = tz + 1;
+    if (!digit(cur) || !digit(cur + 1)) return {};
+    const int tz_hour = (pdf[cur] - '0') * 10 + (pdf[cur + 1] - '0');
+    cur += 2;
+
+    int tz_minute = 0;
+    if (cur < pdf.size()) {
+        if (pdf[cur] == '\'' || pdf[cur] == ':') {
+            ++cur;
+        } else if (!digit(cur)) {
+            return {};
+        }
+        if (!digit(cur) || !digit(cur + 1)) return {};
+        tz_minute = (pdf[cur] - '0') * 10 + (pdf[cur + 1] - '0');
+        cur += 2;
+        if (cur < pdf.size() && pdf[cur] == '\'') ++cur;
+    }
+    if (cur != pdf.size() || tz_hour > 23 || tz_minute > 59) return {};
+
+    std::snprintf(buf, sizeof(buf), "%c%02d:%02d", sign, tz_hour, tz_minute);
+    out += buf;
+    return out;
+}
+
 void UpdateOrCreatePdfxMetadata(QPDF* qpdf, const char* version, const char* conformance) {
     const std::string ver = NormaliseString(version, "");
     if (ver.empty()) return;
-    const std::string conf = NormaliseString(conformance, ver.c_str());
+    const std::string conf = NormaliseString(conformance, "");
+
+    std::string title;
+    std::string trapped;
+    std::string mod_date;
+    std::string create_date;
+    QPDFObjectHandle info_dict = qpdf->getTrailer().getKey("/Info");
+    if (info_dict.isDictionary()) {
+        if (info_dict.hasKey("/Title")) {
+            title = info_dict.getKey("/Title").getUTF8Value();
+        }
+        if (info_dict.hasKey("/Trapped")) {
+            std::string tr = info_dict.getKey("/Trapped").getName();
+            if (tr == "/True")
+                trapped = "True";
+            else if (tr == "/False")
+                trapped = "False";
+        }
+        if (info_dict.hasKey("/ModDate")) {
+            mod_date = PdfDateToXmp(info_dict.getKey("/ModDate").getUTF8Value());
+        }
+        if (info_dict.hasKey("/CreationDate")) {
+            create_date = PdfDateToXmp(info_dict.getKey("/CreationDate").getUTF8Value());
+        }
+    }
+    char now[32];
+    {
+        const std::time_t t = std::time(nullptr);
+        std::tm utc{};
+#ifdef _WIN32
+        gmtime_s(&utc, &t);
+#else
+        gmtime_r(&t, &utc);
+#endif
+        std::strftime(now, sizeof(now), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    }
+    if (mod_date.empty()) mod_date = now;
+    if (create_date.empty()) create_date = mod_date;
+    const std::vector<XmpField> extra = {
+        {kXmpNs, "xmp", "CreateDate", create_date, false},
+        {kXmpNs, "xmp", "MetadataDate", now, false},
+        {kXmpMmNs, "xmpMM", "DocumentID", NewUuid(), true},
+        {kXmpMmNs, "xmpMM", "InstanceID", NewUuid(), false},
+        {kXmpMmNs, "xmpMM", "VersionID", "1", true},
+        {kXmpMmNs, "xmpMM", "RenditionClass", "default", true},
+    };
 
     std::string xml;
     QPDFObjectHandle root = qpdf->getRoot();
@@ -893,7 +1122,7 @@ void UpdateOrCreatePdfxMetadata(QPDF* qpdf, const char* version, const char* con
             // Pathological packet: do not hand it to any parser. Replace it
             // with the minimal PDF/X packet instead of risking stack or heap
             // exhaustion.
-            xml = BuildPdfxXmp(ver, conf);
+            xml = BuildPdfxXmp(ver, conf, title, trapped, mod_date, extra);
         } else {
             pugi::xml_document document;
             const pugi::xml_parse_result parsed =
@@ -902,25 +1131,41 @@ void UpdateOrCreatePdfxMetadata(QPDF* qpdf, const char* version, const char* con
                                          pugi::parse_declaration | pugi::parse_comments,
                                      pugi::encoding_auto);
             std::string edited;
-            if (parsed && EditPdfxXml(&document, ver, conf)) {
+            if (parsed && EditPdfxXml(&document, ver, conf, title, trapped, mod_date, extra)) {
                 std::ostringstream serialized;
                 document.save(serialized, "", pugi::format_raw | pugi::format_no_declaration,
                               pugi::encoding_utf8);
                 edited = serialized.str();
             }
-            xml = edited.empty() ? BuildPdfxXmp(ver, conf) : edited;
+            xml =
+                edited.empty() ? BuildPdfxXmp(ver, conf, title, trapped, mod_date, extra) : edited;
         }
 #else
-        xml = BuildPdfxXmp(ver, conf);
+        xml = BuildPdfxXmp(ver, conf, title, trapped, mod_date, extra);
 #endif
     } else {
-        xml = BuildPdfxXmp(ver, conf);
+        xml = BuildPdfxXmp(ver, conf, title, trapped, mod_date, extra);
     }
 
     QPDFObjectHandle metadata = QPDFObjectHandle::newStream(qpdf, xml);
     metadata.getDict().replaceKey("/Type", QPDFObjectHandle::newName("/Metadata"));
     metadata.getDict().replaceKey("/Subtype", QPDFObjectHandle::newName("/XML"));
     root.replaceKey("/Metadata", metadata);
+
+    // ISO 15930-1 (PDF/X-1a) and ISO 15930-3 (PDF/X-3) require GTS_PDFXVersion
+    // in the document information dictionary.
+    if (ver.rfind("PDF/X-1", 0) == 0 || ver.rfind("PDF/X-3", 0) == 0) {
+        QPDFObjectHandle info = qpdf->getTrailer().getKey("/Info");
+        if (!info.isDictionary()) info = QPDFObjectHandle::newDictionary();
+        if (!info.isIndirect()) info = qpdf->makeIndirectObject(info);
+        info.replaceKey("/GTS_PDFXVersion", QPDFObjectHandle::newUnicodeString(ver));
+        if (!conf.empty()) {
+            info.replaceKey("/GTS_PDFXConformance", QPDFObjectHandle::newUnicodeString(conf));
+        } else if (info.hasKey("/GTS_PDFXConformance")) {
+            info.removeKey("/GTS_PDFXConformance");
+        }
+        qpdf->getTrailer().replaceKey("/Info", info);
+    }
 }
 
 std::shared_ptr<Buffer> InjectPdfx(const uint8_t* input, size_t input_len, const uint8_t* icc,
@@ -1190,30 +1435,26 @@ JPDFIUM_EXPORT int32_t jpdfium_color_output_intent_file(const char* in_path, con
 
         // Write a unique sibling then replace the destination, so an aliased or
         // in-place target can never be truncated while qpdf still streams it.
-        const std::string target = CreateUniqueSibling(out_path);
-        try {
-            auto qpdf = QPDF::create();
-            qpdf->processFile(in_path);
-            qpdf->getRoot().replaceKey(
-                "/OutputIntents", MergeOutputIntents(qpdf.get(), icc, static_cast<size_t>(icc_len),
-                                                     subtype, condition_identifier, info));
-            QPDFWriter writer{*qpdf};
-            ConfigureWriter(writer);
-            writer.setOutputFilename(target.c_str());
-            jpdfium_qpdf_internal::WriterLock lock{-1};
-            writer.write();
-        } catch (...) {
-            std::remove(target.c_str());
-            throw;
-        }
-
-        std::error_code ec;
-        if (std::filesystem::file_size(target, ec) == 0 || ec) {
-            std::remove(target.c_str());
+        auto qpdf = QPDF::create();
+        qpdf->processFile(in_path);
+        qpdf->getRoot().replaceKey("/OutputIntents",
+                                   MergeOutputIntents(qpdf.get(), icc, static_cast<size_t>(icc_len),
+                                                      subtype, condition_identifier, info));
+        std::string error;
+        const bool published = WriteAndPublish(
+            out_path,
+            [&](StagedFile& staged) {
+                QPDFWriter writer{*qpdf};
+                ConfigureWriter(writer);
+                writer.setOutputFile(staged.path.c_str(), staged.file, false);
+                jpdfium_qpdf_internal::WriterLock lock{-1};
+                writer.write();
+            },
+            &error);
+        if (!published) {
+            std::fprintf(stderr, "jpdfium color output intent file: %s\n", error.c_str());
             return JPDFIUM_ERR_IO;
         }
-        ApplyPublishMode(target, out_path);
-        if (!PublishStaged(target, out_path)) return JPDFIUM_ERR_IO;
         return JPDFIUM_OK;
 #endif
     } catch (const std::exception& e) {
@@ -1290,31 +1531,27 @@ JPDFIUM_EXPORT int32_t jpdfium_color_pdfx_file(const char* in_path, const char* 
         if (!in_path || !out_path || !icc || icc_len <= 0 || !version || !*version) {
             return JPDFIUM_ERR_INVALID;
         }
-        const std::string target = CreateUniqueSibling(out_path);
-        try {
-            auto qpdf = QPDF::create();
-            qpdf->processFile(in_path);
-            qpdf->getRoot().replaceKey(
-                "/OutputIntents", MergeOutputIntents(qpdf.get(), icc, static_cast<size_t>(icc_len),
-                                                     "GTS_PDFX", condition_identifier, info));
-            UpdateOrCreatePdfxMetadata(qpdf.get(), version, conformance);
-            QPDFWriter writer{*qpdf};
-            ConfigurePdfxWriter(writer, version);
-            writer.setOutputFilename(target.c_str());
-            jpdfium_qpdf_internal::WriterLock lock{-1};
-            writer.write();
-        } catch (...) {
-            std::remove(target.c_str());
-            throw;
-        }
-
-        std::error_code ec;
-        if (std::filesystem::file_size(target, ec) == 0 || ec) {
-            std::remove(target.c_str());
+        auto qpdf = QPDF::create();
+        qpdf->processFile(in_path);
+        qpdf->getRoot().replaceKey("/OutputIntents",
+                                   MergeOutputIntents(qpdf.get(), icc, static_cast<size_t>(icc_len),
+                                                      "GTS_PDFX", condition_identifier, info));
+        UpdateOrCreatePdfxMetadata(qpdf.get(), version, conformance);
+        std::string error;
+        const bool published = WriteAndPublish(
+            out_path,
+            [&](StagedFile& staged) {
+                QPDFWriter writer{*qpdf};
+                ConfigurePdfxWriter(writer, version);
+                writer.setOutputFile(staged.path.c_str(), staged.file, false);
+                jpdfium_qpdf_internal::WriterLock lock{-1};
+                writer.write();
+            },
+            &error);
+        if (!published) {
+            std::fprintf(stderr, "jpdfium pdfx file: %s\n", error.c_str());
             return JPDFIUM_ERR_IO;
         }
-        ApplyPublishMode(target, out_path);
-        if (!PublishStaged(target, out_path)) return JPDFIUM_ERR_IO;
         return JPDFIUM_OK;
 #endif
     } catch (const std::exception& e) {

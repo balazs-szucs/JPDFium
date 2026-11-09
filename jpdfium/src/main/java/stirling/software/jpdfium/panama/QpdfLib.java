@@ -19,6 +19,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -105,6 +106,127 @@ public final class QpdfLib {
     /** Current configured bound (0 = unlimited). */
     public static int maxConcurrency() {
         return QPDF_BOUND;
+    }
+
+    private static final MethodHandle EMBED_FONTS_HANDLE = Symbols.downcallOptionalUnguarded(
+            "jpdfium_qpdf_embed_fonts",
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT, ADDRESS, ADDRESS, ADDRESS,
+                    JAVA_INT, ADDRESS, ADDRESS));
+
+    private static final MethodHandle EMBED_FONTS_FILE_HANDLE =
+            Symbols.downcallOptionalUnguarded(
+                    "jpdfium_qpdf_embed_fonts_file",
+                    FunctionDescriptor.of(
+                            JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, ADDRESS, ADDRESS, ADDRESS,
+                            JAVA_INT));
+
+    /** True when this native build can embed font programs. */
+    public static boolean isFontReplacementSupported() {
+        return EMBED_FONTS_HANDLE != null;
+    }
+
+    /** Single-font form of {@link #embedFonts}, embedding into every font named {@code baseFont}. */
+    public static byte[] replaceFontStream(byte[] input, String baseFont, byte[] fontData) {
+        if (input == null || input.length == 0 || baseFont == null || baseFont.isBlank()
+                || fontData == null || fontData.length == 0) {
+            return null;
+        }
+        byte[] out = embedFonts(input, Map.of(baseFont, fontData), false);
+        if (out == null) throw new JPDFiumException("no font matching /BaseFont " + baseFont);
+        return out;
+    }
+
+    public static byte[] embedFonts(byte[] input, Map<String, byte[]> fonts, boolean onlyMissing) {
+        if (EMBED_FONTS_HANDLE == null) throw new JPDFiumException("font embedding requires native qpdf support");
+        Semaphore held = acquireSlotOrThrow("font embedding");
+        try (QpdfCall call = new QpdfCall()) {
+            int n = fonts.size(), i = 0;
+            MemorySegment names = call.arena.allocate(ADDRESS, n), data = call.arena.allocate(ADDRESS, n);
+            MemorySegment lens = call.arena.allocate(JAVA_LONG, n);
+            for (var e : fonts.entrySet()) {
+                names.setAtIndex(ADDRESS, i, call.cString(e.getKey()));
+                data.setAtIndex(ADDRESS, i, call.copyBytes(e.getValue()));
+                lens.setAtIndex(JAVA_LONG, i++, e.getValue().length);
+            }
+            int rc = (int) EMBED_FONTS_HANDLE.invokeExact(call.copyBytes(input), (long) input.length, n,
+                    names, data, lens, onlyMissing ? 1 : 0, call.outPtr, call.outLen);
+            if (rc == 0) return call.copyAndFree("qpdfEmbedFonts");
+            if (rc == 1) return null;
+            throw new JPDFiumException(switch (rc) {
+                case -2 -> "cannot embed fonts in a password-protected document";
+                case -3 -> "cannot embed fonts in a signed document (/ByteRange present)";
+                case -4 -> "unusable font program for " + fonts.keySet();
+                default -> "qpdf font embedding failed (rc=" + rc + ")";
+            });
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            if (t instanceof JPDFiumException jpe) throw jpe;
+            throw new JPDFiumException("qpdf font embedding failed", t);
+        } finally {
+            releaseSlot(held);
+        }
+    }
+
+    /**
+     * File-backed {@link #embedFonts(byte[], Map, boolean)}. The PDF is read and rewritten by
+     * native qpdf; the Java heap never holds the input or output document.
+     *
+     * @return true when at least one font was embedded; false when no font matched
+     */
+    public static boolean embedFontsToFile(
+            Path input, Path output, Map<String, byte[]> fonts, boolean onlyMissing)
+            throws IOException {
+        if (EMBED_FONTS_FILE_HANDLE == null) {
+            throw new JPDFiumException("font embedding requires native qpdf support");
+        }
+        if (input == null || output == null || fonts == null || fonts.isEmpty()) return false;
+        Semaphore held = acquireSlotOrThrow("font embedding");
+        Path staging = null;
+        try (QpdfCall call = new QpdfCall();
+                OutputTransaction tx = OutputTransaction.begin(output)) {
+            int n = fonts.size();
+            int i = 0;
+            MemorySegment names = call.arena.allocate(ADDRESS, n);
+            MemorySegment data = call.arena.allocate(ADDRESS, n);
+            MemorySegment lens = call.arena.allocate(JAVA_LONG, n);
+            for (var e : fonts.entrySet()) {
+                names.setAtIndex(ADDRESS, i, call.cString(e.getKey()));
+                data.setAtIndex(ADDRESS, i, call.copyBytes(e.getValue()));
+                lens.setAtIndex(JAVA_LONG, i++, e.getValue().length);
+            }
+            staging = tx.staging();
+            int rc =
+                    (int)
+                            EMBED_FONTS_FILE_HANDLE.invokeExact(
+                                    call.cString(input.toAbsolutePath().toString()),
+                                    call.cString(staging.toAbsolutePath().toString()),
+                                    n,
+                                    names,
+                                    data,
+                                    lens,
+                                    onlyMissing ? 1 : 0);
+            if (rc == 1) return false;
+            if (rc != 0) {
+                throw new JPDFiumException(
+                        switch (rc) {
+                            case -2 -> "cannot embed fonts in a password-protected document";
+                            case -3 -> "cannot embed fonts in a signed document (/ByteRange present)";
+                            case -4 -> "unusable font program for " + fonts.keySet();
+                            default -> "qpdf font embedding failed (rc=" + rc + ")";
+                        });
+            }
+            tx.publish(SaveOptions.validated());
+            staging = null;
+            return true;
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            if (t instanceof IOException io) throw io;
+            if (t instanceof JPDFiumException jpe) throw jpe;
+            throw new JPDFiumException("qpdf file font embedding failed", t);
+        } finally {
+            deleteQuietly(staging);
+            releaseSlot(held);
+        }
     }
 
     /**
@@ -249,6 +371,10 @@ public final class QpdfLib {
             Symbols.downcallOptionalUnguarded(
                     "jpdfium_qpdf_force_version_file",
                     FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS));
+    private static final MethodHandle FORCE_VERSION_MEM_HANDLE =
+            Symbols.downcallOptionalUnguarded(
+                    "jpdfium_qpdf_force_version",
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS));
     private static final MethodHandle MERGE_FILES_HANDLE = Symbols.downcallOptionalUnguarded(
             "jpdfium_qpdf_merge_files",
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS));
@@ -256,6 +382,10 @@ public final class QpdfLib {
     private static final MethodHandle EXTRACT_PAGES_FILE_HANDLE = Symbols.downcallOptionalUnguarded(
             "jpdfium_qpdf_extract_pages_file",
             FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, ADDRESS));
+
+    private static final MethodHandle EXTRACT_RANGES_FILES_HANDLE = Symbols.downcallOptionalUnguarded(
+            "jpdfium_qpdf_extract_ranges_files",
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_INT, ADDRESS));
 
     private static final MethodHandle SANITIZE_FILE_HANDLE = Symbols.downcallOptionalUnguarded(
             "jpdfium_qpdf_sanitize_file", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
@@ -279,6 +409,10 @@ public final class QpdfLib {
 
     public static boolean isExtractFileSupported() {
         return EXTRACT_PAGES_FILE_HANDLE != null;
+    }
+
+    public static boolean isExtractRangesFilesSupported() {
+        return EXTRACT_RANGES_FILES_HANDLE != null;
     }
 
     public static boolean isSanitizeFileSupported() {
@@ -305,6 +439,12 @@ public final class QpdfLib {
      * Java heap.
      */
     public static boolean copyEncryptionToFile(Path input, Path output, Path source, String password) {
+        return copyEncryptionToFile(input, output, source, password, true);
+    }
+
+    /** As {@link #copyEncryptionToFile(Path, Path, Path, String)}; {@code durable=false} skips fsync. */
+    public static boolean copyEncryptionToFile(Path input, Path output, Path source, String password,
+                                               boolean durable) {
         if (input == null || output == null || source == null || password == null) {
             throw new IllegalArgumentException("input, output, source and password must not be null");
         }
@@ -320,7 +460,7 @@ public final class QpdfLib {
             throw new JPDFiumException("qpdf encryption copy interrupted while waiting for a job slot", e);
         }
         try (QpdfCall call = new QpdfCall();
-                OutputTransaction tx = OutputTransaction.begin(output)) {
+                OutputTransaction tx = OutputTransaction.begin(output, durable)) {
             rejectAlias(List.of(input, source), output);
             MemorySegment inSeg = call.cString(input.toAbsolutePath().toString());
             MemorySegment sourceSeg = call.cString(source.toAbsolutePath().toString());
@@ -591,6 +731,36 @@ public final class QpdfLib {
     /** True when the file-backed exact-version writer resolved. */
     public static boolean isForceVersionFileSupported() {
         return FORCE_VERSION_FILE_HANDLE != null;
+    }
+
+    /** True when the in-memory exact-version writer resolved. */
+    public static boolean isForceVersionSupported() {
+        return FORCE_VERSION_MEM_HANDLE != null;
+    }
+
+    /**
+     * Rewrite PDF bytes with an exact base version and no catalog /Version override.
+     */
+    public static byte[] forceVersionToBytes(byte[] input, String version) {
+        if (FORCE_VERSION_MEM_HANDLE == null || input == null || input.length == 0
+                || version == null || version.isBlank()) {
+            return null;
+        }
+        Semaphore held = acquireSlotOrThrow("force version");
+        try (QpdfCall call = new QpdfCall()) {
+            MemorySegment inputSeg = call.copyBytes(input);
+            int rc = (int) FORCE_VERSION_MEM_HANDLE.invokeExact(
+                    inputSeg, (long) input.length, call.cString(version), call.outPtr, call.outLen);
+            if (rc != 0) {
+                return null;
+            }
+            return call.copyAndFree("qpdfForceVersion");
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            throw new JPDFiumException("qpdf force version failed", t);
+        } finally {
+            releaseSlot(held);
+        }
     }
 
     /**
@@ -948,6 +1118,53 @@ public final class QpdfLib {
             throw new JPDFiumException("qpdf extract pages to file failed", t);
         } finally {
             deleteQuietly(staging);
+            releaseSlot(held);
+        }
+    }
+
+    public static int extractRangesToFiles(Path input, int[] firstPages, int[] lastPages,
+                                           List<Path> outputs, boolean durable) {
+        int count = outputs == null ? 0 : outputs.size();
+        if (EXTRACT_RANGES_FILES_HANDLE == null || input == null || count == 0
+                || firstPages == null || lastPages == null
+                || firstPages.length != count || lastPages.length != count) {
+            return -1;
+        }
+        Semaphore held;
+        try {
+            held = acquireSlot();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new JPDFiumException("qpdf extract interrupted while waiting for a job slot", e);
+        }
+        List<OutputTransaction> transactions = new ArrayList<>(count);
+        try (QpdfCall call = new QpdfCall()) {
+            MemorySegment paths = call.arena.allocate(ADDRESS, count);
+            for (int i = 0; i < count; i++) {
+                rejectAlias(List.of(input), outputs.get(i));
+                OutputTransaction tx = OutputTransaction.begin(outputs.get(i), durable);
+                transactions.add(tx);
+                paths.setAtIndex(ADDRESS, i, call.cString(tx.staging().toAbsolutePath().toString()));
+            }
+            int written = (int) EXTRACT_RANGES_FILES_HANDLE.invokeExact(
+                    call.cString(input.toAbsolutePath().toString()),
+                    call.copyInts(firstPages.clone()), call.copyInts(lastPages.clone()), count, paths);
+            for (int i = 0; i < written; i++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new IOException("qpdf extract interrupted before publication");
+                }
+                transactions.get(i).publish(SaveOptions.ephemeral());
+            }
+            return written;
+        } catch (Throwable t) {
+            NativeRuntime.rethrowFatal(t);
+            throw new JPDFiumException("qpdf extract ranges to files failed", t);
+        } finally {
+            for (OutputTransaction tx : transactions) {
+                try {
+                    tx.close();
+                } catch (Exception _) {}
+            }
             releaseSlot(held);
         }
     }

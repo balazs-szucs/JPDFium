@@ -1,5 +1,7 @@
 package stirling.software.jpdfium.doc;
 
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,14 +21,17 @@ public final class PdfXOptions {
     private final boolean convertImages;
     private final boolean convertForms;
     private final boolean convertSpecialColors;
+    private final Map<String, byte[]> fontData;
     private final boolean convertSpotColors;
     private final boolean extractBlack;
     private final int jpegQuality;
     private final boolean strictImages;
     private final boolean convertLosslessImages;
     private final boolean requireEmbeddedFonts;
+    private final boolean neutralsToBlack;
+    private final boolean embedMissingFonts;
+    private final List<Path> fontDirectories;
     private final String title;
-    private final Map<String, byte[]> fontData;
 
     private PdfXOptions(Builder b) {
         this.standard = b.standard;
@@ -38,14 +43,17 @@ public final class PdfXOptions {
         this.convertImages = b.convertImages;
         this.convertForms = b.convertForms;
         this.convertSpecialColors = b.convertSpecialColors;
+        this.fontData = b.fontData == null ? Map.of() : Map.copyOf(b.fontData);
         this.convertSpotColors = b.convertSpotColors;
         this.extractBlack = b.extractBlack;
         this.jpegQuality = b.jpegQuality;
         this.strictImages = b.strictImages;
         this.convertLosslessImages = b.convertLosslessImages;
         this.requireEmbeddedFonts = b.requireEmbeddedFonts;
+        this.neutralsToBlack = b.neutralsToBlack;
+        this.embedMissingFonts = b.embedMissingFonts;
+        this.fontDirectories = List.copyOf(b.fontDirectories);
         this.title = b.title;
-        this.fontData = b.fontData == null ? Map.of() : Map.copyOf(b.fontData);
     }
 
     public PdfXStandard standard() {
@@ -81,6 +89,11 @@ public final class PdfXOptions {
         return convertSpecialColors;
     }
 
+    /** Font programs keyed by {@code /BaseFont}; empty leaves fonts unchanged. */
+    public Map<String, byte[]> fontData() {
+        return fontData;
+    }
+
     public boolean convertSpotColors() {
         return convertSpotColors;
     }
@@ -102,19 +115,29 @@ public final class PdfXOptions {
         return convertLosslessImages;
     }
 
-    /** Whether conversion fails instead of returning a file with non-embedded fonts. */
+    /**
+     * Whether conversion fails when {@link PdfFontAuditor} finds a non-embedded font in page
+     * text or nested form XObjects.
+     */
     public boolean requireEmbeddedFonts() {
         return requireEmbeddedFonts;
+    }
+
+    public boolean neutralsToBlack() {
+        return neutralsToBlack;
+    }
+
+    public boolean embedMissingFonts() {
+        return embedMissingFonts;
+    }
+
+    public List<Path> fontDirectories() {
+        return fontDirectories;
     }
 
     /** Optional document title written to the information dictionary. */
     public String title() {
         return title;
-    }
-
-    /** Exact font program data keyed by /BaseFont, used for stream replacement. */
-    public Map<String, byte[]> fontData() {
-        return fontData;
     }
 
     /** Build the vector/image conversion options represented by these PDF/X options. */
@@ -148,14 +171,17 @@ public final class PdfXOptions {
         private boolean convertImages = true;
         private boolean convertForms = false;
         private boolean convertSpecialColors;
+        private Map<String, byte[]> fontData;
         private boolean convertSpotColors;
         private boolean extractBlack = true;
         private int jpegQuality = 90;
         private boolean strictImages;
         private boolean convertLosslessImages;
         private boolean requireEmbeddedFonts;
+        private boolean neutralsToBlack = true;
+        private boolean embedMissingFonts = true;
+        private List<Path> fontDirectories = List.of();
         private String title;
-        private Map<String, byte[]> fontData;
 
         private Builder() {}
 
@@ -208,6 +234,12 @@ public final class PdfXOptions {
             return this;
         }
 
+        /** Font programs keyed by {@code /BaseFont}; null/empty leaves fonts unchanged. */
+        public Builder fontData(Map<String, byte[]> value) {
+            this.fontData = value == null ? null : Map.copyOf(value);
+            return this;
+        }
+
         public Builder convertSpotColors(boolean value) {
             this.convertSpotColors = value;
             return this;
@@ -237,24 +269,30 @@ public final class PdfXOptions {
             return this;
         }
 
-        /** Fail when the result still contains a non-embedded font. */
+        /** Fail when the audit finds a non-embedded font in page text or form XObjects. */
         public Builder requireEmbeddedFonts(boolean value) {
             this.requireEmbeddedFonts = value;
+            return this;
+        }
+
+        public Builder neutralsToBlack(boolean value) {
+            this.neutralsToBlack = value;
+            return this;
+        }
+
+        public Builder embedMissingFonts(boolean value) {
+            this.embedMissingFonts = value;
+            return this;
+        }
+
+        public Builder fontDirectories(Path... value) {
+            this.fontDirectories = value == null ? List.of() : List.of(value);
             return this;
         }
 
         /** Optional title for the output document information dictionary. */
         public Builder title(String value) {
             this.title = value;
-            return this;
-        }
-
-        /**
-         * Replace existing font program streams by /BaseFont. Caller must supply
-         * data matching the font dictionary; PoDoFo is required.
-         */
-        public Builder fontData(Map<String, byte[]> value) {
-            this.fontData = value == null ? null : Map.copyOf(value);
             return this;
         }
 
