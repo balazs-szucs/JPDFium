@@ -1677,6 +1677,41 @@ EmbedFontsResult embedFonts(std::span<const uint8_t> input, std::vector<FontSour
     }
 }
 
+bool validUtf8(std::string const& value) {
+    for (size_t i = 0; i < value.size();) {
+        unsigned char c = static_cast<unsigned char>(value[i]);
+        int extra = c < 0x80           ? 0
+                    : (c >> 5) == 0x6  ? 1
+                    : (c >> 4) == 0xE  ? 2
+                    : (c >> 3) == 0x1E ? 3
+                                       : -1;
+        if (extra < 0) return false;
+        if (i + extra >= value.size()) return false;
+        for (int j = 1; j <= extra; ++j)
+            if ((static_cast<unsigned char>(value[i + j]) >> 6) != 0x2) return false;
+        i += extra + 1;
+    }
+    return true;
+}
+
+// PDF names are byte strings. Legacy CJK producers put GBK/Shift-JIS bytes in
+// /BaseFont; re-encode those as Latin-1 so the JSON stays valid UTF-8 and the
+// original byte values remain recoverable in Java.
+std::string latin1ToUtf8(std::string const& raw) {
+    if (validUtf8(raw)) return raw;
+    std::string utf8;
+    utf8.reserve(raw.size() * 2);
+    for (unsigned char c : raw) {
+        if (c < 0x80) {
+            utf8 += static_cast<char>(c);
+        } else {
+            utf8 += static_cast<char>(0xC0 | (c >> 6));
+            utf8 += static_cast<char>(0x80 | (c & 0x3F));
+        }
+    }
+    return utf8;
+}
+
 struct FontInventoryEntry {
     QPDFObjectHandle font;
     QPDFObjGen objgen;
@@ -1688,8 +1723,9 @@ void collectResourceFonts(QPDFObjectHandle const& resources, int page,
                           std::map<QPDFObjGen, std::set<int>>& indirectUse,
                           std::map<std::string, std::set<int>>& directUse,
                           std::set<QPDFObjGen>& reachableIndirect,
-                          std::set<std::string>& reachableDirect, std::set<QPDFObjGen>& seenForms,
-                          int depth) {
+                          std::set<std::string>& reachableDirect,
+                          std::vector<QPDFObjectHandle>& directFonts,
+                          std::set<QPDFObjGen>& seenForms, int depth) {
     if (!resources.isDictionary() || depth > 32) return;
     auto note = [&](QPDFObjectHandle const& font) {
         if (!font.isDictionary()) return;
@@ -1700,6 +1736,7 @@ void collectResourceFonts(QPDFObjectHandle const& resources, int page,
             try {
                 std::string key = font.unparse();
                 reachableDirect.insert(key);
+                directFonts.push_back(font);
                 if (page >= 0) directUse[key].insert(page);
             } catch (...) {
                 // A direct dictionary that cannot be unparsed cannot be
@@ -1723,8 +1760,8 @@ void collectResourceFonts(QPDFObjectHandle const& resources, int page,
                 if (!item.isStream()) continue;
                 if (item.isIndirect() && !seenForms.insert(item.getObjGen()).second) continue;
                 collectResourceFonts(item.getDict().getKey("/Resources"), page, indirectUse,
-                                     directUse, reachableIndirect, reachableDirect, seenForms,
-                                     depth + 1);
+                                     directUse, reachableIndirect, reachableDirect, directFonts,
+                                     seenForms, depth + 1);
             }
         } catch (...) {
         }
@@ -1733,11 +1770,32 @@ void collectResourceFonts(QPDFObjectHandle const& resources, int page,
     walkNested("/Pattern");
 }
 
+void collectAppearanceFonts(QPDFObjectHandle const& appearance, int page,
+                            std::map<QPDFObjGen, std::set<int>>& indirectUse,
+                            std::map<std::string, std::set<int>>& directUse,
+                            std::set<QPDFObjGen>& reachableIndirect,
+                            std::set<std::string>& reachableDirect,
+                            std::vector<QPDFObjectHandle>& directFonts,
+                            std::set<QPDFObjGen>& seenForms, int depth) {
+    if (depth > 8) return;
+    if (appearance.isStream()) {
+        seenForms.clear();
+        collectResourceFonts(appearance.getDict().getKey("/Resources"), page, indirectUse,
+                             directUse, reachableIndirect, reachableDirect, directFonts, seenForms,
+                             0);
+    } else if (appearance.isDictionary()) {
+        for (auto const& [state, value] : appearance.getDictAsMap())
+            collectAppearanceFonts(value, page, indirectUse, directUse, reachableIndirect,
+                                   reachableDirect, directFonts, seenForms, depth + 1);
+    }
+}
+
 std::string inspectFonts(QPDF& qpdf) {
     std::map<QPDFObjGen, std::set<int>> indirectUse;
     std::map<std::string, std::set<int>> directUse;
     std::set<QPDFObjGen> reachableIndirect;
     std::set<std::string> reachableDirect;
+    std::vector<QPDFObjectHandle> directFonts;
     std::set<QPDFObjGen> seenForms;
     std::vector<QPDFPageObjectHelper> pages;
     try {
@@ -1755,7 +1813,7 @@ std::string inspectFonts(QPDF& qpdf) {
         }
         seenForms.clear();
         collectResourceFonts(resources, static_cast<int>(i), indirectUse, directUse,
-                             reachableIndirect, reachableDirect, seenForms, 0);
+                             reachableIndirect, reachableDirect, directFonts, seenForms, 0);
         try {
             auto annots = pageObj.getKey("/Annots");
             if (!annots.isArray()) continue;
@@ -1763,13 +1821,10 @@ std::string inspectFonts(QPDF& qpdf) {
                 if (!annot.isDictionary()) continue;
                 auto ap = annot.getKey("/AP");
                 if (!ap.isDictionary()) continue;
-                for (auto const& [name, appearance] : ap.getDictAsMap()) {
-                    if (!appearance.isStream()) continue;
-                    seenForms.clear();
-                    collectResourceFonts(appearance.getDict().getKey("/Resources"),
-                                         static_cast<int>(i), indirectUse, directUse,
-                                         reachableIndirect, reachableDirect, seenForms, 0);
-                }
+                for (auto const& [name, appearance] : ap.getDictAsMap())
+                    collectAppearanceFonts(appearance, static_cast<int>(i), indirectUse, directUse,
+                                           reachableIndirect, reachableDirect, directFonts,
+                                           seenForms, 0);
             }
         } catch (...) {
         }
@@ -1780,57 +1835,68 @@ std::string inspectFonts(QPDF& qpdf) {
         if (acroForm.isDictionary()) {
             seenForms.clear();
             collectResourceFonts(acroForm.getKey("/DR"), -1, indirectUse, directUse,
-                                 reachableIndirect, reachableDirect, seenForms, 0);
+                                 reachableIndirect, reachableDirect, directFonts, seenForms, 0);
         }
     } catch (...) {
         // A damaged AcroForm must not hide page fonts.
     }
 
     // Type 3 glyph procedures can reference their own resources, including
-    // other fonts. Only reachable Type 3 fonts matter.
-    for (auto& object : qpdf.getAllObjects()) {
-        if (!object.isIndirect() || !reachableIndirect.contains(object.getObjGen())) continue;
-        auto subtype = object.getKey("/Subtype");
-        if (!subtype.isName() || subtype.getName() != "/Type3") continue;
-        seenForms.clear();
-        collectResourceFonts(object.getKey("/Resources"), -1, indirectUse, directUse,
-                             reachableIndirect, reachableDirect, seenForms, 0);
+    // other Type 3 fonts. Repeat until the reachable set stops growing so
+    // object order cannot hide a nested Type 3 font.
+    std::set<QPDFObjGen> scannedType3;
+    for (;;) {
+        size_t before = reachableIndirect.size() + reachableDirect.size();
+        for (auto& object : qpdf.getAllObjects()) {
+            if (!object.isIndirect() || !reachableIndirect.contains(object.getObjGen())) continue;
+            auto subtype = object.getKey("/Subtype");
+            if (!subtype.isName() || subtype.getName() != "/Type3") continue;
+            if (!scannedType3.insert(object.getObjGen()).second) continue;
+            seenForms.clear();
+            collectResourceFonts(object.getKey("/Resources"), -1, indirectUse, directUse,
+                                 reachableIndirect, reachableDirect, directFonts, seenForms, 0);
+        }
+        if (reachableIndirect.size() + reachableDirect.size() == before) break;
     }
 
     std::vector<FontInventoryEntry> fonts;
     std::set<QPDFObjGen> seenFonts;
     std::set<std::string> seenDirect;
-    for (auto& object : qpdf.getAllObjects()) {
+    auto eligible = [](QPDFObjectHandle const& object) {
         auto dict = object.isStream() ? object.getDict() : object;
-        if (!dict.isDictionary()) continue;
+        if (!dict.isDictionary()) return false;
         auto type = dict.getKey("/Type");
         auto subtype = dict.getKey("/Subtype");
-        if (!type.isName() || type.getName() != "/Font") continue;
+        if (!type.isName() || type.getName() != "/Font") return false;
         // CID descendants are part of their Type 0 parent; reporting both would
         // duplicate the same program (or its absence).
-        if (subtype.isName() &&
-            (subtype.getName() == "/CIDFontType0" || subtype.getName() == "/CIDFontType2"))
-            continue;
-        FontInventoryEntry entry{object, {}, {}, {}};
-        if (object.isIndirect()) {
-            entry.objgen = object.getObjGen();
-            if (!reachableIndirect.contains(entry.objgen)) continue;
-            if (!seenFonts.insert(entry.objgen).second) continue;
-            if (auto it = indirectUse.find(entry.objgen); it != indirectUse.end())
-                entry.pages = it->second;
-        } else {
-            try {
-                entry.directKey = object.unparse();
-            } catch (...) {
-                entry.directKey = object.getKey("/BaseFont").isName()
-                                      ? object.getKey("/BaseFont").getName()
-                                      : "direct-font";
-            }
-            if (!reachableDirect.contains(entry.directKey)) continue;
-            if (!seenDirect.insert(entry.directKey).second) continue;
-            if (auto it = directUse.find(entry.directKey); it != directUse.end())
-                entry.pages = it->second;
+        return !subtype.isName() ||
+               (subtype.getName() != "/CIDFontType0" && subtype.getName() != "/CIDFontType2");
+    };
+    for (auto& object : qpdf.getAllObjects()) {
+        if (!object.isIndirect() || !eligible(object)) continue;
+        auto objgen = object.getObjGen();
+        if (!reachableIndirect.contains(objgen)) continue;
+        if (!seenFonts.insert(objgen).second) continue;
+        FontInventoryEntry entry{object, objgen, {}, {}};
+        if (auto it = indirectUse.find(objgen); it != indirectUse.end())
+            entry.pages = it->second;
+        fonts.push_back(std::move(entry));
+    }
+    // Direct font dictionaries never appear in getAllObjects(). They are
+    // collected during the resource walk and reported here.
+    for (auto const& object : directFonts) {
+        if (!eligible(object)) continue;
+        std::string key;
+        try {
+            key = object.unparse();
+        } catch (...) {
+            key = object.getKey("/BaseFont").isName() ? object.getKey("/BaseFont").getName()
+                                                       : "direct-font";
         }
+        if (!seenDirect.insert(key).second) continue;
+        FontInventoryEntry entry{object, {}, key, {}};
+        if (auto it = directUse.find(key); it != directUse.end()) entry.pages = it->second;
         fonts.push_back(std::move(entry));
     }
 
@@ -1849,13 +1915,30 @@ std::string inspectFonts(QPDF& qpdf) {
                    descendants.getArrayItem(0).isDictionary();
         auto target = cid ? descendants.getArrayItem(0) : font;
         auto targetDescriptor = target.getKey("/FontDescriptor");
-        bool hasProgram =
-            (descriptor.isDictionary() &&
-             (descriptor.hasKey("/FontFile") || descriptor.hasKey("/FontFile2") ||
-              descriptor.hasKey("/FontFile3"))) ||
-            (targetDescriptor.isDictionary() &&
-             (targetDescriptor.hasKey("/FontFile") || targetDescriptor.hasKey("/FontFile2") ||
-              targetDescriptor.hasKey("/FontFile3")));
+        auto readableProgram = [](QPDFObjectHandle const& desc) {
+            if (!desc.isDictionary()) return false;
+            for (char const* key : {"/FontFile", "/FontFile2", "/FontFile3"}) {
+                auto value = desc.getKey(key);
+                if (!value.isStream()) continue;
+                try {
+                    auto data = value.getStreamData(qpdf_dl_generalized);
+                    if (data && data->getSize() > 0) return true;
+                } catch (...) {
+                    // A descriptor pointing at an undecodable stream is not embedded.
+                }
+            }
+            return false;
+        };
+        bool hasProgram = readableProgram(descriptor) || readableProgram(targetDescriptor);
+        auto toUnicode = font.getKey("/ToUnicode");
+        bool hasToUnicode = false;
+        if (toUnicode.isStream()) {
+            try {
+                auto data = toUnicode.getStreamData(qpdf_dl_generalized);
+                hasToUnicode = data && data->getSize() > 0;
+            } catch (...) {
+            }
+        }
         std::string encodingName;
         if (encoding.isName()) {
             encodingName = encoding.getName();
@@ -1878,13 +1961,13 @@ std::string inspectFonts(QPDF& qpdf) {
                 std::to_string(entry.objgen.getObj()) + " " + std::to_string(entry.objgen.getGen());
         }
         json += "\",\"baseFont\":\"";
-        json += jsonEscape(base.isName() ? stripPdfNamePrefix(base.getName()) : "");
+        json += jsonEscape(latin1ToUtf8(base.isName() ? stripPdfNamePrefix(base.getName()) : ""));
         json += "\",\"subtype\":\"";
         json += jsonEscape(subtype.isName() ? stripPdfNamePrefix(subtype.getName()) : "");
         json += "\",\"encoding\":\"";
-        json += jsonEscape(encodingName.empty() || encodingName.front() != '/'
-                               ? encodingName
-                               : stripPdfNamePrefix(encodingName));
+        json += jsonEscape(latin1ToUtf8(encodingName.empty() || encodingName.front() != '/'
+                                            ? encodingName
+                                            : stripPdfNamePrefix(encodingName)));
         json += "\",\"descriptor\":";
         json += boolJson(descriptor.isDictionary() || targetDescriptor.isDictionary());
         json += ",\"program\":";
@@ -1892,16 +1975,25 @@ std::string inspectFonts(QPDF& qpdf) {
         json += ",\"cid\":";
         json += boolJson(cid);
         json += ",\"toUnicode\":";
-        json += boolJson(font.hasKey("/ToUnicode"));
+        json += boolJson(hasToUnicode);
         json += ",\"cidToGid\":\"";
         json += jsonEscape(
             cidToGid.empty() || cidToGid.front() != '/' ? cidToGid : stripPdfNamePrefix(cidToGid));
         json += "\",\"pages\":\"";
         bool firstPage = true;
-        for (int page : entry.pages) {
+        for (auto it = entry.pages.begin(); it != entry.pages.end();) {
+            int start = *it;
+            int end = start;
+            auto next = std::next(it);
+            while (next != entry.pages.end() && *next == end + 1) {
+                end = *next;
+                ++next;
+            }
             if (!firstPage) json += ',';
             firstPage = false;
-            json += std::to_string(page);
+            json += std::to_string(start);
+            if (end != start) json += "-" + std::to_string(end);
+            it = next;
         }
         json += "\"}";
     }

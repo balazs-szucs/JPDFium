@@ -57,7 +57,7 @@ public final class PdfFontEmbedder {
      */
     public record Result(byte[] pdf, List<String> embedded, List<String> unresolved) {}
 
-    private record Face(Path path, int offset) {}
+    private record Face(Path path, int offset, long size, long mtime) {}
 
     private static final int TTCF = 0x74746366;
     private static final Pattern TYPE1_NAME = Pattern.compile("/FontName\\s*/(\\S+)");
@@ -93,13 +93,21 @@ public final class PdfFontEmbedder {
                         }
                     });
     private static final int MAX_PROGRAMS = 32;
+    private static final long MAX_PROGRAM_BYTES = 64L * 1024 * 1024;
+    private static long programBytes;
     /** Extracted face data, reused across documents instead of re-reading a TTC per call. */
     private static final Map<Face, byte[]> PROGRAMS =
             Collections.synchronizedMap(
                     new LinkedHashMap<>(MAX_PROGRAMS, 0.75f, true) {
                         @Override
                         protected boolean removeEldestEntry(Map.Entry<Face, byte[]> eldest) {
-                            return size() > MAX_PROGRAMS;
+                            // Count and bytes both bound a long-running service. A CJK
+                            // TTC face can be tens of megabytes, so an entry cap alone
+                            // is not enough.
+                            boolean remove =
+                                    size() > MAX_PROGRAMS || programBytes > MAX_PROGRAM_BYTES;
+                            if (remove) programBytes -= eldest.getValue().length;
+                            return remove;
                         }
                     });
 
@@ -281,12 +289,14 @@ public final class PdfFontEmbedder {
 
     private static void indexFile(Path path, Map<String, Face> index) {
         try (FileChannel channel = FileChannel.open(path)) {
+            BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
+            long size = attrs.size(), mtime = attrs.lastModifiedTime().toMillis();
             ByteBuffer b = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
             if (b.getShort(0) == (short) 0x8001 || b.get(0) == '%') {
                 byte[] head = new byte[Math.min(b.capacity(), 8192)];
                 b.get(0, head);
                 Matcher m = TYPE1_NAME.matcher(new String(head, StandardCharsets.ISO_8859_1));
-                if (m.find()) index.putIfAbsent(key(m.group(1)), new Face(path, -1));
+                if (m.find()) index.putIfAbsent(key(m.group(1)), new Face(path, -1, size, mtime));
                 return;
             }
             boolean collection = b.getInt(0) == TTCF;
@@ -294,7 +304,8 @@ public final class PdfFontEmbedder {
                 int offset = collection ? b.getInt(12 + 4 * f) : 0;
                 if (restricted(b, offset)) continue;
                 for (String name : names(b, offset)) {
-                    index.putIfAbsent(key(name), new Face(path, collection ? offset : -1));
+                    index.putIfAbsent(
+                            key(name), new Face(path, collection ? offset : -1, size, mtime));
                 }
             }
         } catch (IOException | RuntimeException ignored) {
@@ -339,11 +350,25 @@ public final class PdfFontEmbedder {
     }
 
     private static byte[] program(Face face) throws IOException {
-        byte[] cached = PROGRAMS.get(face);
-        if (cached != null) return cached;
+        synchronized (PROGRAMS) {
+            byte[] cached = PROGRAMS.get(face);
+            if (cached != null) return cached;
+        }
+        long size = Files.size(face.path());
+        long mtime = Files.getLastModifiedTime(face.path()).toMillis();
+        // A replaced font file invalidates the cached face even when the path and
+        // TTC offset are unchanged.
+        Face key = size == face.size() && mtime == face.mtime()
+                ? face
+                : new Face(face.path(), face.offset(), size, mtime);
         byte[] all = Files.readAllBytes(face.path());
         byte[] data = face.offset() < 0 ? all : extractFace(all, face.offset());
-        PROGRAMS.put(face, data);
+        synchronized (PROGRAMS) {
+            byte[] raced = PROGRAMS.get(key);
+            if (raced != null) return raced;
+            PROGRAMS.put(key, data);
+            programBytes += data.length;
+        }
         return data;
     }
 

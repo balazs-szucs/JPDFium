@@ -249,7 +249,7 @@ public final class PdfFontAuditor {
      * Audit every font resource in the document, not only fonts drawn by page objects.
      *
      * <p>Resource-only fonts are reported with an empty {@link FontInfo#pages()} set, no family
-     * name, weight {@code -1}, flags {@code -1} and size {@code 0}. Type 3 fonts count as
+     * name, weight {@code -1}, flags {@code 0} and size {@code 0}. Type 3 fonts count as
      * embedded because their glyph procedures live in the document.
      *
      * <p>When the native build cannot inventory resources, or the document was not opened from
@@ -316,7 +316,10 @@ public final class PdfFontAuditor {
      * @return fonts in file order, or an empty list when the native build cannot inventory
      */
     public static List<FontResource> inventory(PdfDocument doc) {
+        // sourceBytes() is the open-time snapshot. After an in-memory edit it no longer
+        // describes the document, so inventory the serialized current state instead.
         byte[] source = doc.sourceBytes();
+        if (doc.isContentModified() || source == null) source = doc.saveBytes();
         return source == null ? List.of() : inventoryBytes(source);
     }
 
@@ -375,16 +378,17 @@ public final class PdfFontAuditor {
     private static Set<Integer> parsePages(String pages) {
         if (pages == null || pages.isEmpty()) return Set.of();
         Set<Integer> result = new TreeSet<>();
-        int start = 0;
-        for (int i = 0; i <= pages.length(); i++) {
-            if (i == pages.length() || pages.charAt(i) == ',') {
-                if (i > start) {
-                    try {
-                        result.add(Integer.parseInt(pages.substring(start, i)));
-                    } catch (NumberFormatException ignored) {
-                    }
+        for (String token : pages.split(",")) {
+            int dash = token.indexOf('-');
+            try {
+                if (dash < 0) {
+                    result.add(Integer.parseInt(token));
+                } else {
+                    int start = Integer.parseInt(token.substring(0, dash));
+                    int end = Integer.parseInt(token.substring(dash + 1));
+                    for (int page = start; page <= end; page++) result.add(page);
                 }
-                start = i + 1;
+            } catch (NumberFormatException ignored) {
             }
         }
         return Collections.unmodifiableSet(result);
@@ -410,7 +414,9 @@ public final class PdfFontAuditor {
         FontInfo build(FontInfo page) {
             boolean embedded = this.embedded || type3;
             if (page == null) {
-                return new FontInfo(baseName, "", embedded, -1, -1, 0, 0,
+                // Resource-only fonts have no descriptor to read flags from. Zero is
+                // "no flags", not "unknown", so bit tests cannot see every bit set.
+                return new FontInfo(baseName, "", embedded, -1, 0, 0, 0,
                         Collections.unmodifiableSet(pages));
             }
             Set<Integer> usedPages = page.pages().isEmpty() ? pages : page.pages();

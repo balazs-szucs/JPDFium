@@ -59,6 +59,10 @@ publishing workflows, not library releases, so they are not listed here.
 
 ### Changed
 
+- `PdfFontAuditor.hasNonEmbeddedFonts` now includes fonts that only exist in unused
+  resource dictionaries or AcroForm `/DR`, matching `auditAll`. Documents that
+  previously passed the check can now fail it; the stricter result is the one a
+  PDF/A font check needs.
 - `PdfMerge.mergeFilesToFile` and `PdfSplit.extractPageRangeToFile` write their
   staging file without fsync and flush once when they publish the output, which
   now gets the destination's permissions as other saves do. They previously
