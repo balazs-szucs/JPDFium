@@ -238,11 +238,6 @@ public final class PdfFontEmbedder {
         Map<Face, byte[]> programs = new HashMap<>();
         List<FontStatus> statuses = new ArrayList<>(missing.size());
         for (String name : missing) {
-            if (!substitutable.getOrDefault(name, true)) {
-                statuses.add(new FontStatus(name, "", -1, false,
-                        "CID encoding cannot be rewritten safely"));
-                continue;
-            }
             String key = key(name);
             Face face = bundled == null ? null : resolve(bundled, key);
             if (face == null) {
@@ -364,11 +359,6 @@ public final class PdfFontEmbedder {
         Map<Face, byte[]> programs = new HashMap<>();
         List<FontStatus> statuses = new ArrayList<>(missing.size());
         for (String name : missing) {
-            if (!substitutable.getOrDefault(name, true)) {
-                statuses.add(new FontStatus(name, "", -1, false,
-                        "CID encoding cannot be rewritten safely"));
-                continue;
-            }
             String key = key(name);
             Face face = resolve(index, key);
             if (face == null) {
