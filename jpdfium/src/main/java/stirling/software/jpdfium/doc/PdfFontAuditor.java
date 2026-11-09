@@ -412,18 +412,18 @@ public final class PdfFontAuditor {
         }
 
         FontInfo build(FontInfo page) {
-            boolean embedded = this.embedded || type3;
+            boolean effectiveEmbedded = this.embedded || type3;
             if (page == null) {
                 // Resource-only fonts have no descriptor to read flags from. Zero is
                 // "no flags", not "unknown", so bit tests cannot see every bit set.
-                return new FontInfo(baseName, "", embedded, -1, 0, 0, 0,
+                return new FontInfo(baseName, "", effectiveEmbedded, -1, 0, 0, 0,
                         Collections.unmodifiableSet(pages));
             }
             Set<Integer> usedPages = page.pages().isEmpty() ? pages : page.pages();
             return new FontInfo(
                     page.baseName(),
                     page.familyName(),
-                    embedded,
+                    effectiveEmbedded,
                     page.weight(),
                     page.flags(),
                     page.italicAngle(),
