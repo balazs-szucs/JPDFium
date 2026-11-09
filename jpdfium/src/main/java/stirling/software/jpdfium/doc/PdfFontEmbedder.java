@@ -29,6 +29,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import org.tukaani.xz.XZInputStream;
+
 import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.exception.JPDFiumException;
 import stirling.software.jpdfium.panama.QpdfLib;
@@ -89,6 +91,9 @@ public final class PdfFontEmbedder {
         }
         Face(Path path, String resource, int offset, long size, boolean embeddable) {
             this(path, resource, offset, size, 0, embeddable, -1);
+        }
+        Face(Path path, String resource, int offset, long size, boolean embeddable, int fsType) {
+            this(path, resource, offset, size, 0, embeddable, fsType);
         }
     }
 
@@ -326,8 +331,12 @@ public final class PdfFontEmbedder {
     }
 
     private static Map<String, Face> indexFor(Path... fontDirs) {
-        return INDEXES.computeIfAbsent(
+        Map<String, Face> index = INDEXES.computeIfAbsent(
                 fontDirs.length == 0 ? SYSTEM_FONT_DIRS : List.of(fontDirs), PdfFontEmbedder::index);
+        if (fontDirs.length == 0) return index;
+        Map<String, Face> isolated = new HashMap<>(index);
+        isolated.entrySet().removeIf(entry -> entry.getValue().resource() != null);
+        return isolated;
     }
 
     private static String source(Face face) {
@@ -350,8 +359,7 @@ public final class PdfFontEmbedder {
 
     private static Map<String, byte[]> programsFor(List<String> missing, Path... fontDirs)
             throws IOException {
-        Map<String, Face> index = INDEXES.computeIfAbsent(
-                fontDirs.length == 0 ? SYSTEM_FONT_DIRS : List.of(fontDirs), PdfFontEmbedder::index);
+        Map<String, Face> index = indexFor(fontDirs);
         Map<String, byte[]> found = new LinkedHashMap<>();
         Map<Face, byte[]> programs = new HashMap<>();
         for (String name : missing) {
@@ -520,13 +528,14 @@ public final class PdfFontEmbedder {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (line.isBlank() || line.startsWith("#")) continue;
-                    int tab = line.indexOf('\t');
-                    if (tab < 0) continue;
-                    String resource = line.substring(0, tab).trim();
-                    String postScriptName = line.substring(tab + 1).trim();
+                    String[] columns = line.split("\t", 3);
+                    if (columns.length < 2) continue;
+                    String resource = columns[0].trim();
+                    String postScriptName = columns[1].trim();
                     if (resource.isEmpty() || postScriptName.isEmpty()) continue;
+                    int fsType = columns.length > 2 ? Integer.parseInt(columns[2].trim()) : -1;
                     index.putIfAbsent(key(postScriptName),
-                            new Face(null, resource, -1, 0, true));
+                            new Face(null, "/fonts/" + resource, -1, 0, true, fsType));
                 }
             } catch (IOException ignored) {
                 // No bundled pack means the system directories are the only source.
@@ -603,6 +612,24 @@ public final class PdfFontEmbedder {
         synchronized (PROGRAMS) {
             byte[] cached = PROGRAMS.get(face);
             if (cached != null) return cached;
+        }
+        if (face.resource() != null) {
+            byte[] data;
+            try (InputStream raw = PdfFontEmbedder.class.getResourceAsStream(face.resource())) {
+                if (raw == null) {
+                    throw new IOException("bundled font resource is missing: " + face.resource());
+                }
+                try (XZInputStream xz = new XZInputStream(raw, 32 * 1024 * 1024)) {
+                    data = xz.readAllBytes();
+                }
+            }
+            synchronized (PROGRAMS) {
+                byte[] raced = PROGRAMS.get(face);
+                if (raced != null) return raced;
+                PROGRAMS.put(face, data);
+                programBytes += data.length;
+            }
+            return data;
         }
         long size = Files.size(face.path());
         long mtime = Files.getLastModifiedTime(face.path()).toMillis();
