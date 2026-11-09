@@ -75,10 +75,22 @@ public final class PdfFontEmbedder {
         }
     }
 
+    /** Diagnostic result for one requested font name. */
+    public record FontStatus(
+            String baseName, String source, int fsType, boolean resolved, String reason) {}
+
     /** Outcome of the file-backed embedding pass. */
     public record FileResult(List<String> embedded, List<String> unresolved) {}
 
-    private record Face(Path path, int offset, long size, long mtime) {}
+    private record Face(Path path, String resource, int offset, long size, long mtime,
+                        boolean embeddable, int fsType) {
+        Face(Path path, int offset, long size, long mtime) {
+            this(path, null, offset, size, mtime, true, -1);
+        }
+        Face(Path path, String resource, int offset, long size, boolean embeddable) {
+            this(path, resource, offset, size, 0, embeddable, -1);
+        }
+    }
 
     private static final int TTCF = 0x74746366;
     private static final Pattern TYPE1_NAME = Pattern.compile("/FontName\\s*/(\\S+)");
