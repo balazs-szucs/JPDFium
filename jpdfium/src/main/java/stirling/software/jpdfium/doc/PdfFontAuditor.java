@@ -96,10 +96,11 @@ public final class PdfFontAuditor {
      * @param subtype       {@code /Subtype} without the leading slash, e.g. {@code Type1}
      * @param encoding      named encoding, {@code custom} for an encoding dictionary without
      *                      {@code /BaseEncoding}, or empty
-     * @param embedded      the font descriptor or its CID descendant carries a font program
+     * @param embedded      the font descriptor or its CID descendant carries a readable font
+     *                      program
      * @param hasDescriptor the font or its CID descendant has a {@code /FontDescriptor}
      * @param cid           the font is a Type 0 font with a CID descendant
-     * @param hasToUnicode  the font has a {@code /ToUnicode} map
+     * @param hasToUnicode  the font has a readable {@code /ToUnicode} stream
      * @param cidToGidMap   {@code Identity}, {@code stream}, or empty
      * @param pages         page indices whose resource dictionaries reach this font; empty for
      *                      fonts that only exist in unused resources or AcroForm {@code /DR}
@@ -252,8 +253,8 @@ public final class PdfFontAuditor {
      * name, weight {@code -1}, flags {@code 0} and size {@code 0}. Type 3 fonts count as
      * embedded because their glyph procedures live in the document.
      *
-     * <p>When the native build cannot inventory resources, or the document was not opened from
-     * bytes, this falls back to {@link #audit(PdfDocument)}.
+     * <p>When the native build cannot inventory resources, this falls back to
+     * {@link #audit(PdfDocument)}.
      *
      * @param doc open PDF document
      * @return page and resource font audit
