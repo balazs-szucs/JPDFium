@@ -1879,8 +1879,7 @@ std::string inspectFonts(QPDF& qpdf) {
         if (!reachableIndirect.contains(objgen)) continue;
         if (!seenFonts.insert(objgen).second) continue;
         FontInventoryEntry entry{object, objgen, {}, {}};
-        if (auto it = indirectUse.find(objgen); it != indirectUse.end())
-            entry.pages = it->second;
+        if (auto it = indirectUse.find(objgen); it != indirectUse.end()) entry.pages = it->second;
         fonts.push_back(std::move(entry));
     }
     // Direct font dictionaries never appear in getAllObjects(). They are
@@ -1892,7 +1891,7 @@ std::string inspectFonts(QPDF& qpdf) {
             key = object.unparse();
         } catch (...) {
             key = object.getKey("/BaseFont").isName() ? object.getKey("/BaseFont").getName()
-                                                       : "direct-font";
+                                                      : "direct-font";
         }
         if (!seenDirect.insert(key).second) continue;
         FontInventoryEntry entry{object, {}, key, {}};

@@ -379,9 +379,8 @@ class PdfFontEmbedderTest {
                                     && resource.resourceOnly() && !resource.embedded()),
                     "unused Helvetica resource must be inventoried");
             assertTrue(resources.stream().anyMatch(resource ->
-                            resource.baseName().equals("ZapfDingbats")
-                                    && resource.resourceOnly() && !resource.embedded()),
-                    "unused ZapfDingbats resource must be inventoried");
+                            resource.baseName().equals("ZapfDingbats") && !resource.embedded()),
+                    "ZapfDingbats must be inventoried even when only an appearance uses it");
 
             PdfFontAuditor.AuditReport report = PdfFontAuditor.auditAll(doc);
             assertTrue(report.nonEmbeddedFonts().stream().anyMatch(font ->
