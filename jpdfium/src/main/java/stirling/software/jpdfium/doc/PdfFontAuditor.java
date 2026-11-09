@@ -340,13 +340,16 @@ public final class PdfFontAuditor {
         if (QpdfLib.isFontInventorySupported()) {
             String json = QpdfLib.inspectFonts(pdf);
             if (json != null) {
-                List<FontResource> resources = new ArrayList<>();
-                for (FontResource resource : parseInventory(json)) {
-                    if (resource.baseName().isEmpty() || resource.embedded()
-                            || "Type3".equals(resource.subtype())) continue;
-                    resources.add(resource);
+                List<FontResource> all = parseInventory(json);
+                if (!all.isEmpty()) {
+                    List<FontResource> resources = new ArrayList<>();
+                    for (FontResource resource : all) {
+                        if (resource.baseName().isEmpty() || resource.embedded()
+                                || "Type3".equals(resource.subtype())) continue;
+                        resources.add(resource);
+                    }
+                    return resources;
                 }
-                return resources;
             }
         }
         try (PdfDocument doc = PdfDocument.open(pdf)) {
