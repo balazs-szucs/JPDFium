@@ -429,6 +429,90 @@ class PdfFontEmbedderTest {
     }
 
     @Test
+    void bundledFallbacksResolveKnownFamilyAliases() {
+        PdfFontEmbedder.FontStatus calibri = PdfFontEmbedder.diagnose("Calibri");
+        assertTrue(calibri.resolved(), calibri.reason());
+        assertTrue(calibri.source().endsWith("Carlito-Regular.ttf.xz"), calibri.source());
+        assertEquals(0, calibri.fsType());
+
+        PdfFontEmbedder.FontStatus arialItalic = PdfFontEmbedder.diagnose("Arial-ItalicMT,Italic");
+        assertTrue(arialItalic.resolved(), arialItalic.reason());
+        assertTrue(arialItalic.source().endsWith("LiberationSans-Italic.ttf.xz"),
+                arialItalic.source());
+
+        PdfFontEmbedder.FontStatus cambria = PdfFontEmbedder.diagnose("Cambria-Bold");
+        assertTrue(cambria.resolved(), cambria.reason());
+        assertTrue(cambria.source().endsWith("Caladea-Bold.ttf.xz"), cambria.source());
+
+        PdfFontEmbedder.FontStatus simSun = PdfFontEmbedder.diagnose("SimSun");
+        assertTrue(simSun.resolved(), simSun.reason());
+        assertTrue(simSun.source().endsWith("NotoSansSC-Regular.otf.xz"), simSun.source());
+
+        PdfFontEmbedder.FontStatus arabic = PdfFontEmbedder.diagnose("TraditionalArabic");
+        assertTrue(arabic.resolved(), arabic.reason());
+        assertTrue(arabic.source().endsWith("NotoSansArabic-Regular.ttf.xz"), arabic.source());
+
+        PdfFontEmbedder.FontStatus fangSong = PdfFontEmbedder.diagnose("\u00b7\u00c2\u00cb\u00ce_GB2312");
+        assertTrue(fangSong.resolved(), fangSong.reason());
+        assertTrue(fangSong.source().endsWith("NotoSansSC-Regular.otf.xz"), fangSong.source());
+
+        PdfFontEmbedder.FontStatus swiss = PdfFontEmbedder.diagnose("SWISS_742_BOLD__TM_");
+        assertTrue(swiss.resolved(), swiss.reason());
+        assertTrue(swiss.source().endsWith("LiberationSans-Bold.ttf.xz"), swiss.source());
+
+        PdfFontEmbedder.FontStatus goNoto = PdfFontEmbedder.diagnose("AGVOXM+GoNotoCurrent-Regular-Regular");
+        assertTrue(goNoto.resolved(), goNoto.reason());
+        assertTrue(goNoto.source().endsWith("NotoSansSC-Regular.otf.xz"), goNoto.source());
+    }
+
+    @Test
+    void safeIdentityCidFontsEmbedWithBundledFallbacks() throws Exception {
+        assumeTrue(PdfFontEmbedder.isAvailable(), "native qpdf font replacement unavailable");
+        byte[] input = Files.readAllBytes(Path.of(
+                PdfFontEmbedderTest.class.getResource("/pdfs/general/issue13916.pdf").toURI()));
+        PdfFontEmbedder.Result result = PdfFontEmbedder.embedMissing(input);
+        assertTrue(result.unresolved().isEmpty(), "unresolved: " + result.unresolved());
+        assertTrue(result.statuses().stream().allMatch(PdfFontEmbedder.FontStatus::resolved),
+                "statuses: " + result.statuses());
+        try (PdfDocument doc = PdfDocument.open(result.pdf())) {
+            assertTrue(PdfFontAuditor.auditAll(doc).nonEmbeddedFonts().isEmpty(),
+                    "safe Identity CID fonts must carry a program after embedding");
+        }
+        assertTrue(result.embedded().contains("Calibri"), "Calibri alias must resolve: " + result);
+        assertTrue(result.embedded().contains("ArialMT"), "Arial alias must resolve: " + result);
+        try (PdfDocument after = PdfDocument.open(result.pdf())) {
+            assertFalse(after.page(0).extractText().isBlank(),
+                    "safe CID embedding must keep extractable text");
+        }
+    }
+
+    @Test
+    void unsafeCidFontsAreReportedInsteadOfSubstituted() throws Exception {
+        assumeTrue(PdfFontEmbedder.isAvailable(), "native qpdf font replacement unavailable");
+        byte[] input = Files.readAllBytes(Path.of(
+                PdfFontEmbedderTest.class.getResource("/pdfs/general/90ms_rksj_h_sample.pdf").toURI()));
+        PdfFontEmbedder.Result result = PdfFontEmbedder.embedMissing(input);
+        assertFalse(result.embedded().contains("HeiseiMin-W3"),
+                "predefined-CMap CID fonts must not be substituted: " + result);
+        assertTrue(result.statuses().stream().anyMatch(status ->
+                        status.baseName().equals("HeiseiMin-W3")
+                                && status.reason().contains("CID encoding")),
+                "statuses: " + result.statuses());
+        try (PdfDocument doc = PdfDocument.open(result.pdf())) {
+            assertTrue(PdfFontAuditor.inventory(doc).stream().anyMatch(font ->
+                            font.baseName().equals("HeiseiMin-W3") && !font.embedded()),
+                    "the unsafe CID font must remain unembedded");
+        }
+    }
+
+    @Test
+    void missingFontReportsNoCandidate() {
+        PdfFontEmbedder.FontStatus status = PdfFontEmbedder.diagnose("DefinitelyNotAFontFamily");
+        assertFalse(status.resolved());
+        assertEquals("no matching font", status.reason());
+    }
+
+    @Test
     void normalizedKeysKeepResolverSemantics() {
         assertEquals("helvetica", PdfFontEmbedder.key("Helvetica"));
         assertEquals("helvetica", PdfFontEmbedder.key("/Helvetica"));

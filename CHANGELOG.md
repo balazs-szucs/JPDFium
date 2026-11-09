@@ -48,6 +48,14 @@ publishing workflows, not library releases, so they are not listed here.
   `PdfFontEmbedder.embedMissing(...)` now embeds those resource-only fonts and
   resolves unresolved names from the same inventory, so a font that no page
   draws with can no longer fail a PDF/A font check.
+- Deterministic fallback fonts. The jpdfium jar now ships Liberation, Carlito,
+  Caladea, DejaVu, Noto Sans Arabic and Noto Sans SC under `fonts/` and uses
+  them before host fonts for metric-compatible substitution. Family/style
+  aliases cover Calibri, Cambria, Verdana, Tahoma, traditional CJK names and
+  legacy GBK byte spellings. `PdfFontEmbedder.diagnose(name)` reports the
+  selected source and OS/2 `fsType`, and `Result` carries one `FontStatus` per
+  requested font, including the reason a restricted or unmatched face was not
+  embedded.
 - PDF/X-1a, PDF/X-3, PDF/X-4, and PDF/X-6 metadata bootstrap. `PdfXConverter`
   now sets the standard base version, writes a missing `/TrimBox`, and
   optionally fails on non-embedded fonts. `PdfXOptions` gains
