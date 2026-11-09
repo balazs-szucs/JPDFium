@@ -35,6 +35,12 @@ publishing workflows, not library releases, so they are not listed here.
   non-embedded font from the system (or given) font directories, with
   metric-compatible substitutes for the standard 14. `PdfXOptions.fontData(...)`
   applies `embed(...)` before PDF/X validation.
+- Document-wide font inventory. `PdfFontAuditor.auditAll(doc)` and
+  `PdfFontAuditor.inventory(doc)` report every font dictionary, including fonts
+  that only exist in unused resource dictionaries or AcroForm `/DR`.
+  `PdfFontEmbedder.embedMissing(...)` now embeds those resource-only fonts and
+  resolves unresolved names from the same inventory, so a font that no page
+  draws with can no longer fail a PDF/A font check.
 - PDF/X-1a, PDF/X-3, PDF/X-4, and PDF/X-6 metadata bootstrap. `PdfXConverter`
   now sets the standard base version, writes a missing `/TrimBox`, and
   optionally fails on non-embedded fonts. `PdfXOptions` gains

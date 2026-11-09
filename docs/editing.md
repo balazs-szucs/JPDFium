@@ -166,6 +166,21 @@ JPDFium does not create signatures, verify cryptographic signatures, or validate
 
 Whether an existing signature remains valid across a save is not determined by JPDFium. Because `save()` performs a full rewrite, verify signatures yourself after any save.
 
+## Fonts
+
+`PdfFontAuditor.audit(doc)` reports fonts that page content draws with, including text inside
+form XObjects and annotation appearances. `PdfFontAuditor.auditAll(doc)` also reports font
+dictionaries that no page draws with, such as unused page resources and AcroForm `/DR` fonts.
+The audit report distinguishes them by `FontInfo.pages()`: a resource-only font has an empty
+set. Type 3 fonts count as embedded because their glyph procedures are part of the document.
+
+`PdfFontEmbedder.embedMissing(pdf)` embeds every non-embedded font resource, including the
+resource-only ones. It resolves names against the system font directories, or the directories
+passed as arguments, and applies metric-compatible substitutes for the standard 14. A signed
+document is refused because the rewrite invalidates its signature. Fonts that have no program
+and no usable substitute stay in `Result.unresolved()`; they are never replaced with a program
+whose glyph order has not been verified.
+
 ## Save semantics
 
 `save()` writes a complete new file rather than appending a revision.
