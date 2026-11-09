@@ -113,6 +113,13 @@ public final class QpdfLib {
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT, ADDRESS, ADDRESS, ADDRESS,
                     JAVA_INT, ADDRESS, ADDRESS));
 
+    private static final MethodHandle EMBED_FONTS_FILE_HANDLE =
+            Symbols.downcallOptionalUnguarded(
+                    "jpdfium_qpdf_embed_fonts_file",
+                    FunctionDescriptor.of(
+                            JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, ADDRESS, ADDRESS, ADDRESS,
+                            JAVA_INT));
+
     private static final MethodHandle INSPECT_FONTS_HANDLE = Symbols.downcallOptionalUnguarded(
             "jpdfium_qpdf_inspect_fonts",
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, ADDRESS));

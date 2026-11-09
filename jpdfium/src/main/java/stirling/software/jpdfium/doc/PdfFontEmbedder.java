@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import stirling.software.jpdfium.PdfDocument;
 import stirling.software.jpdfium.exception.JPDFiumException;
 import stirling.software.jpdfium.panama.QpdfLib;
 
@@ -57,6 +58,9 @@ public final class PdfFontEmbedder {
      * not embedded, as {@link PdfFontAuditor} reports them on the output.
      */
     public record Result(byte[] pdf, List<String> embedded, List<String> unresolved) {}
+
+    /** Outcome of the file-backed embedding pass. */
+    public record FileResult(List<String> embedded, List<String> unresolved) {}
 
     private record Face(Path path, int offset, long size, long mtime) {}
 
@@ -188,6 +192,43 @@ public final class PdfFontEmbedder {
         if (out == null) return new Result(pdf, List.of(), missing);
         List<String> unresolved = PdfFontAuditor.unembeddedNames(out);
         return new Result(out, missing.stream().filter(n -> !unresolved.contains(n)).toList(), unresolved);
+    }
+
+    /** File-backed variant that lets native qpdf read the input and write the output. */
+    public static FileResult embedMissingTo(Path input, Path output, Path... fontDirs)
+            throws IOException {
+        List<String> missing = nonEmbedded(input);
+        Map<String, byte[]> found = programsFor(missing, fontDirs);
+        if (found.isEmpty() || !QpdfLib.embedFontsToFile(input, output, found, true)) {
+            Files.copy(input, output, StandardCopyOption.REPLACE_EXISTING);
+            return new FileResult(List.of(), missing);
+        }
+        List<String> unresolved = nonEmbedded(output);
+        return new FileResult(
+                missing.stream().filter(n -> !unresolved.contains(n)).toList(), unresolved);
+    }
+
+    private static Map<String, byte[]> programsFor(List<String> missing, Path... fontDirs)
+            throws IOException {
+        Map<String, Face> index = INDEXES.computeIfAbsent(
+                fontDirs.length == 0 ? SYSTEM_FONT_DIRS : List.of(fontDirs), PdfFontEmbedder::index);
+        Map<String, byte[]> found = new LinkedHashMap<>();
+        Map<Face, byte[]> programs = new HashMap<>();
+        for (String name : missing) {
+            Face face = resolve(index, key(name));
+            if (face == null) continue;
+            byte[] data = programs.get(face);
+            if (data == null) programs.put(face, data = program(face));
+            found.put(name, data);
+        }
+        return found;
+    }
+
+    private static List<String> nonEmbedded(Path pdf) {
+        try (PdfDocument doc = PdfDocument.open(pdf)) {
+            return PdfFontAuditor.audit(doc).nonEmbeddedFonts().stream()
+                    .map(PdfFontAuditor.FontInfo::baseName).distinct().toList();
+        }
     }
 
     /** File-backed variant of {@link #embedMissing(byte[], Path...)}. */
