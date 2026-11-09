@@ -1688,8 +1688,8 @@ void collectResourceFonts(QPDFObjectHandle const& resources, int page,
                           std::map<QPDFObjGen, std::set<int>>& indirectUse,
                           std::map<std::string, std::set<int>>& directUse,
                           std::set<QPDFObjGen>& reachableIndirect,
-                          std::set<std::string>& reachableDirect,
-                          std::set<QPDFObjGen>& seenForms, int depth) {
+                          std::set<std::string>& reachableDirect, std::set<QPDFObjGen>& seenForms,
+                          int depth) {
     if (!resources.isDictionary() || depth > 32) return;
     auto note = [&](QPDFObjectHandle const& font) {
         if (!font.isDictionary()) return;
@@ -1808,8 +1808,8 @@ std::string inspectFonts(QPDF& qpdf) {
         if (!type.isName() || type.getName() != "/Font") continue;
         // CID descendants are part of their Type 0 parent; reporting both would
         // duplicate the same program (or its absence).
-        if (subtype.isName() && (subtype.getName() == "/CIDFontType0" ||
-                                 subtype.getName() == "/CIDFontType2"))
+        if (subtype.isName() &&
+            (subtype.getName() == "/CIDFontType0" || subtype.getName() == "/CIDFontType2"))
             continue;
         FontInventoryEntry entry{object, {}, {}, {}};
         if (object.isIndirect()) {
@@ -1849,13 +1849,13 @@ std::string inspectFonts(QPDF& qpdf) {
                    descendants.getArrayItem(0).isDictionary();
         auto target = cid ? descendants.getArrayItem(0) : font;
         auto targetDescriptor = target.getKey("/FontDescriptor");
-        bool hasProgram = (descriptor.isDictionary() &&
-                           (descriptor.hasKey("/FontFile") || descriptor.hasKey("/FontFile2") ||
-                            descriptor.hasKey("/FontFile3"))) ||
-                          (targetDescriptor.isDictionary() &&
-                           (targetDescriptor.hasKey("/FontFile") ||
-                            targetDescriptor.hasKey("/FontFile2") ||
-                            targetDescriptor.hasKey("/FontFile3")));
+        bool hasProgram =
+            (descriptor.isDictionary() &&
+             (descriptor.hasKey("/FontFile") || descriptor.hasKey("/FontFile2") ||
+              descriptor.hasKey("/FontFile3"))) ||
+            (targetDescriptor.isDictionary() &&
+             (targetDescriptor.hasKey("/FontFile") || targetDescriptor.hasKey("/FontFile2") ||
+              targetDescriptor.hasKey("/FontFile3")));
         std::string encodingName;
         if (encoding.isName()) {
             encodingName = encoding.getName();
@@ -1874,8 +1874,8 @@ std::string inspectFonts(QPDF& qpdf) {
         first = false;
         json += "{\"object\":\"";
         if (entry.objgen.getObj() != 0) {
-            json += std::to_string(entry.objgen.getObj()) + " " +
-                    std::to_string(entry.objgen.getGen());
+            json +=
+                std::to_string(entry.objgen.getObj()) + " " + std::to_string(entry.objgen.getGen());
         }
         json += "\",\"baseFont\":\"";
         json += jsonEscape(base.isName() ? stripPdfNamePrefix(base.getName()) : "");
@@ -1894,9 +1894,8 @@ std::string inspectFonts(QPDF& qpdf) {
         json += ",\"toUnicode\":";
         json += boolJson(font.hasKey("/ToUnicode"));
         json += ",\"cidToGid\":\"";
-        json += jsonEscape(cidToGid.empty() || cidToGid.front() != '/'
-                               ? cidToGid
-                               : stripPdfNamePrefix(cidToGid));
+        json += jsonEscape(
+            cidToGid.empty() || cidToGid.front() != '/' ? cidToGid : stripPdfNamePrefix(cidToGid));
         json += "\",\"pages\":\"";
         bool firstPage = true;
         for (int page : entry.pages) {
