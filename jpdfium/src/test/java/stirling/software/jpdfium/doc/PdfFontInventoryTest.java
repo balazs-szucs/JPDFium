@@ -88,6 +88,16 @@ class PdfFontInventoryTest {
     }
 
     @Test
+    void validUtf8FontNameBytesStayReversible() throws Exception {
+        Map<String, PdfFontAuditor.FontResource> fonts = byName(inventory("utf8-name-font.pdf"));
+
+        // The PDF name bytes are C3 A9, which are also valid UTF-8. The inventory
+        // must expose them as Latin-1 so the original bytes remain recoverable.
+        assertTrue(fonts.containsKey("Caf\u00c3\u00a9"), "name bytes were not preserved: "
+                + fonts.keySet());
+    }
+
+    @Test
     void inventoryUsesCurrentDocumentAfterInMemoryEdit() throws Exception {
         assumeTrue(PdfFontAuditor.inventoryAvailable(), "font inventory not in this native build");
         try (PdfDocument doc = PdfDocument.createEmpty()) {

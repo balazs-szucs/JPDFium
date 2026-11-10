@@ -1681,28 +1681,10 @@ EmbedFontsResult embedFonts(std::function<void(QPDF&)> const& load,
     }
 }
 
-bool validUtf8(std::string const& value) {
-    for (size_t i = 0; i < value.size();) {
-        unsigned char c = static_cast<unsigned char>(value[i]);
-        int extra = c < 0x80           ? 0
-                    : (c >> 5) == 0x6  ? 1
-                    : (c >> 4) == 0xE  ? 2
-                    : (c >> 3) == 0x1E ? 3
-                                       : -1;
-        if (extra < 0) return false;
-        if (i + extra >= value.size()) return false;
-        for (int j = 1; j <= extra; ++j)
-            if ((static_cast<unsigned char>(value[i + j]) >> 6) != 0x2) return false;
-        i += extra + 1;
-    }
-    return true;
-}
-
 // PDF names are byte strings. Legacy CJK producers put GBK/Shift-JIS bytes in
 // /BaseFont; re-encode those as Latin-1 so the JSON stays valid UTF-8 and the
 // original byte values remain recoverable in Java.
 std::string latin1ToUtf8(std::string const& raw) {
-    if (validUtf8(raw)) return raw;
     std::string utf8;
     utf8.reserve(raw.size() * 2);
     for (unsigned char c : raw) {
