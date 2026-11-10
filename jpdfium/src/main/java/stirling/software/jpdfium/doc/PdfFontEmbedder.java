@@ -619,8 +619,11 @@ public final class PdfFontEmbedder {
                 if (raw == null) {
                     throw new IOException("bundled font resource is missing: " + face.resource());
                 }
-                try (XZInputStream xz = new XZInputStream(raw, 32 * 1024 * 1024)) {
-                    data = xz.readAllBytes();
+                try (XZInputStream xz = new XZInputStream(raw, 96 * 1024)) {
+                    data = xz.readNBytes(32 * 1024 * 1024 + 1);
+                    if (data.length > 32 * 1024 * 1024) {
+                        throw new IOException("bundled font exceeds 32 MiB: " + face.resource());
+                    }
                 }
             }
             synchronized (PROGRAMS) {
