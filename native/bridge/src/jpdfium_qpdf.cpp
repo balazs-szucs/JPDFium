@@ -231,14 +231,14 @@ void clampTilingPatternStep(QPDFObjectHandle pattern) {
     for (char const* key : {"/XStep", "/YStep"}) {
         QPDFObjectHandle value = dict.getKey(key);
         double step = value.isNumber() ? value.getNumericValue() : 1.0;
-        if (!std::isfinite(step) || step == 0.0) {
+        if (!std::isfinite(step) || std::fabs(step) < 1e-12) {
             step = 1.0;
         } else if (std::fabs(step) < 1.0) {
             step = std::copysign(1.0, step);
         } else if (std::fabs(step) > 32767.0) {
             step = std::copysign(32767.0, step);
         }
-        if (!value.isNumber() || value.getNumericValue() != step)
+        if (!value.isNumber() || std::fabs(value.getNumericValue() - step) > 1e-9)
             dict.replaceKey(key, QPDFObjectHandle::newReal(step, 4));
     }
 }
