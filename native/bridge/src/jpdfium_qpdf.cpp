@@ -224,23 +224,22 @@ int subsetEmbeddedFonts(QPDF& qpdf);
 // the renderer's tile raster dimensions. Clamp to the positive range that PDF
 // rasterisers accept.
 void clampTilingPatternStep(QPDFObjectHandle pattern) {
-    if (!pattern.isDictionary()) return;
-    QPDFObjectHandle type = pattern.getKey("/PatternType");
+    if (!pattern.isDictionary() && !pattern.isStream()) return;
+    QPDFObjectHandle dict = pattern.isStream() ? pattern.getDict() : pattern;
+    QPDFObjectHandle type = dict.getKey("/PatternType");
     if (!type.isInteger() || type.getIntValueAsInt() != 1) return;
     for (char const* key : {"/XStep", "/YStep"}) {
-        QPDFObjectHandle value = pattern.getKey(key);
-        auto needsClamp = [](double candidate) {
-            return !std::isfinite(candidate) || candidate <= 0.0 || candidate > 32767.0;
-        };
+        QPDFObjectHandle value = dict.getKey(key);
         double step = value.isNumber() ? value.getNumericValue() : 1.0;
-        if (!value.isNumber() || needsClamp(step)) {
-            if (!std::isfinite(step) || step <= 0.0) {
-                step = 1.0;
-            } else if (step > 32767.0) {
-                step = 32767.0;
-            }
-            pattern.replaceKey(key, QPDFObjectHandle::newReal(step, 4));
+        if (!std::isfinite(step) || step == 0.0) {
+            step = 1.0;
+        } else if (std::fabs(step) < 1.0) {
+            step = std::copysign(1.0, step);
+        } else if (std::fabs(step) > 32767.0) {
+            step = std::copysign(32767.0, step);
         }
+        if (!value.isNumber() || value.getNumericValue() != step)
+            dict.replaceKey(key, QPDFObjectHandle::newReal(step, 4));
     }
 }
 
