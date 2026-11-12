@@ -3004,14 +3004,16 @@ EmbedFontsResult embedFonts(std::function<void(QPDF&)> const& load,
             bool isSymbolName = (targetName == "Symbol" || targetName == "ZapfDingbats" ||
                                  targetName.find("Symbol") != std::string::npos ||
                                  targetName.find("Dingbats") != std::string::npos);
-            bool symbolic = !hasEncoding && (isSymbolName || (flags.isInteger() && (flags.getIntValue() & 4) != 0));
+            bool symbolic = !hasEncoding &&
+                            (isSymbolName || (flags.isInteger() && (flags.getIntValue() & 4) != 0));
             target.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
             if (cid) font.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
             if (!descriptor.isDictionary()) {
                 descriptor = newDescriptor(*qpdf, target, program.face, symbolic);
                 target.replaceKey("/FontDescriptor", descriptor);
             }
-            if (descriptor.isDictionary() && descriptor.hasKey("/Flags") && descriptor.getKey("/Flags").isInteger()) {
+            if (descriptor.isDictionary() && descriptor.hasKey("/Flags") &&
+                descriptor.getKey("/Flags").isInteger()) {
                 long long f = descriptor.getKey("/Flags").getIntValue();
                 if (symbolic) {
                     f = (f | 4) & ~32;
