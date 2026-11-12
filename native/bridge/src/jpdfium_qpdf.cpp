@@ -3706,13 +3706,13 @@ EmbedFontsResult embedFonts(std::function<void(QPDF&)> const& load,
                     auto scan = usedCidsForFont(*qpdf, font, CidEncoding::Rksj);
                     usedCids = scan.cids;
                     if (!scan.complete || usedCids.empty()) continue;
-                    for (uint32_t cid : usedCids) {
+                    for (uint32_t c : usedCids) {
                         uint32_t unicode = 0;
-                        if (!japan1UnicodeForCid(cid, unicode)) {
+                        if (!japan1UnicodeForCid(c, unicode)) {
                             cidUnicode.clear();
                             break;
                         }
-                        cidUnicode[cid] = unicode;
+                        cidUnicode[c] = unicode;
                     }
                     if (cidUnicode.empty() ||
                         !coversWidthCids(target, cidUnicode, usedCids, scan.complete))
