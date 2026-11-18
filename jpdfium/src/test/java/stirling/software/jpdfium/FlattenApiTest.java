@@ -96,4 +96,37 @@ class FlattenApiTest {
             assertDoesNotThrow(() -> PageOps.flattenAll(doc, FlattenMode.FULL, 100));
         }
     }
+
+    @Test
+    void fullFlattenStripsFormsOutlinesAndAttachments() {
+        byte[] out72;
+        try (PdfDocument doc = PdfDocument.open(MINIMAL_PDF)) {
+            doc.flatten(FlattenMode.FULL, 72);
+            out72 = doc.saveBytes();
+        }
+        String raw = new String(out72, java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertFalse(raw.contains("/AcroForm"), "Flattened PDF must not contain /AcroForm");
+        try (PdfDocument reopened = PdfDocument.open(out72)) {
+            assertTrue(reopened.bookmarks().isEmpty(), "Flattened PDF must have no bookmarks");
+            assertTrue(reopened.attachments().isEmpty(), "Flattened PDF must have no attachments");
+        }
+    }
+
+    @Test
+    void fullFlattenUsesJpegAndScalesWithDpi() {
+        byte[] out72;
+        byte[] out150;
+        try (PdfDocument doc = PdfDocument.open(MINIMAL_PDF)) {
+            doc.flatten(FlattenMode.FULL, 72);
+            out72 = doc.saveBytes();
+        }
+        try (PdfDocument doc = PdfDocument.open(MINIMAL_PDF)) {
+            doc.flatten(FlattenMode.FULL, 150);
+            out150 = doc.saveBytes();
+        }
+        String raw72 = new String(out72, java.nio.charset.StandardCharsets.ISO_8859_1);
+        assertTrue(raw72.contains("/DCTDecode"), "Flattened PDF should embed JPEG (/DCTDecode)");
+        assertTrue(out72.length <= out150.length,
+                "72 DPI (" + out72.length + " B) should not exceed 150 DPI (" + out150.length + " B)");
+    }
 }

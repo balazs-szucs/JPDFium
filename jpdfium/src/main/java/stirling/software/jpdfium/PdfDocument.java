@@ -1057,8 +1057,57 @@ public final class PdfDocument implements AutoCloseable {
                     }
                     markContentModified();
                 }
-                case FULL -> convertPageToImage(i, dpi);
+                case FULL -> {
+                    if (dpi <= 0) throw new IllegalArgumentException("dpi must be > 0");
+                    byte[] jpegBytes;
+                    float wPt;
+                    float hPt;
+                    try (PdfPage p = page(i)) {
+                        var sz = p.size();
+                        wPt = sz.width();
+                        hPt = sz.height();
+                        java.awt.image.BufferedImage img = p.renderAt(dpi).toBufferedImage();
+                        jpegBytes = encodeJpeg(img, 0.85f);
+                    }
+                    JpdfiumLib.pageReplaceWithJpeg(handle, i, jpegBytes, wPt, hPt);
+                    invalidateOpenPages();
+                    markContentModified();
+                }
             }
+        }
+        if (mode == FlattenMode.FULL) {
+            JpdfiumLib.docRebuildClean(handle);
+            invalidateOpenPages();
+            markContentModified();
+        }
+    }
+
+    private static byte[] encodeJpeg(java.awt.image.BufferedImage image, float quality) {
+        try {
+            java.awt.image.BufferedImage rgb = new java.awt.image.BufferedImage(
+                    image.getWidth(), image.getHeight(), java.awt.image.BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = rgb.createGraphics();
+            try {
+                g.setColor(java.awt.Color.WHITE);
+                g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+                g.drawImage(image, 0, 0, null);
+            } finally {
+                g.dispose();
+            }
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageWriter writer = javax.imageio.ImageIO.getImageWritersByFormatName("jpeg").next();
+            try (javax.imageio.stream.ImageOutputStream ios = javax.imageio.ImageIO.createImageOutputStream(baos)) {
+                writer.setOutput(ios);
+                javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
+                param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
+                param.setCompressionQuality(quality);
+                writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+            } finally {
+                writer.dispose();
+            }
+            return baos.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("Failed to encode flattened page as JPEG", e);
         }
     }
 

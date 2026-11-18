@@ -232,6 +232,10 @@ JPDFIUM_EXPORT int32_t jpdfium_redact_words_ex(int64_t page, const char** words,
                                                int32_t* matchCount) JPDFIUM_NOEXCEPT;
 JPDFIUM_EXPORT int32_t jpdfium_page_flatten(int64_t page) JPDFIUM_NOEXCEPT;
 JPDFIUM_EXPORT int32_t jpdfium_page_to_image(int64_t doc, int32_t pageIndex, int32_t dpi);
+JPDFIUM_EXPORT int32_t jpdfium_doc_rebuild_clean(int64_t doc) JPDFIUM_NOEXCEPT;
+JPDFIUM_EXPORT int32_t jpdfium_page_replace_with_jpeg(int64_t doc, int32_t pageIndex,
+                                                      const uint8_t* jpegData, int64_t jpegLen,
+                                                      float wPt, float hPt) JPDFIUM_NOEXCEPT;
 
 // Returns JSON: [{"i":0,"ox":10.1,"oy":20.2,"l":10.0,"r":18.0,"b":15.0,"t":27.0}, ...]
 JPDFIUM_EXPORT int32_t jpdfium_text_get_char_positions(int64_t page, char** json);

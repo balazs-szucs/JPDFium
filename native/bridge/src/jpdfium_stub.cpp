@@ -897,6 +897,13 @@ int32_t jpdfium_page_flatten(int64_t page) noexcept {
 int32_t jpdfium_page_to_image(int64_t, int32_t, int32_t) {
     return JPDFIUM_OK;
 }
+int32_t jpdfium_doc_rebuild_clean(int64_t) JPDFIUM_NOEXCEPT {
+    return JPDFIUM_OK;
+}
+int32_t jpdfium_page_replace_with_jpeg(int64_t, int32_t, const uint8_t*, int64_t, float,
+                                       float) JPDFIUM_NOEXCEPT {
+    return JPDFIUM_OK;
+}
 
 int32_t jpdfium_text_get_char_positions(int64_t page, char** json) {
     g_page_text[page] = STUB_TEXT;
